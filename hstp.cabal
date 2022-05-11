@@ -51,16 +51,20 @@ library
   -- exposed-modules:
 
   -- Modules included in this library but not exported.
-  other-modules: Types, Basic, PP, Parse, Elab, Check
+  other-modules: Types, Basic, PP, Parse, BT, Check, App, Sat
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
 
   -- Other library packages from which modules are imported.
   build-depends:    
-    base >=4.12 && <4.13,
-    unordered-containers,
+    base >=4.12 && <5,
+    -- unordered-containers,
+    hashmap,
     containers,
+    hashable,
+    process,
+    Unique,
     text
 
   -- Directories containing source files.
@@ -75,15 +79,16 @@ executable hstp
   main-is:             Main.hs
 
   -- Modules included in this executable, other than Main.
-  other-modules: Types, Basic, PP, Parse, Elab, Check
+  other-modules: Types, Basic, PP, Parse, BT, Check, App, Sat
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
 
   -- Other library packages from which modules are imported.
   build-depends: 
-    base >=4.12 && <4.13,
-    unordered-containers,
+    base >=4.12 && < 5, 
+    -- unordered-containers,
+    hashmap,
     hashable,
     containers,
     text,

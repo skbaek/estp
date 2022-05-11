@@ -2,7 +2,7 @@ module Types where
 
 import Data.Text (Text)
 import Data.List as L
-import Data.HashMap.Lazy as HM ( HashMap, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
+import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Data.Functor ((<&>))
@@ -26,10 +26,20 @@ data Form =
   | Ex [Text] Form
   deriving (Show, Eq, Ord)
 
+(<=>) :: Form -> Form -> Form
+(<=>) = Iff
+
+(==>) :: Form -> Form -> Form
+(==>) = Imp
+
+(===) :: Term -> Term -> Form
+(===) = Eq
+
 data Prf =
     Ax Form
   | EqR Term
-  | EqSL Term Term Prf
+  | EqS Term Term
+  | EqT Term Term Term
   | EqC (Term, Term, Prf) (Term, Term, Prf)
   | FunC Text [(Term, Term, Prf)]
   | RelC Text [(Term, Term, Prf)]
@@ -50,12 +60,14 @@ data Prf =
   | ExL [Text] Int Form Prf
   | ExR [(Text, Term)] Form Prf
   | Cut Form Prf Prf
+  | Sorry
   deriving (Show)
 
 data Prf_ =
     Ax_ Form
   | EqR_ Term
-  | EqSL_ Term Term Int
+  | EqS_ Term Term 
+  | EqT_ Term Term Term
   | EqC_ EqGoal EqGoal
   | FunC_ Text [EqGoal]
   | RelC_ Text [EqGoal]
@@ -76,6 +88,7 @@ data Prf_ =
   | ExL_ [Text] Int Form Int
   | ExR_ [(Text, Term)] Form Int
   | Cut_ Form Int Int
+  | Sorry_
 
 type EqGoal = (Term, Term, Int)
 type PrvGoal = (Form, Form, Int)
@@ -108,12 +121,29 @@ data AnForm = Af Text Form (Maybe Gterm)
 type Prob = [Input]
 
 data JMode = Conj | Disj
-data Dir = Lft | Rgt
+data Dir = 
+  Obv | Rev
+  deriving (Show, Eq)
 data CMode = Mono | Bi
 
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
 
-type NSeq = HashMap Text Form
+type NSeq = Map Text Form
 type Seq = Set Form
 type Hyps = (NSeq, Seq)
+type Bnd = Map Int Term
+type Prfs = Map Int Prf_
+
+data Ctx = Ctx {fresh :: Int, binding :: Bnd, proofs :: Prfs}
+
+data Sst = Sst {flits :: [Form], glits :: [Form], eqns :: [(Term, Term)], sbnd :: Bnd}
+
+data InstMode = Same | Perm
+  deriving (Eq)
+
+data UniMode = Lax | Pars | ParFvs | Exact
+  deriving (Eq)
+
+data BndMode = Mid | End
+  deriving (Eq)

@@ -3,12 +3,13 @@
 module PP where
 
 import Data.List as L
-import Data.Text as T ( concat, intercalate, Text )
+import Data.Text as T ( concat, intercalate, pack, Text )
 import qualified Data.Text.Lazy as TL (toStrict, intercalate)
 import Data.Text.Lazy.Builder as B 
 import qualified Data.Text.Lazy.Builder.Int as B
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Text.Printf
+import Data.Map as HM 
 
 import Types
 
@@ -87,9 +88,32 @@ ppPrvGoal (f, g, _) = ppForm f <> " |- " <> ppForm g
 
 ppAnForm :: AnForm -> String
 ppAnForm (Af n f a) = printf "%s :: %s :: %s" n (ppForm f) (ppAnt a)
--- 
--- ppEq :: (Term, Term) -> Text
--- ppEq (x, y) = ppForm (Eq x y)
 
+ppEq :: (Term, Term) -> Text
+ppEq (x, y) = ppForm (Eq x y)
+
+ppEqGoal :: EqGoal -> Text
+ppEqGoal (x, y, _) = ppForm (Eq x y)
 -- ppProb :: Prob -> String
 -- ppProb ips = L.intercalate "\n" (L.map ppInput ips)
+
+ppBnd :: Bnd -> Text
+ppBnd b = ppList (\ (k, x) -> "$" <> ppInt k <> " |-> " <> ppTerm x) (HM.toList b)
+
+pad :: Text -> Text
+pad t = "  " <> t
+
+ppProof :: Prf -> Text
+ppProof p = T.intercalate "\n" $ ppPrf p
+
+ppPrf :: Prf -> [Text]
+ppPrf (Ax f) = ["Ax : " <> ppForm f]
+ppPrf (NotL f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf p)
+ppPrf (NotR f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf p)
+ppPrf (Cut f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf p0 ++ ppPrf p1) 
+ppPrf (IffR f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf p0 ++ ppPrf p1) 
+ppPrf (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf p) 
+ppPrf (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf p) 
+ppPrf (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf p0 ++ ppPrf p1) 
+ppPrf (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf p) 
+ppPrf x = [T.pack $ show x]
