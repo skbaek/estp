@@ -81,7 +81,7 @@ verify k lft rgt (ImpRC f g p) = do
   guard (S.member (Imp f g) rgt) <|> error "ImpRC-fail"
   verify k lft (S.insert g rgt) p
 verify k lft rgt (IffR f g p q) = do
-  guard (S.member (Iff f g) rgt) <|> error "IffR-fail"
+  guard (S.member (Iff f g) rgt) <|> error ("IffR-fail : " ++ unpack (ppForm (Iff f g)))
   verify k lft (S.insert (Imp f g) rgt) p
   verify k lft (S.insert (Imp g f) rgt) q
 verify k lft rgt (IffLO f g p) = do 

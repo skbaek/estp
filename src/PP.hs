@@ -103,17 +103,18 @@ ppBnd b = ppList (\ (k, x) -> "$" <> ppInt k <> " |-> " <> ppTerm x) (HM.toList 
 pad :: Text -> Text
 pad t = "  " <> t
 
-ppProof :: Prf -> Text
-ppProof p = T.intercalate "\n" $ ppPrf p
+ppProof :: Int -> Prf -> Text
+ppProof k p = T.intercalate "\n" $ ppPrf k p
 
-ppPrf :: Prf -> [Text]
-ppPrf (Ax f) = ["Ax : " <> ppForm f]
-ppPrf (NotL f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf p)
-ppPrf (NotR f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf p)
-ppPrf (Cut f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf p0 ++ ppPrf p1) 
-ppPrf (IffR f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf p0 ++ ppPrf p1) 
-ppPrf (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf p) 
-ppPrf (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf p) 
-ppPrf (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf p0 ++ ppPrf p1) 
-ppPrf (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf p) 
-ppPrf x = [T.pack $ show x]
+ppPrf :: Int -> Prf -> [Text]
+ppPrf 0 _ = ["..."]
+ppPrf k (Ax f) = ["Ax : " <> ppForm f]
+ppPrf k (NotL f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (NotR f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (Cut f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1) 
+ppPrf k (IffR f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1) 
+ppPrf k (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p) 
+ppPrf k (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p) 
+ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1) 
+ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p) 
+ppPrf _ _ = ["?"]

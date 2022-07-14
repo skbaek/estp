@@ -63,6 +63,9 @@ uniFv Lax b k x =
   do guard $ not $ hasFv k x'
      return $ HM.insert k x' b'
 
+uniTerm' :: UniMode -> Bnd -> (Term, Term) -> Maybe Bnd
+-- uniTerm' um bnd (x, y) = trace ("Unifying " ++ show x ++ " with " ++ show y) (uniTerm um bnd (x, y))
+uniTerm' um bnd (x, y) = uniTerm um bnd (x, y)
 
 uniTerm :: UniMode -> Bnd -> (Term, Term) -> Maybe Bnd
 uniTerm s b (Bv v, Bv w)   = guard (v == w) >> return b
@@ -70,21 +73,21 @@ uniTerm s b (Par k, Par m) = guard (k == m) >> return b
 uniTerm s b (Fun f xs, Fun g ys) = do
   xys <- zipM xs ys
   guard $ f == g
-  foldM (uniTerm s) b xys
+  foldM (uniTerm' s) b xys
 uniTerm s b (x, y) =
   if x == y
   then return b
   else
     case (breakFvLookup x b, breakFvLookup y b, x, y) of
-       (Just x', _, _, _) -> uniTerm s b (x', y)
-       (_, Just y', _, _) -> uniTerm s b (x, y')
+       (Just x', _, _, _) -> uniTerm' s b (x', y)
+       (_, Just y', _, _) -> uniTerm' s b (x, y')
        (_, _, Fv k, _) -> uniFv s b k y
        (_, _, _, Fv m) -> uniFv s b m x
        (_, _, _, _) -> nt
 
 uniForm :: UniMode -> Bnd -> (Form, Form) -> Maybe Bnd
-uniForm s b (Eq x0 x1, Eq y0 y1) = foldM (uniTerm s) b [(x0, y0), (x1, y1)]
-uniForm s b (Rel p xs, Rel q ys) = guard (p == q) >> zipM xs ys >>= foldM (uniTerm s) b
+uniForm s b (Eq x0 x1, Eq y0 y1) = foldM (uniTerm' s) b [(x0, y0), (x1, y1)]
+uniForm s b (Rel p xs, Rel q ys) = guard (p == q) >> zipM xs ys >>= foldM (uniTerm' s) b
 uniForm s b (Not f, Not g) = uniForm s b (f, g)
 uniForm s b (And fs, And gs) = zipM fs gs >>= foldM (uniForm s) b
 uniForm s b (Or fs,  Or gs)  = zipM fs gs >>= foldM (uniForm s) b
@@ -360,14 +363,14 @@ appImpTrans (Imp f g) (Imp g' h) (Imp f' h') k0 c0 = do
   appAx Exact (h, h', n1) c6
 appImpTrans _ _ _ _ _ = mzero
 
-appIffSym :: Form -> Form -> Int -> Ctx -> Maybe Ctx
-appIffSym (Iff f g) (Iff g' f') k c0 = do 
+appIffSym :: UniMode -> Form -> Form -> Int -> Ctx -> Maybe Ctx
+appIffSym um (Iff f g) (Iff g' f') k c0 = do 
   ((_, m), (_, n), c1) <- appIffR (Iff g' f', k) c0  -- k1 : |- g' ==> f' // m0 : |- f' ==> g'
   ((_, n'), c2) <- appIffLO (Iff f g, n) c1
-  c3 <- appAx Exact (f ==> g, f' ==> g', n') c2
+  c3 <- appAx um (f ==> g, f' ==> g', n') c2
   ((_, m'), c4) <- appIffLR (Iff f g, m) c3
-  appAx Exact (g ==> f, g' ==> f', m') c4
-appIffSym _ _ _ _ = mzero
+  appAx um (g ==> f, g' ==> f', m') c4
+appIffSym _ _ _ _ _ = mzero
 
 appIffTrans :: Form -> Form -> Form -> Int -> Ctx -> Maybe Ctx
 appIffTrans (Iff f g) (Iff g' h) (Iff f' h') k0 c0 = do 
@@ -398,7 +401,7 @@ appContra :: PrvGoal -> Ctx -> Maybe Ctx
 appContra (fg, ngnf, k) c = do
   ((f, m0), (g, n0), c0) <- appImpL (fg, k) c
   ((f', m1), c1) <- appImpRC (ngnf, m0) c0 >>= uncurry appNotR
-  trace ("\nobtained : " ++ show f' ++ "\n") (return ())
+  -- trace ("\nobtained : " ++ show f' ++ "\n") (return ())
   c2 <- appAx Exact (f', f, m1) c1
   ((g', n1), c3) <- appImpRA (ngnf, n0) c2 >>= uncurry appNotL
   appAx Exact (g, g', n1) c3
