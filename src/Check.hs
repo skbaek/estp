@@ -25,7 +25,7 @@ verifyLftGoal :: Int -> Seq -> Seq -> (Form, Prf) -> IO ()
 verifyLftGoal k lft rgt (f, p) = verify k (S.insert f lft) rgt p
 
 verify :: Int -> Seq -> Seq -> Prf -> IO ()
-verify _ _ _ Sorry = return ()
+verify _ _ _ Asm = return ()
 verify _ lft rgt (Ax f) = do
   let rhs_text = ppListNl ppForm (S.toList rgt)
   guard (S.member f lft) <|> error "Ax-fail-1"
@@ -92,7 +92,7 @@ verify k lft rgt (IffLR f g p) = do
   verify k (S.insert (Imp g f) lft) rgt p
 verify k lft rgt (FaL vxs f p) = do
   let vs = map fst vxs 
-  guard (S.member (Fa vs f) lft) <|> error "FaL-fail"
+  guard (S.member (Fa vs f) lft) <|> error ("FaL-fail : " ++ unpack (ppForm $ Fa vs f))
   verify k (S.insert (substForm vxs f) lft) rgt p
 verify k lft rgt (FaR vs m f p) = do
   let (k', xs) = listPars m vs 

@@ -5,11 +5,11 @@ module PP where
 import Data.List as L
 import Data.Text as T ( concat, intercalate, pack, Text )
 import qualified Data.Text.Lazy as TL (toStrict, intercalate)
-import Data.Text.Lazy.Builder as B 
+import Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Text.Printf
-import Data.Map as HM 
+import Data.Map as HM
 
 import Types
 
@@ -111,10 +111,68 @@ ppPrf 0 _ = ["..."]
 ppPrf k (Ax f) = ["Ax : " <> ppForm f]
 ppPrf k (NotL f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (NotR f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (Cut f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1) 
-ppPrf k (IffR f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1) 
-ppPrf k (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p) 
-ppPrf k (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p) 
-ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1) 
-ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p) 
+ppPrf k (Cut f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
+ppPrf k (IffR f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
+ppPrf k (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
+ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf _ _ = ["?"]
+
+ppPr' :: Pr -> [Text]
+ppPr' (Open f g) = [ppForm f <> " <-|-> " <> ppForm g]
+ppPr' (ExP vs f ws g p) =
+  [
+    "ExP:",
+    "  f = " <> ppForm (Fa vs f),
+    "  g = " <> ppForm (Fa ws g)
+  ] ++ L.map pad (ppPr' p)
+ppPr' (FaP vs f ws g p) =
+  [
+    "FaP:",
+    "  f = " <> ppForm (Fa vs f),
+    "  g = " <> ppForm (Fa ws g)
+  ] ++ L.map pad (ppPr' p)
+ppPr' (NotP p) = "NotP :" : L.map pad (ppPr' p)
+ppPr' (Clos fd _) = "Clos : " : L.map pad (ppFD' fd)
+ppPr' (EqP Obv xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yl yr)]
+ppPr' (EqP Rev xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yr yl)]
+ppPr' (ImpP pl pr) = "ImpP :" : L.map pad (ppPr' pl ++ ppPr' pr)
+ppPr' (IffP pl pr) = "IffP :" : L.map pad (ppPr' pl ++ ppPr' pr)
+ppPr' (OrP fs gs pgs) =
+  [
+    "OrP :",
+    "  fs : " <> ppForms fs,
+    "  gs : " <> ppForms gs
+  ] ++ L.map pad (concatMap (ppPr' . fst) pgs)
+ppPr' AndP {} = ["AndP?"]
+ppPr' (TransP pl g pr) = "TransP" : L.map pad (ppPr' pl ++ ["Mid : " <> ppForm g] ++ ppPr' pr)
+
+ppPr :: Pr -> Text
+ppPr pr = T.intercalate "\n" $ ppPr' pr
+
+ppFD :: FD -> Text
+ppFD fd = T.intercalate "\n" $ ppFD' fd
+
+ppFD' :: FD -> [Text]
+ppFD' AxFD = ["Ax"]
+ppFD' (RWFD Obv f) = ["====> " <> ppForm f]
+ppFD' (RWFD Rev f) = ["<==== " <> ppForm f]
+ppFD' (NotFD fd) = "NotFD : " : L.map pad (ppFD' fd)
+ppFD' (TransFD fdl f fdr) = 
+  "TransFD : " : L.map pad (ppFD' fdl ++ ["Mid : " <> ppForm f] ++ ppFD' fdr)
+ppFD' (AndFD fds) = "AndFD:" : L.map pad (L.concatMap ppFD' fds)
+ppFD' (OrFD fds) = "OrFD:" : L.map pad (L.concatMap ppFD' fds)
+ppFD' (ImpFD fdl fdr) = "ImpFD : " : L.map pad (ppFD' fdl ++ ppFD' fdr)
+ppFD' (IffFD fdl fdr) = "IffFD : " : L.map pad (ppFD' fdl ++ ppFD' fdr)
+ppFD' (RelFD _) = ["?"]
+ppFD' (EqFD _ _) = ["?"]
+ppFD' PermFD = ["PermFD"]
+ppFD' WrapFD = ["WrapFD"]
+ppFD' DropFD = ["DropFD"]
+-- ppFD' SymFD = ["SymFD"]
+ppFD' ConstFD = ["ConstFD?"]
+ppFD' (FaFD vs p) = "FaFD :" : L.map pad (ppFD' p)
+ppFD' (ExFD _ _) = ["ExFD?"]
+ppFD' DNFD = ["DNFD"]
+ppFD' AlphaFD = ["AlphaFD"]

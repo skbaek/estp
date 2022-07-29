@@ -62,6 +62,11 @@ zipM [] [] = return []
 zipM (x : xs) (y : ys) = zipM xs ys <&> ((x, y) :)
 zipM xs ys = A.empty
 
+zip3M :: (Monad m, Alternative m) => [a] -> [b] -> [c] -> m [(a, b, c)]
+zip3M [] [] [] = return []
+zip3M (x : xs) (y : ys) (z : zs) = zip3M xs ys zs <&> ((x, y, z) :)
+zip3M _ _ _ = A.empty
+
 lookupM :: (Eq a, Ord a, MonadFail m) => a -> Map a b -> m b
 lookupM x h =
   case HM.lookup x h of

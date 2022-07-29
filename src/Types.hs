@@ -60,7 +60,7 @@ data Prf =
   | ExL [Text] Int Form Prf
   | ExR [(Text, Term)] Form Prf
   | Cut Form Prf Prf
-  | Sorry
+  | Asm
   deriving (Show)
 
 data Prf_ =
@@ -147,3 +147,58 @@ data UniMode = Lax | Pars | ParFvs | Exact
 
 data BndMode = Mid | End
   deriving (Eq)
+
+data FD =
+    AxFD
+  | NotFD FD
+  | RWFD Dir Form
+  | AndFD [FD]
+  | OrFD [FD]
+  | IffFD FD FD
+  | ImpFD FD FD
+  | RelFD [TD]
+  | EqFD TD TD
+  | PermFD
+  | WrapFD
+  | DropFD
+  -- | SymFD
+  | ConstFD
+  | FaFD [Text] FD
+  | ExFD [Text] FD
+  | TransFD FD Form FD
+  | AlphaFD 
+  | DNFD
+  deriving (Show)
+
+data TD =
+    Refl
+  | FunTD [TD]
+  | RW Dir Form
+  | TransTD TD Term TD
+  deriving (Show)
+
+type Bij a b = (HM.Map a b, HM.Map b a)
+
+type VM = Bij Text Text
+
+data JP =
+    Waiting Form
+  | Building Pr Form
+  | Merged Pr Form
+  deriving Show
+
+data Pr =
+    Open Form Form
+  | Clos FD VM
+  | EqP Dir Term Term Term Term
+  | NotP Pr
+  | ImpP Pr Pr
+  | IffP Pr Pr
+  | FaP [Text] Form [Text] Form Pr
+  | ExP [Text] Form [Text] Form Pr
+  | OrP [JP]
+  | AndP [JP]
+  -- | OrP [Form] [Form] [(Pr, Form)]
+  -- | AndP [Form] [Form] [(Pr, Form)]
+  | TransP Pr Form Pr
+  deriving Show
