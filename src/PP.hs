@@ -23,6 +23,12 @@ ppInt = TL.toStrict . B.toLazyText . B.decimal
 ppMapping :: (Text, Term) -> Text
 ppMapping (t, x) = t <> " |-> " <> ppTerm x
 
+ppVmap :: (Text, Text) -> Text
+ppVmap (v, w) = v <> " |-> " <> w
+
+ppVM :: VM -> Text
+ppVM vm = T.intercalate ", " $ L.map ppVmap $ HM.toList (fst vm)
+
 ppList :: (a -> Text) -> [a] -> Text
 ppList f xs = "[" <> T.intercalate ", " (L.map f xs) <> "]"
 
@@ -134,19 +140,19 @@ ppPr' (FaP vs f ws g p) =
     "  g = " <> ppForm (Fa ws g)
   ] ++ L.map pad (ppPr' p)
 ppPr' (NotP p) = "NotP :" : L.map pad (ppPr' p)
-ppPr' (Clos fd _) = "Clos : " : L.map pad (ppFD' fd)
+ppPr' (Clos fd vm) = "Clos : " : ppVM vm : L.map pad (ppFD' fd)
 ppPr' (EqP Obv xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yl yr)]
 ppPr' (EqP Rev xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yr yl)]
 ppPr' (ImpP pl pr) = "ImpP :" : L.map pad (ppPr' pl ++ ppPr' pr)
 ppPr' (IffP pl pr) = "IffP :" : L.map pad (ppPr' pl ++ ppPr' pr)
-ppPr' (OrP fs gs pgs) =
-  [
-    "OrP :",
-    "  fs : " <> ppForms fs,
-    "  gs : " <> ppForms gs
-  ] ++ L.map pad (concatMap (ppPr' . fst) pgs)
+ppPr' (OrP jps gs vm) = "OrP :" : ppVM vm : L.map pad (L.concatMap ppJP' jps ++ L.map ppForm gs)
 ppPr' AndP {} = ["AndP?"]
 ppPr' (TransP pl g pr) = "TransP" : L.map pad (ppPr' pl ++ ["Mid : " <> ppForm g] ++ ppPr' pr)
+
+ppJP' :: JP -> [Text]
+ppJP' (Waiting f) = ["W :" <> ppForm f]
+ppJP' (Building p g) = "B : " <> ppForm g : L.map pad (ppPr' p)
+ppJP' (Merged fd g) = "M : " <> ppForm g : L.map pad (ppFD' fd)
 
 ppPr :: Pr -> Text
 ppPr pr = T.intercalate "\n" $ ppPr' pr

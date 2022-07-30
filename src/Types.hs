@@ -184,7 +184,7 @@ type VM = Bij Text Text
 data JP =
     Waiting Form
   | Building Pr Form
-  | Merged Pr Form
+  | Merged FD Form
   deriving Show
 
 data Pr =
@@ -196,8 +196,8 @@ data Pr =
   | IffP Pr Pr
   | FaP [Text] Form [Text] Form Pr
   | ExP [Text] Form [Text] Form Pr
-  | OrP [JP]
-  | AndP [JP]
+  | OrP [JP] [Form] VM
+  | AndP [JP] [Form] VM
   -- | OrP [Form] [Form] [(Pr, Form)]
   -- | AndP [Form] [Form] [(Pr, Form)]
   | TransP Pr Form Pr

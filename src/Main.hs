@@ -36,6 +36,7 @@ import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toLis
 -- import Data.List.Unique (sortUniq)
 import Debug.Trace (trace)
 import Data.Maybe as MB ( isNothing )
+import qualified Data.Bifunctor as DBF
 import qualified System.Posix.Internals as Prelude
 -- import qualified System.Posix.Internals as Prelude
 -- import qualified Text.XHtml as HM
@@ -170,7 +171,7 @@ appConc (g, k) c =
     (_, Just (_, gl', c'), _) -> appConc gl' c'
     (_, _, Just (gs, k', c')) -> appConcs gs k' c'
     _ -> return ([g], k, c)
-    
+
 
 -- origAnd :: [Form] -> [Goal] -> Ctx -> BT Ctx
 -- origAnd [] [] c = return c
@@ -292,15 +293,15 @@ tryDelsBij :: (Ord k, Ord v) => [k] -> Bij k v -> Bij k v
 tryDelsBij ks kv = L.foldl (flip tryDelBij) kv ks
 
 prn :: Int -> (Form, Form) -> IO Prf
-prn k (f, g) = 
-  if f == g 
+prn k (f, g) =
+  if f == g
   then return $ Ax f
   else prnRec k (f, g)
 
 prnRec :: Int -> (Form, Form) -> IO Prf
-prnRec k (Not f, Not g) = do 
+prnRec k (Not f, Not g) = do
   p <- prn k (g, f)
-  return $ notLR f g p 
+  return $ notLR f g p
 prnRec k (Or fs, Or gs) = do
   fgs <- zipM fs gs
   ps <- mapM (prn k) fgs
@@ -308,7 +309,7 @@ prnRec k (Or fs, Or gs) = do
   return $ OrR gs gs $ OrL fps
 prnRec k (And fs, And gs) = do
   fgs <- zipM fs gs
-  ps <- mapM (prn k) fgs 
+  ps <- mapM (prn k) fgs
   gps <- zipM gs ps
   return $ AndL fs fs $ AndR gps
 
@@ -324,7 +325,7 @@ prnRec k (Iff fl fr, Iff gl gr) = do
   prl <- prn k (fl, gl) -- prl : fl |- gl
   let po = IffLO fl fr $ ImpL fl fr pol por -- po : gl |- gr
   let pr = IffLR fl fr $ ImpL fr fl prr prl -- pr : gr |- gl
-  return $ IffR gl gr (impR gl gr po) (impR gr gl pr) 
+  return $ IffR gl gr (impR gl gr po) (impR gr gl pr)
 
 prnRec k (Fa vs f, Fa ws g) = do
   let (k', xs) = listPars k ws
@@ -521,6 +522,11 @@ enrich m@(vw, _) vs ws = do
 mergeBij :: (Ord a, Ord b) => Bij a b -> Bij a b -> Maybe (Bij a b)
 mergeBij m n = foldM (\ n_ (x_, y_) -> addBij x_ y_ n_) n (HM.toList $ fst m)
 
+foej :: JP -> Maybe ()
+foej (Waiting _) = return ()
+foej (Building p _) = foe p
+foej (Merged _ _) = return ()
+
 foe :: Pr -> Maybe ()
 foe (Open (Eq _ _) (Eq _ _)) = return ()
 foe (Open _ _) = nt
@@ -531,8 +537,8 @@ foe (ImpP pl pr) = foe pl >> foe pr
 foe (IffP pl pr) = foe pl >> foe pr
 foe (FaP _ _ _ _ p) = foe p
 foe (ExP _ _ _ _ p) = foe p
-foe (OrP _ _ pgs) = mapM_ (foe . fst) pgs
-foe (AndP _ _ pgs) = mapM_ (foe . fst) pgs
+foe (OrP jps _ _) = mapM_ foej jps
+foe (AndP jps _ _) = mapM_ foej jps
 foe (TransP pl _ pr) = foe pl >> foe pr
 
 fod :: Pr -> Maybe Pr
@@ -546,35 +552,34 @@ fod (Open (Rel r xs) (Rel s ys)) = do
 fod (Open (Not f) (Not g)) = return (NotP $ Open f g)
 fod (Open (Or fs) (Or gs)) = do
   guard $ L.length fs == L.length gs
-  return $ OrP fs gs []
+  let jps = L.map Waiting fs
+  return $ OrP jps gs emptyVM
 fod (Open (And fs) (And gs)) = do
   guard $ L.length fs == L.length gs
-  return $ AndP fs gs []
+  let jps = L.map Waiting fs
+  return $ AndP jps gs emptyVM
 fod (Open (Imp fl fr) (Imp gl gr)) = return $ ImpP (Open fl gl) (Open fr gr)
 fod (Open (Iff fl fr) (Iff gl gr)) = return $ IffP (Open fl gl) (Open fr gr)
 fod (Open (Fa vs f) (Fa ws g)) = return $ FaP vs f ws g (Open f g)
 fod (Open (Ex vs f) (Ex ws g)) = return $ ExP vs f ws g (Open f g)
 fod (Open (Not (Not f)) g) = Just $ TransP (Clos DNFD emptyVM) f (Open f g)
-fod (Open f (Not (Not g))) = Just $ TransP (Open f g) g (Clos DNFD emptyVM) 
+fod (Open f (Not (Not g))) = Just $ TransP (Open f g) g (Clos DNFD emptyVM)
 fod (Open _ _) = nt
 -- Pull closed problems up
 fod (NotP (Clos fd m)) = Just (Clos (NotFD fd) m)
 fod (ImpP (Clos fdl ml) (Clos fdr mr)) = do
-  -- trace ("ML = " ++ show (HM.toList $ fst ml) ++ "\n") (return ())
-  -- trace ("MR = " ++ show (HM.toList $ fst mr) ++ "\n") (return ())
   m <- mergeBij ml mr
-  -- trace ("M = " ++ show (HM.toList $ fst m) ++ "\n") (return ())
   return $ Clos (ImpFD fdl fdr) m
-fod (ImpP prl prr) = 
-  ( do prl' <- fod prl 
+fod (ImpP prl prr) =
+  ( do prl' <- fod prl
        return $ ImpP prl' prr ) <|>
   ( do prr' <- fod prr
        return $ ImpP prl prr' )
 fod (IffP (Clos fdl ml) (Clos fdr mr)) = do
   m <- mergeBij ml mr
   return $ Clos (IffFD fdl fdr) m
-fod (IffP prl prr) = 
-  ( do prl' <- fod prl 
+fod (IffP prl prr) =
+  ( do prl' <- fod prl
        return $ IffP prl' prr ) <|>
   ( do prr' <- fod prr
        return $ IffP prl prr' )
@@ -609,60 +614,167 @@ fod (TransP (Clos fdl ml) g (Clos fdr mr)) = do
   m <- mergeBij ml mr
   g' <- vmForm mr g
   return $ Clos (TransFD fdl g' fdr) m
-fod (TransP pl g pr) = 
-  ( do pl' <- fod pl 
+fod (TransP pl g pr) =
+  ( do pl' <- fod pl
        return $ TransP pl' g pr ) <|>
   ( do pr' <- fod pr
        return $ TransP pl g pr' )
 
 -- If neither open nor closed, recurse
 fod (EqP Obv xl xr yl yr) = do
-  m <- vmts [xl, xr] [yl, yr] 
-  return $ Clos AxFD m 
+  m <- vmts [xl, xr] [yl, yr]
+  return $ Clos AxFD m
 fod (EqP Rev xl xr yl yr) = do
-  m <- vmts [xl, xr] [yr, yl] 
-  return $ Clos PermFD m 
+  m <- vmts [xl, xr] [yr, yl]
+  return $ Clos PermFD m
 fod (NotP pr) = NotP <$> fod pr
 fod (ExP vs f ws g pr) = ExP vs f ws g <$> fod pr
 fod (FaP vs f ws g pr) = FaP vs f ws g <$> fod pr
-fod (OrP [f] [g] pgs) = return $ OrP [] [] ((Open f g, g) : pgs)
-fod (AndP [f] [g] pgs) = return $ AndP [] [] ((Open f g, g) : pgs)
-fod (OrP fs gs pgs) =
-  (OrP fs gs <$> fodAny pgs) <|>
-  ( do guard $ L.null fs && L.null gs
-       (fds, ms, gs') <- sepPrForms $ L.reverse pgs
-       m <- foldM mergeBij emptyVM ms
-       return (Clos (TransFD (OrFD fds) (Or gs') PermFD) m) )
-fod (AndP fs gs pgs) =
-  (AndP fs gs <$> fodAny pgs) <|>
-  ( do guard $ L.null fs && L.null gs
-       (fds, ms, gs') <- sepPrForms $ L.reverse pgs
-       m <- foldM mergeBij emptyVM ms
-       return (Clos (TransFD (AndFD fds) (And gs') PermFD) m) )
 
--- fod pr@(OrP _ _ _) = return pr
--- fod pr@(AndP _ _ _) = return pr
 
-sepPrForms :: [(Pr, Form)] -> Maybe ([FD], [VM], [Form])
-sepPrForms [] = return ([], [], [])
-sepPrForms ((Clos fd vm, g) : pgs) = do
-  (fds, vms, gs) <- sepPrForms pgs
-  return (fd : fds, vm : vms, g : gs)
-sepPrForms _ = nt
+-- fod (OrP [f] [g] pgs) = return $ OrP [] [] ((Open f g, g) : pgs)
+-- fod (AndP [f] [g] pgs) = return $ AndP [] [] ((Open f g, g) : pgs)
+-- fod (OrP fs gs pgs) =
+--   (OrP fs gs <$> fodAny pgs) <|>
+--   ( do guard $ L.null fs && L.null gs
+--        (fds, ms, gs') <- sepPrForms $ L.reverse pgs
+--        m <- foldM mergeBij emptyVM ms
+--        return (Clos (TransFD (OrFD fds) (Or gs') PermFD) m) )
+-- fod (AndP fs gs pgs) =
+--   (AndP fs gs <$> fodAny pgs) <|>
+--   ( do guard $ L.null fs && L.null gs
+--        (fds, ms, gs') <- sepPrForms $ L.reverse pgs
+--        m <- foldM mergeBij emptyVM ms
+--        return (Clos (TransFD (AndFD fds) (And gs') PermFD) m) )
 
-fodAny :: [(Pr, Form)] -> Maybe [(Pr, Form)]
-fodAny [] = mzero
-fodAny ((p, g) : pgs) =
-  ( do p' <- fod p
-       return $ (p', g) : pgs ) <|>
-  (((p, g) :) <$> fodAny pgs)
+-- If any junct is fixed, match with anything
+-- If junct can only match with 1, force
+-- If any subproblems can be forced, do it
+-- If any building is closed, merge it
+-- If all subs are closed, close top
+
+fod (OrP jps gs vm) =
+  ( do (jps', gs') <- fodFxd jps gs vm 
+       -- trace "Progess by fxd\n" (return ())
+       return $ OrP jps' gs' vm ) <|>
+  ( do (jps', gs') <- onlyMatch jps gs
+       -- trace "Progess by onlyMatch\n" (return ())
+       return $ OrP jps' gs' vm ) <|>
+  ( do (jps', vm') <- mergeClosed jps vm 
+       -- trace "Progess by mergeClose\n" (return ())
+       return $ OrP jps' gs vm' ) <|>
+  ( do jps' <- appAny fodJP jps 
+       -- trace "Progess by sub-PR\n" (return ())
+       return $ OrP jps' gs vm ) <|>
+  ( do (fds, gs') <- unzip <$> mapM breakMerged jps
+       -- trace "Progess by close-hoist\n" (return ())
+       return (Clos (TransFD (OrFD fds) (Or gs') PermFD) vm) )
+
+fod (AndP jps gs vm) =
+  ( do (jps', gs') <- fodFxd jps gs vm <|> onlyMatch jps gs
+       return $ AndP jps' gs' vm ) <|>
+  ( do (jps', vm') <- mergeClosed jps vm 
+       return $ AndP jps' gs vm' ) <|>
+  ( do jps' <- appAny fodJP jps 
+       return $ AndP jps' gs vm ) <|>
+  ( do (fds, gs') <- unzip <$> mapM breakMerged jps
+       return (Clos (TransFD (AndFD fds) (And gs') PermFD) vm) )
+
+breakMerged :: JP -> Maybe (FD, Form)
+breakMerged (Merged fd g) = return (fd, g)
+breakMerged _ = nt
+
+mergeClosed :: [JP] -> VM -> Maybe ([JP], VM) 
+mergeClosed [] _ = nt
+mergeClosed (Building (Clos fd gm) g : jps) vm = do 
+  -- trace (unpack $ T.intercalate "\n" ["Try adding:", ppVM gm, ppVM vm]) (return ())
+  vm' <- mergeBij gm vm 
+  -- trace "merged!" (return ())
+  return (Merged fd g : jps, vm')
+mergeClosed (jp : jps) vm = DBF.first (jp:) <$> mergeClosed jps vm
+
+
+fxdTerm :: VM -> Term -> Bool
+fxdTerm vm (Bv v) = isJust $ getBij v vm
+fxdTerm vm (Fun _ xs) = L.all (fxdTerm vm) xs
+fxdTerm _ _ = True
+
+fxdForm :: VM -> Form -> Bool
+fxdForm vm (Rel _ xs) = L.all (fxdTerm vm) xs
+fxdForm vm (Eq x y) = fxdTerm vm x && fxdTerm vm y
+fxdForm vm (Not f) = fxdForm vm f
+fxdForm vm (Imp f g) = fxdForm vm f && fxdForm vm g
+fxdForm vm (Iff f g) = fxdForm vm f && fxdForm vm g
+fxdForm vm (Or fs) = L.all (fxdForm vm) fs
+fxdForm vm (And fs) = L.all (fxdForm vm) fs
+fxdForm vm (Fa vs f) = fxdForm (tryDelsBij vs vm) f
+fxdForm vm (Ex vs f) = fxdForm (tryDelsBij vs vm) f
+
+tt :: Text -> Maybe () 
+tt t = trace (unpack t) (return ())
+
+onlyMatch' :: Form -> [Form] -> Maybe (Form, [Form])
+onlyMatch' f [] = nt
+onlyMatch' f (g : gs) =
+  if mcf False f g 
+  then if not (L.any (mcf False f) gs)
+       then return (g, gs)
+       else nt
+  else do (g', gs') <- onlyMatch' f gs 
+          return (g', g : gs')
+
+onlyMatch :: [JP] -> [Form] -> Maybe ([JP], [Form])
+onlyMatch [] _ = nt
+onlyMatch (Waiting f : jps) gs = do
+  (g, gs') <- onlyMatch' f gs
+  return (Building (Open f g) g : jps, gs')
+onlyMatch (jp : jps) gs = DBF.first (jp :) <$> onlyMatch jps gs 
+
+fodFxd :: [JP] -> [Form] -> VM -> Maybe ([JP], [Form])
+fodFxd [] _ _ = nt
+fodFxd (Waiting f : jps) gs vm =
+  if fxdForm vm f
+  then do f' <- vmForm vm f
+          (g, gs') <- pluckFind (mcf True f') gs
+          return (Building (Open f g) g : jps, gs')
+  else do (jps', gs') <- fodFxd jps gs vm
+          return (Waiting f : jps', gs')
+fodFxd (jp : jps) gs vm = do
+  (jps', gs') <- fodFxd jps gs vm
+  return (jp : jps', gs')
+
+-- sepPrForms :: [(Pr, Form)] -> Maybe ([FD], [VM], [Form])
+-- sepPrForms [] = return ([], [], [])
+-- sepPrForms ((Clos fd vm, g) : pgs) = do
+--   (fds, vms, gs) <- sepPrForms pgs
+--   return (fd : fds, vm : vms, g : gs)
+-- sepPrForms _ = nt
+
+fodJP :: JP -> Maybe JP
+fodJP (Building p g) = do 
+  p' <- fod p
+  return $ Building p' g
+fodJP _ = nt
+
+appAny :: (a -> Maybe a) -> [a] -> Maybe [a]
+appAny f [] = nt
+appAny f (x : xs) = ((: xs) <$> f x) <|> ((x :) <$> appAny f xs)
 
 fol :: [Pr] -> IO (FD, VM)
 fol [] = mzero
-fol (pr : prs) = 
+fol (pr : prs) =
   ( do -- pt $ "Trying PR : " <> ppPr pr
-       fo pr ) <|> 
+       fo pr ) <|>
   fol prs
+
+focj :: [JP] -> [Form] -> Maybe [([JP], [Form])]
+focj (Waiting f : jps) gs = do
+  let ggss = plucks gs
+  return $ L.map (\ (g_, gs_) -> (Building (Open f g_) g_ : jps, gs_)) ggss
+focj (jp : jps) gs = do
+  l <- focj jps gs
+  return $ L.map (DBF.first (jp :)) l
+focj [] _ = nt
 
 foc :: Pr -> Maybe [Pr]
 foc (Clos _ _) = nt
@@ -680,25 +792,60 @@ foc (TransP pl g pr) =
 
 foc (FaP vs f ws g p) = L.map (FaP vs f ws g) <$> foc p
 foc (ExP vs f ws g p) = L.map (ExP vs f ws g) <$> foc p
-foc (OrP (f : fs) gs pgs) =
-  let ggs = plucks gs in
-  return $ L.map (\ (g_, gs_) -> OrP fs gs_ ((Open f g_, g_) : pgs)) ggs
-foc (OrP [] [] pgs) = L.map (OrP [] []) <$> focAny pgs 
-foc (OrP [] _ _) = nt
-foc (AndP (f : fs) gs pgs) =
-  let ggs = plucks gs in
-  return $ L.map (\ (g_, gs_) -> AndP fs gs_ ((Open f g_, g_) : pgs)) ggs
-foc (AndP [] [] pgs) = L.map (AndP [] []) <$> focAny pgs 
-foc (AndP [] _ _) = nt
+foc (OrP jps gs@(_ : _) vm) =
+  L.map (\ (jps_, gs_) -> OrP jps_ gs_ vm) <$> focj jps gs
+foc (OrP jps [] vm) =
+  L.map (\ jps_ -> OrP jps_ [] vm) <$> focAny jps
+
+foc (AndP jps gs@(_ : _) vm) =
+  L.map (\ (jps_, gs_) -> AndP jps_ gs_ vm) <$> focj jps gs
+foc (AndP jps [] vm) =
+  L.map (\ jps_ -> AndP jps_ [] vm) <$> focAny jps
+
 foc (Open (Eq xl xr) (Eq yl yr)) = return [EqP Obv xl xr yl yr, EqP Rev xl xr yl yr]
 foc EqP {} = nt
 foc (Open _ _) = nt
 
-focAny :: [(Pr, Form)] -> Maybe [[(Pr, Form)]] 
+focAny :: [JP] -> Maybe [[JP]]
 focAny [] = nt
-focAny ((p, g) : pgs) = (L.map (\ p_ -> (p_, g) : pgs) <$> foc p) <|> 
-  (L.map ((p, g) :) <$> focAny pgs)
+focAny (Building p g : jps) =
+  (L.map (\ p_ -> Building p_ g : jps) <$> foc p) <|>
+  (L.map (Building p g :) <$> focAny jps)
+focAny (jp : jps) = L.map (jp :) <$> focAny jps
 
+pluckFind :: (a -> Bool) -> [a] -> Maybe (a, [a])
+pluckFind f xs = L.find (f . fst) (plucks xs)
+
+mcts :: Bool -> [Term] -> [Term] -> Bool
+mcts b xs ys =
+  case zipM xs ys of
+    Just xys -> L.all (mct b) xys
+    _ -> False
+
+mct :: Bool -> (Term, Term) -> Bool
+mct b (Bv v, Bv w) = v == w || not b
+mct b (Fun f xs, Fun g ys) = f == g && mcts b xs ys
+mct b (x, y) = x == y
+
+mcfj :: Bool -> [Form] -> [Form] -> Bool
+mcfj _ [] [] = True
+mcfj b (f : fs) ggs =
+  case pluckFind (mcf b f) ggs of
+    Just (_, gs) -> mcfj b fs gs
+    _ -> False
+mcfj _ [] (_ : _) = False
+
+mcf :: Bool -> Form -> Form -> Bool
+mcf b (Eq x y) (Eq z w) = (mct b (x, z) && mct b (y, w)) || (mct b (x, w) && mct b (y, z))
+mcf b (Rel r xs) (Rel s ys) = r == s && mcts b xs ys
+mcf b (Not f) (Not g) = mcf b f g
+mcf b (Imp e f) (Imp g h) = mcf b e g && mcf b f h
+mcf b (Iff e f) (Iff g h) = mcf b e g && mcf b f h
+mcf b (Or fs) (Or gs) = mcfj b fs gs
+mcf b (And fs) (And gs) = mcfj b fs gs
+mcf b (Fa _ f) (Fa _ g) = mcf b f g
+mcf b (Ex _ f) (Ex _ g) = mcf b f g
+mcf _ _ _ = False
 
 plucks :: [a] -> [(a, [a])]
 plucks [] = []
@@ -710,12 +857,12 @@ fo :: Pr -> IO (FD, VM)
 fo pr =
   case fod pr of
     Just (Clos fd m) -> return (fd, m)
-    Just pr' -> do 
-      pt $ "PR-step =\n" <> ppPr pr' <> "\n"
+    Just pr' -> do
+      -- pt $ "PR-step =\n" <> ppPr pr' <> "\n"
       fo pr'
     _ -> do
       cast $ foe pr
-      pt $ "PR-stuck =\n" <> ppPr pr <> "\n"
+      -- pt $ "PR-stuck =\n" <> ppPr pr <> "\n"
       prs <- cast (foc pr)
       -- pt $ "returned PRs count : " <> pack (show $ L.length prs) <> "\n"
       fol prs
@@ -731,9 +878,7 @@ findOrigFD f g = do
 
 orig :: Form -> Form -> IO Prf
 orig f g = do
-  mark 0
   fd <- findOrigFD f g
-  mark 1
   useFD 0 fd f g
 
 -- orig :: PrvGoal -> Ctx -> [Ctx]
@@ -1363,7 +1508,7 @@ substFD _ DropFD = DropFD
 substFD _ ConstFD = ConstFD
 -- substFD _ SymFD = SymFD
 substFD _ AlphaFD = AlphaFD
-substFD vxs DNFD = DNFD 
+substFD vxs DNFD = DNFD
 substFD vxs (EqFD fdl fdr) =  EqFD (substTD vxs fdl) (substTD vxs fdr)
 
 foldWithFDobv :: Ctx -> (FD, PrvGoal) -> IO Ctx
@@ -1530,14 +1675,14 @@ useFD k (ImpFD fdl fdr) (Imp fl fr) (Imp gl gr) = do
   pr <- useFD k fdr fr gr
   return $ ImpL fl fr (ImpRA gl gr pl) (ImpRC gl gr pr)
 
-useFD k (RelFD tds) (Rel f xs) (Rel g ys) = do 
+useFD k (RelFD tds) (Rel f xs) (Rel g ys) = do
   guard $ f == g
   tdxys <- zip3M tds xs ys
   ps <- mapM useTD tdxys
   xyps <- zip3M xs ys ps
   return $ RelC f xyps
 
-useFD k (EqFD tdl tdr) (Eq xl xr) (Eq yl yr) = do 
+useFD k (EqFD tdl tdr) (Eq xl xr) (Eq yl yr) = do
   pl <- useTD (tdl, xl, yl)
   pr <- useTD (tdr, xr, yr)
   let p0 = Cut (xl === yl) pl $ EqS xl yl -- p0 :: |- yl = xl
@@ -1689,7 +1834,7 @@ revDiff WrapFD = WrapFD
 revDiff DropFD = DropFD
 revDiff AlphaFD = AlphaFD
 revDiff ConstFD = ConstFD
-revDiff DNFD = DNFD 
+revDiff DNFD = DNFD
 
 unfoldTD' :: TD -> EqGoal -> Ctx -> IO Ctx
 unfoldTD' td eg c = unfoldTD td eg c <|> error (unpack $ "unfold-td\nTD: " <> pack (show td) <> "\nEG: " <> ppEqGoal  eg)
@@ -1837,30 +1982,30 @@ pprWithFD PermFD _ _ = error "ppr-with-fd-perm"
 pprWithFD AlphaFD _ _ = error "ppr-with-fd-AC"
 pprWithFD DNFD _ _ = error "ppr-with-fd-DN"
 
-useTD :: (TD, Term, Term) -> IO Prf 
+useTD :: (TD, Term, Term) -> IO Prf
 useTD (Refl, x, y) = return (EqR x)
-useTD (FunTD tds, Fun f xs, Fun g ys) = do 
-  tdxys <- zip3M tds xs ys 
-  ps <- mapM useTD tdxys 
+useTD (FunTD tds, Fun f xs, Fun g ys) = do
+  tdxys <- zip3M tds xs ys
+  ps <- mapM useTD tdxys
   xyps <- zip3M xs ys ps
   return $ FunC f xyps
-useTD (TransTD tdl y tdr, x, z) = do 
+useTD (TransTD tdl y tdr, x, z) = do
   pxy <- useTD (tdl, x, y)
   pyz <- useTD (tdr, y, z)
   return $ Cut (x === y) pxy $ Cut (y === z) pyz $ EqT x y z
 
-useTD (RW Obv (Fa vs (Eq x' y')), x, y) = do 
+useTD (RW Obv (Fa vs (Eq x' y')), x, y) = do
   m <- gndTerm HM.empty (x', x)
   m' <- gndTerm m (y', y)
-  let vxs = getInsts m' vs 
+  let vxs = getInsts m' vs
   return $ FaL vxs (Eq x' y') $ Ax (x === y)
 
 useTD (RW Obv (Eq _ _), x, y) = return $ Ax (x === y)
 
-useTD (RW Rev (Fa vs (Eq x' y')), y, x) = do 
+useTD (RW Rev (Fa vs (Eq x' y')), y, x) = do
   m <- gndTerm HM.empty (x', x)
   m' <- gndTerm m (y', y)
-  let vxs = getInsts m' vs 
+  let vxs = getInsts m' vs
   return $ FaL vxs (Eq x' y') $ EqS x y
 
 useTD (RW Rev (Eq _ _), x, y) = return $ EqS y x
@@ -1869,8 +2014,8 @@ useTD (td, _, _) = error $ "TD-unimp" ++ show td
 
 getInsts :: Gmap -> [Text] -> [(Text, Term)]
 getInsts m [] = []
-getInsts m (v : vs) = 
-  case HM.lookup v m of 
+getInsts m (v : vs) =
+  case HM.lookup v m of
     (Just x) -> (v, x) : getInsts m vs
     _ -> (v, zt) : getInsts m vs
 
@@ -2004,7 +2149,7 @@ findUnfoldFD ds (Ex vs f) (Ex ws g) = do
 findUnfoldFD ds (Or fs) (Or gs) = do
   (gs', dfs) <- dufs ds fs gs
   return (TransFD (OrFD dfs) (Or gs') PermFD)
-findUnfoldFD ds f (Eq x y) = 
+findUnfoldFD ds f (Eq x y) =
   dufAtom ds f (x === y) <|>
   do df <- dufAtom ds f (y === x)
      return $ TransFD df (y === x) PermFD
@@ -2166,7 +2311,7 @@ emptyVM :: VM
 emptyVM = (HM.empty, HM.empty)
 
 vmts :: [Term] -> [Term] -> Maybe VM
-vmts xs ys = zipM xs ys >>= mapM vmt >>= foldM mergeBij emptyVM 
+vmts xs ys = zipM xs ys >>= mapM vmt >>= foldM mergeBij emptyVM
 
 vmt :: (Term , Term) -> Maybe VM
 vmt (Bv v, Bv w) = addBij v w emptyVM
@@ -2177,9 +2322,9 @@ vmt (Fun f xs, Fun g ys) = do
 vmt (x, y) = do
   guard (x == y) -- "Cannot ground pair\n" <> ppTerm x <> "\n" <> ppTerm y <> "\n"
   return emptyVM
-  
+
 vmfs :: [Form] -> [Form] -> Maybe VM
-vmfs xs ys = zipM xs ys >>= mapM vmf >>= foldM mergeBij emptyVM 
+vmfs xs ys = zipM xs ys >>= mapM vmf >>= foldM mergeBij emptyVM
 
 vmf :: (Form, Form) -> Maybe VM
 vmf (Eq x0 x1, Eq y0 y1) = vmts [x0, x1] [y0, y1]
@@ -2199,7 +2344,7 @@ vmf (Ex vs f, Ex ws g) = do
   m <- vmf (f, g)
   guard $ L.all (unaltered m) vs
   return $ snd $ partitionVM vs m
-vmf (f, g) = nt 
+vmf (f, g) = nt
 
 fttt :: VM -> (Term , Term) -> Maybe VM
 fttt m (Bv v, Bv w) = addBij v w m
@@ -2352,36 +2497,74 @@ relDef r g = do
   p <- proveRdef f g
   return $ Rdef r f p
 
-addTick :: Text -> Text
-addTick t = t <> "'"
+addTicks :: Int -> Text -> Text
+addTicks 0 t = t 
+addTicks k t = addTicks (k - 1) t <> "'"
 
-rnt :: Term -> Term
-rnt (Bv v) = Bv $ addTick v
-rnt (Fun f xs) = Fun f $ L.map rnt xs
-rnt x = x
+type MTT = HM.Map Text Text
+type MTI = HM.Map Text Int
 
-rnf :: Form -> Form
-rnf (Rel r xs) = Rel r $ L.map rnt xs
-rnf (Eq x y) = Eq (rnt x) (rnt y)
-rnf (Not f) = Not $ rnf f
-rnf (Or fs) = Or $ L.map rnf fs
-rnf (And fs) = And $ L.map rnf fs
-rnf (Imp f g) = Imp (rnf f) (rnf g)
-rnf (Iff f g) = Iff (rnf f) (rnf g)
-rnf (Fa vs f) = Fa (L.map addTick vs) (rnf f)
-rnf (Ex vs f) = Ex (L.map addTick vs) (rnf f)
+rnt :: MTT -> Term -> Maybe Term
+rnt m (Bv v) = do
+  w <- HM.lookup v m 
+  return $ Bv w
+rnt m (Fun f xs) = Fun f <$> mapM (rnt m) xs
+rnt m x = return x
+
+rnfs :: MTT -> MTI -> [Form] -> Maybe ([Form], MTI)
+rnfs tt ti [] = return ([], ti)
+rnfs tt ti (f : fs) = do 
+  (f', ti') <- rnf tt ti f 
+  DBF.first (f' :) <$> rnfs tt ti' fs
+
+rnf :: MTT -> MTI -> Form -> Maybe (Form, MTI)
+rnf tt ti (Rel r xs) = do 
+  xs' <- mapM (rnt tt) xs
+  return (Rel r xs', ti)
+rnf tt ti (Eq x y) = do 
+  [x', y'] <- mapM (rnt tt) [x, y]
+  return (Eq x' y', ti)
+rnf tt ti (Not f) = DBF.first Not <$> rnf tt ti f
+rnf tt ti (Or fs) = DBF.first Or <$> rnfs tt ti fs
+rnf tt ti (And fs) = DBF.first And <$> rnfs tt ti fs
+rnf tt ti (Imp f g) = do 
+  ([f', g'], ti') <- rnfs tt ti [f, g]
+  return (Imp f' g', ti')
+rnf tt ti (Iff f g) = do 
+  ([f', g'], ti') <- rnfs tt ti [f, g]
+  return (Iff f' g', ti')
+rnf tt ti (Fa vs f) = do
+  let (vs', tt', ti') = rnvs tt ti vs 
+  (f', ti'') <- rnf tt' ti' f 
+  return (Fa vs' f', ti'')
+rnf tt ti (Ex vs f) = do
+  let (vs', tt', ti') = rnvs tt ti vs 
+  (f', ti'') <- rnf tt' ti' f 
+  return (Ex vs' f', ti'')
+
+-- -- rnf m (Ex vs f) = Ex (L.map addTick vs) (rnf f)
+
+rnvs :: MTT -> MTI -> [Text] -> ([Text], MTT, MTI)
+rnvs tt ti [] = ([], tt, ti)
+rnvs tt ti (v : vs) = 
+  let k = 1 + HM.findWithDefault 0 v ti in
+  let v' = addTicks k v in
+  let tt' = HM.insert v v' tt in
+  let ti' = HM.insert v k ti in
+  let (vs', tt'', ti'') = rnvs tt' ti' vs in
+  (v' : vs', tt'', ti'')
 
 
 elab :: NSeq -> AnForm -> IO Elab
 elab s (Af n h (Just (Gfun "file" [_, Gfun m []]))) = do
   f <- getHyp m s
-  let g = rnf h
+  (g, _) <- cast $ rnf HM.empty HM.empty f
   -- pt $ "Orig   form : " <> ppForm f <> "\n"
   -- pt $ "Inter  form : " <> ppForm g <> "\n"
   -- pt $ "Target form : " <> ppForm h <> "\n"
-  p0 <- orig f g
+  p0 <- prn 0 (f, g)
+  p1 <- orig g h
   -- pt "Fst let proven.\n"
-  p1 <- prn 0 (g, h)
   -- pt "Snd let proven.\n"
   return $ Plab $ Cut g p0 p1
 
@@ -2897,11 +3080,11 @@ main = do
   tstp_afs <- sortAfs <$> parseName tstp
   let hs = L.foldl addHyp (HM.empty, S.empty) tptp_afs
   Prelude.putStr $ tptp ++ "\n"
-  if "silent" `elem` flags 
+  if "silent" `elem` flags
     then return ()
     else mapM_ putAnForm tptp_afs
   Prelude.putStr $ tstp ++ "\n"
-  if "silent" `elem` flags 
+  if "silent" `elem` flags
     then return ()
     else mapM_ putAnForm tstp_afs
   foldM_ elabIO hs tstp_afs
