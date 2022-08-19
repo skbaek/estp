@@ -11,10 +11,13 @@ import Data.Text as T (Text, uncons, unpack)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
+
+import Control.Monad as M (MonadPlus, mzero)
 import Control.Monad.Fail as MF (MonadFail, fail)
 -- import Control.Monad.Plus as MP 
 import Control.Applicative as A
 import Data.Functor ((<&>))
+import qualified Data.Bifunctor as DBF
 -- import Data.Hashable (Hashable)
 
 pattern (:>) :: Char -> Text -> Text
@@ -50,6 +53,12 @@ listFvs k [] = (k, [])
 listFvs k (_ : vs) =
   let (m, xs) = listFvs (k + 1) vs in
   (m, Fv k : xs)
+
+varPars :: Int -> [Text] -> (Int, [(Text, Term)])
+varPars k [] = (k, [])
+varPars k (v : vs) =
+  let (m, vxs) = varPars (k + 1) vs in
+  (m, (v, Par k) : vxs)
 
 listPars :: Int -> [Text] -> (Int, [Term])
 listPars k [] = (k, [])
@@ -138,3 +147,27 @@ mark k = print $ "Marking checkpoint " <> show k
 
 pt :: Text -> IO ()
 pt t = Prelude.putStr $ unpack t
+
+et :: Text -> a
+et t = error (unpack t)
+
+deleteOnce :: (Eq a) => a -> [a] -> Maybe [a]
+deleteOnce _ [] = Nothing
+deleteOnce x (y : ys) =
+  if x == y
+  then return ys
+  else (y :) <$> deleteOnce x ys
+
+plucks :: [a] -> [(a, [a])]
+plucks [] = []
+plucks (x : xs) =
+  let xxs = plucks xs in
+  (x, xs) : L.map (DBF.second (x :)) xxs
+
+pluckFind :: (a -> Bool) -> [a] -> Maybe (a, [a])
+pluckFind f xs = L.find (f . fst) (plucks xs)
+
+pluckFirst :: (MonadPlus m) => (a -> m b) -> [a] -> m (b, [a])
+pluckFirst _ [] = mzero
+pluckFirst f (x : xs) = (f x >>= \ y_ -> return (y_, xs)) <|> DBF.second (x :) <$> pluckFirst f xs
+

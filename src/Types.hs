@@ -60,6 +60,7 @@ data Prf =
   | ExL [Text] Int Form Prf
   | ExR [(Text, Term)] Form Prf
   | Cut Form Prf Prf
+  | Mrk String Prf 
   | Asm
   deriving (Show)
 
@@ -179,26 +180,25 @@ data TD =
 
 type Bij a b = (HM.Map a b, HM.Map b a)
 
-type VM = Bij Text Text
+type VR = ([([Text], [Text])], Bij Text Text)
 
 data JP =
-    Waiting Form
-  | Building Pr Form
-  | Merged FD Form
+    Vac Form
+  | Occ PR Form
   deriving Show
 
-data Pr =
+data PR =
     Open Form Form
-  | Clos FD VM
+  | Clos FD
   | EqP Dir Term Term Term Term
-  | NotP Pr
-  | ImpP Pr Pr
-  | IffP Pr Pr
-  | FaP [Text] Form [Text] Form Pr
-  | ExP [Text] Form [Text] Form Pr
-  | OrP [JP] [Form] VM
-  | AndP [JP] [Form] VM
-  -- | OrP [Form] [Form] [(Pr, Form)]
-  -- | AndP [Form] [Form] [(Pr, Form)]
-  | TransP Pr Form Pr
+  | NotP PR 
+  | ImpP PR PR 
+  | IffP PR PR 
+  | FaP [Text] Form [Text] Form PR 
+  | ExP [Text] Form [Text] Form PR 
+  | OrP [JP] [Form] 
+  | AndP [JP] [Form]
+  | TransP PR Form PR 
   deriving Show
+
+type VM = HM.Map Text Term

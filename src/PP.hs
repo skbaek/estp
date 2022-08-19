@@ -27,7 +27,10 @@ ppVmap :: (Text, Text) -> Text
 ppVmap (v, w) = v <> " |-> " <> w
 
 ppVM :: VM -> Text
-ppVM vm = T.intercalate ", " $ L.map ppVmap $ HM.toList (fst vm)
+ppVM gm = ppListNl (\ (v, x) -> v <> " |=> " <> ppTerm x) (HM.toList gm)
+
+ppVR :: VR -> Text
+ppVR (lps, (vw, _)) = ppListNl (\ (vs_, ws_) -> ppList id vs_ <> " |=> " <> ppList id ws_) lps <> "\n" <> ppListNl ppVmap (HM.toList vw)
 
 ppList :: (a -> Text) -> [a] -> Text
 ppList f xs = "[" <> T.intercalate ", " (L.map f xs) <> "]"
@@ -66,6 +69,22 @@ ppForm (Imp f g) = "(" <> ppForm f <> " => " <> ppForm g <> ")"
 ppForm (Iff f g) = "(" <> ppForm f <> " <=> " <> ppForm g <> ")"
 ppForm (Fa vs f) = "! " <> ppList id vs <> " : " <> ppForm f
 ppForm (Ex vs f) = "? " <> ppList id vs <> " : " <> ppForm f
+
+ppFormNl :: Form -> Text
+ppFormNl f = T.intercalate "\n" $ ppFormNl' f
+
+ppFormNl' :: Form -> [Text]
+ppFormNl' (Eq t s) = [ppTerm t <> " = " <> ppTerm s]
+ppFormNl' (Rel r xs) = [r <> ppArgs (L.map ppTerm xs)]
+ppFormNl' (Not f) = "~" : L.map pad (ppFormNl' f)
+ppFormNl' (And []) = ["$true"]
+ppFormNl' (Or  []) = ["$false"]
+ppFormNl' (And fs) = "/\\" : L.map pad (L.concatMap ppFormNl' fs) 
+ppFormNl' (Or  fs) = "\\/" : L.map pad (L.concatMap ppFormNl' fs)
+ppFormNl' (Imp f g) = "==>" : L.map pad (ppFormNl' f ++ ppFormNl' g)
+ppFormNl' (Iff f g) = "<=>" : L.map pad (ppFormNl' f ++ ppFormNl' g)
+ppFormNl' (Fa vs f) = ("! " <> ppList id vs) : L.map pad (ppFormNl' f)
+ppFormNl' (Ex vs f) = ("? " <> ppList id vs) : L.map pad (ppFormNl' f)
 
 ppForms :: [Form] -> Text
 ppForms fs = T.intercalate "\n" $ L.map ppForm fs
@@ -123,9 +142,30 @@ ppPrf k (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k 
 ppPrf k (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
 ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf _ _ = ["?"]
+ppPrf k (ImpRA f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (Mrk s p) = ("Mark : " <> pack s) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (FunC _ _) = ["Fun-C?"]
+ppPrf k (RelC _ _) = ["Rel-C?"]
+ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
+ppPrf k (OrR fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (AndL fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (AndR _) = ["And-R?"]
+ppPrf k (EqC x y) = ["Eq-C?"]
+ppPrf k (EqS x y) = ["Eq-S?"]
+ppPrf k (EqR x) = ["Eq-R?"]
+ppPrf k (EqT x y z) = ["Eq-T?"]
+ppPrf k (FaL vxs f p) =
+  let (vs, xs) = unzip vxs in
+  ("Fa-L : " <> ppForm (Fa vs f)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (ExR vxs f p) =
+  let (vs, xs) = unzip vxs in
+  ("Ex-R : " <> ppForm (Ex vs f)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (FaR vs m f p) = ["Fa-R?"]
+ppPrf k (ExL vs m f p) = ["Ex-L?"]
+ppPrf k Asm = ["Asm!"]
+-- ppPrf _ _ = ["?"]
 
-ppPr' :: Pr -> [Text]
+ppPr' :: PR -> [Text]
 ppPr' (Open f g) = [ppForm f <> " <-|-> " <> ppForm g]
 ppPr' (ExP vs f ws g p) =
   [
@@ -140,22 +180,21 @@ ppPr' (FaP vs f ws g p) =
     "  g = " <> ppForm (Fa ws g)
   ] ++ L.map pad (ppPr' p)
 ppPr' (NotP p) = "NotP :" : L.map pad (ppPr' p)
-ppPr' (Clos fd vm) = "Clos : " : ppVM vm : L.map pad (ppFD' fd)
+ppPr' (Clos fd) = "Clos : " : L.map pad (ppFD' fd)
 ppPr' (EqP Obv xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yl yr)]
 ppPr' (EqP Rev xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yr yl)]
 ppPr' (ImpP pl pr) = "ImpP :" : L.map pad (ppPr' pl ++ ppPr' pr)
 ppPr' (IffP pl pr) = "IffP :" : L.map pad (ppPr' pl ++ ppPr' pr)
-ppPr' (OrP jps gs vm) = "OrP :" : ppVM vm : L.map pad (L.concatMap ppJP' jps ++ L.map ppForm gs)
+ppPr' (OrP jps gs) = "OrP :" : L.map pad (L.concatMap ppJP' jps ++ L.map ppForm gs)
 ppPr' AndP {} = ["AndP?"]
 ppPr' (TransP pl g pr) = "TransP" : L.map pad (ppPr' pl ++ ["Mid : " <> ppForm g] ++ ppPr' pr)
 
 ppJP' :: JP -> [Text]
-ppJP' (Waiting f) = ["W :" <> ppForm f]
-ppJP' (Building p g) = "B : " <> ppForm g : L.map pad (ppPr' p)
-ppJP' (Merged fd g) = "M : " <> ppForm g : L.map pad (ppFD' fd)
+ppJP' (Vac f) = ["Vac :" <> ppForm f]
+ppJP' (Occ p g) = "Occ : " <> ppForm g : L.map pad (ppPr' p)
 
-ppPr :: Pr -> Text
-ppPr pr = T.intercalate "\n" $ ppPr' pr
+ppPR :: PR -> Text
+ppPR pr = T.intercalate "\n" $ ppPr' pr
 
 ppFD :: FD -> Text
 ppFD fd = T.intercalate "\n" $ ppFD' fd
