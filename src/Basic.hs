@@ -171,3 +171,5 @@ pluckFirst :: (MonadPlus m) => (a -> m b) -> [a] -> m (b, [a])
 pluckFirst _ [] = mzero
 pluckFirst f (x : xs) = (f x >>= \ y_ -> return (y_, xs)) <|> DBF.second (x :) <$> pluckFirst f xs
 
+first :: (MonadFail m, Alternative m) => (a -> m b) -> [a] -> m b
+first f = Prelude.foldr ((<|>) . f) (MF.fail "")

@@ -64,37 +64,6 @@ data Prf =
   | Asm
   deriving (Show)
 
-data Prf_ =
-    Ax_ Form
-  | EqR_ Term
-  | EqS_ Term Term 
-  | EqT_ Term Term Term
-  | EqC_ EqGoal EqGoal
-  | FunC_ Text [EqGoal]
-  | RelC_ Text [EqGoal]
-  | NotL_ Form Int
-  | NotR_ Form Int
-  | OrL_ [Goal]
-  | OrR_ [Form] [Form] Int
-  | AndL_ [Form] [Form] Int
-  | AndR_ [Goal]
-  | ImpL_ Form Form Int Int
-  | ImpRA_ Form Form Int
-  | ImpRC_ Form Form Int
-  | IffLO_ Form Form Int
-  | IffLR_ Form Form Int
-  | IffR_ Form Form Int Int
-  | FaL_ [(Text, Term)] Form Int
-  | FaR_ [Text] Int Form Int
-  | ExL_ [Text] Int Form Int
-  | ExR_ [(Text, Term)] Form Int
-  | Cut_ Form Int Int
-  | Sorry_
-
-type EqGoal = (Term, Term, Int)
-type PrvGoal = (Form, Form, Int)
-type Goal = (Form, Int)
-
 data Elab =
     Plab Prf
   | Rdef Text Form Prf
@@ -121,7 +90,7 @@ data AnForm = Af Text Form (Maybe Gterm)
 
 type Prob = [Input]
 
-data JMode = Conj | Disj
+-- data JMode = Conj | Disj
 data Dir = 
   Obv | Rev
   deriving (Show, Eq)
@@ -133,72 +102,9 @@ data Lrat = Del Int [Int] | Add Int [Form] [Int]
 type NSeq = Map Text Form
 type Seq = Set Form
 type Hyps = (NSeq, Seq)
-type Bnd = Map Int Term
-type Prfs = Map Int Prf_
-
-data Ctx = Ctx {fresh :: Int, binding :: Bnd, proofs :: Prfs}
-
-data Sst = Sst {flits :: [Form], glits :: [Form], eqns :: [(Term, Term)], sbnd :: Bnd}
-
-data InstMode = Same | Perm
-  deriving (Eq)
-
-data UniMode = Lax | Pars | ParFvs | Exact
-  deriving (Eq)
-
-data BndMode = Mid | End
-  deriving (Eq)
-
-data FD =
-    AxFD
-  | NotFD FD
-  | RWFD Dir Form
-  | AndFD [FD]
-  | OrFD [FD]
-  | IffFD FD FD
-  | ImpFD FD FD
-  | RelFD [TD]
-  | EqFD TD TD
-  | PermFD
-  | WrapFD
-  | DropFD
-  -- | SymFD
-  | ConstFD
-  | FaFD [Text] FD
-  | ExFD [Text] FD
-  | TransFD FD Form FD
-  | AlphaFD 
-  | DNFD
-  deriving (Show)
-
-data TD =
-    Refl
-  | FunTD [TD]
-  | RW Dir Form
-  | TransTD TD Term TD
-  deriving (Show)
 
 type Bij a b = (HM.Map a b, HM.Map b a)
 
 type VR = ([([Text], [Text])], Bij Text Text)
-
-data JP =
-    Vac Form
-  | Occ PR Form
-  deriving Show
-
-data PR =
-    Open Form Form
-  | Clos FD
-  | EqP Dir Term Term Term Term
-  | NotP PR 
-  | ImpP PR PR 
-  | IffP PR PR 
-  | FaP [Text] Form [Text] Form PR 
-  | ExP [Text] Form [Text] Form PR 
-  | OrP [JP] [Form] 
-  | AndP [JP] [Form]
-  | TransP PR Form PR 
-  deriving Show
 
 type VM = HM.Map Text Term

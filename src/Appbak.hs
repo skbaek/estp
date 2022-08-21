@@ -23,13 +23,13 @@ isFv :: Term -> Bool
 isFv (Fv _) = True
 isFv _ = False
 
-appBnd :: Bnd -> Term -> Term
-appBnd b (Fv k) =
-  case HM.lookup k b of
-    Just x -> x
-    Nothing -> Fv k
-appBnd b (Fun f xs) = Fun f $ L.map (appBnd b) xs
-appBnd _ x = x
+-- appBnd :: Bnd -> Term -> Term
+-- appBnd b (Fv k) =
+--   case HM.lookup k b of
+--     Just x -> x
+--     Nothing -> Fv k
+-- appBnd b (Fun f xs) = Fun f $ L.map (appBnd b) xs
+-- appBnd _ x = x
 
 substFv :: Int -> Term -> Term -> Term
 substFv k x (Bv v) = Bv v
@@ -37,33 +37,33 @@ substFv k x (Par m) = Par m
 substFv k x (Fv m) = if k == m then x else Fv m
 substFv k x (Fun f xs) = Fun f $ L.map (substFv k x) xs
 
-breakFvLookup :: Term -> Bnd -> Maybe Term
-breakFvLookup (Fv k) b = HM.lookup k b
-breakFvLookup _ _ = nt
-
-uniFv :: UniMode -> Bnd -> Int -> Term -> Maybe Bnd
+-- breakFvLookup :: Term -> Bnd -> Maybe Term
+-- breakFvLookup (Fv k) b = HM.lookup k b
+-- breakFvLookup _ _ = nt
+-- 
+-- uniFv :: UniMode -> Bnd -> Int -> Term -> Maybe Bnd
 -- scheme  : uniFv um b k x
 -- assumes : k is unbound in b
 -- assumes : if x is a FV, it is also unbound in b
-uniFv Exact b k (Fv m) = guard (k == m) >> return b
-uniFv Exact _ _ _  = nt
-uniFv Pars b k (Par m) =
-  let b' = HM.map (substFv k (Par m)) b in
-  return $ HM.insert k (Par m) b'
-uniFv Pars _ _ _ = nt
-uniFv ParFvs b k x =
-  let x' = appBnd b x in
-  let b' = HM.map (substFv k x') b in
-  do guard $ isPar x || isFv x
-     guard $ not $ hasFv k x'
-     return $ HM.insert k x' b'
-uniFv Lax b k x =
-  let x' = appBnd b x in
-  let b' = HM.map (substFv k x') b in
-  do guard $ not $ hasFv k x'
-     return $ HM.insert k x' b'
-
-uniTerm' :: UniMode -> Bnd -> (Term, Term) -> Maybe Bnd
+-- uniFv Exact b k (Fv m) = guard (k == m) >> return b
+-- uniFv Exact _ _ _  = nt
+-- uniFv Pars b k (Par m) =
+--   let b' = HM.map (substFv k (Par m)) b in
+--   return $ HM.insert k (Par m) b'
+-- uniFv Pars _ _ _ = nt
+-- uniFv ParFvs b k x =
+--   let x' = appBnd b x in
+--   let b' = HM.map (substFv k x') b in
+--   do guard $ isPar x || isFv x
+--      guard $ not $ hasFv k x'
+--      return $ HM.insert k x' b'
+-- uniFv Lax b k x =
+--   let x' = appBnd b x in
+--   let b' = HM.map (substFv k x') b in
+--   do guard $ not $ hasFv k x'
+--      return $ HM.insert k x' b'
+-- 
+-- uniTerm' :: UniMode -> Bnd -> (Term, Term) -> Maybe Bnd
 -- uniTerm' um bnd (x, y) = trace ("Unifying " ++ show x ++ " with " ++ show y) (uniTerm um bnd (x, y))
 uniTerm' um bnd (x, y) = uniTerm um bnd (x, y)
 

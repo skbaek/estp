@@ -189,3 +189,6 @@ relCong r xyps =
   let f = Rel r xs in
   let g = Rel r ys in
   congAux xyps $ iffRFull f g (RelC r xyps') (RelC r yxps)
+
+notLR :: Form -> Form -> Prf -> Prf
+notLR f g p = NotL f $ NotR g p
