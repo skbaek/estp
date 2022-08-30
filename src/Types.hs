@@ -8,9 +8,8 @@ import Control.Monad.Fail as MF (MonadFail, fail)
 import Data.Functor ((<&>))
 
 data Term =
-    Fv Int
-  | Par Int
-  | Bv Text
+    Par Int
+  | Var Text
   | Fun Text [Term]
   deriving (Show, Eq, Ord)
 
@@ -93,8 +92,9 @@ type Prob = [Input]
 -- data JMode = Conj | Disj
 data Dir = 
   Obv | Rev
-  deriving (Show, Eq)
-data CMode = Mono | Bi
+  deriving (Show, Eq, Ord)
+
+-- data CMode = Mono | Bi
 
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
@@ -103,8 +103,11 @@ type NSeq = Map Text Form
 type Seq = Set Form
 type Hyps = (NSeq, Seq)
 
-type Bij a b = (HM.Map a b, HM.Map b a)
+-- type Bij a b = (HM.Map a b, HM.Map b a)
 
-type VR = ([([Text], [Text])], Bij Text Text)
+-- type VR = ([([Text], [Text])], Bij Text Text)
+type VC = (HM.Map Text (Set Text), HM.Map Text (Set Text)) 
+
+type VR = (HM.Map Text Text, HM.Map Text Text) 
 
 type VM = HM.Map Text Term

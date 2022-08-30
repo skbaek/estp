@@ -359,10 +359,7 @@ terms :: Parser [Term]
 terms = commaSepPlus term
 
 term :: Parser Term
-term = (upperWord >>= unit . Bv) <|> do { f <- functor ; ts <- arguments ; unit $ Fun f ts }
-
--- traceParse :: Parser a -> Parser a
--- traceParse f = Parser $ \ t -> trace ("Remaining = " ++ unpack t) $ parse f t
+term = (upperWord >>= unit . Var) <|> do { f <- functor ; ts <- arguments ; unit $ Fun f ts }
 
 generalTerm :: Parser Gterm
 generalTerm =
@@ -462,9 +459,8 @@ mergeVars :: [Text] -> [Text] -> [Text]
 mergeVars vs ws = vs ++ (ws \\ vs)
 
 termBvs :: Term -> [Text]
-termBvs (Fv _) = []
 termBvs (Par _) = []
-termBvs (Bv v) = [v]
+termBvs (Var v) = [v]
 termBvs (Fun _ ts) = foldl mergeVars [] (map termBvs ts)
 
 formBvs :: Form -> [Text]

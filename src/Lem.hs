@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module Lem where
 
 import Types
@@ -101,6 +103,52 @@ impCong e f g h =
   (impRAC (e ==> f) (g ==> h) $ Cut (g ==> e) (IffLR e g $ Ax (g ==> e)) $ Cut (f ==> h) (IffLO f h $ Ax (f ==> h)) $ impTrans3 g e f h) 
   (impRAC (g ==> h) (e ==> f) $ Cut (e ==> g) (IffLO e g $ Ax (e ==> g)) $ Cut (h ==> f) (IffLR f h $ Ax (h ==> f)) $ impTrans3 e g h f)
 
+-- requires : none of vs occurs in f
+-- degenFaIff k vs f : |- (! vs f) <=> f
+degenFaIff :: Int -> [Text] -> Form -> Prf 
+degenFaIff k vs f = 
+  let vxs = map (, zt) vs in
+  iffRFull (Fa vs f) f (FaL vxs f $ Ax f) (FaR vs k f $ Ax f)
+
+-- requires : none of vs occurs in f
+-- degenExIff k vs f : |- (? vs f) <=> f
+degenExIff :: Int -> [Text] -> Form -> Prf 
+degenExIff k vs f = 
+  let vxs = map (, zt) vs in
+  iffRFull (Ex vs f) f (ExL vs k f $ Ax f) (ExR vxs f $ Ax f)
+
+degenHelper :: [(Text, Term)] -> Text -> (Text, Term)
+degenHelper vxs w = 
+  case find ((w ==) . fst) vxs of 
+    Just (_, x) -> (w, x) 
+    _ -> (w, zt) 
+
+-- requires : ws is a subset of vs 
+-- requires : none of (vs \ ws) occurs in f
+-- degenFaIffFa k vs ws f : |- (! vs f) <=> (! ws f)
+degenFaIffFa :: Int -> [Text] -> [Text] -> Form -> Prf 
+degenFaIffFa k vs ws f = 
+  let (_, vxs) = varPars k vs in
+  let (_, wxs) = varPars k ws in
+  let vxs' = map (degenHelper wxs) vs in
+  let wxs' = map (degenHelper vxs) ws in
+  let fv = substForm vxs f in
+  let fw = substForm wxs f in
+  iffRFull (Fa vs f) (Fa ws f) (FaR ws k f $ FaL vxs' f $ Ax fw) (FaR vs k f $ FaL wxs' f $ Ax fv)
+
+-- requires : ws is a subset of vs 
+-- requires : none of (vs \ ws) occurs in f
+-- degenFaIffFa k vs ws f : |- (? vs f) <=> (? ws f)
+degenExIffEx :: Int -> [Text] -> [Text] -> Form -> Prf 
+degenExIffEx k vs ws f = 
+  let (_, vxs) = varPars k vs in
+  let (_, wxs) = varPars k ws in
+  let vxs' = map (degenHelper wxs) vs in
+  let wxs' = map (degenHelper vxs) ws in
+  let fv = substForm vxs f in
+  let fw = substForm wxs f in
+  iffRFull (Ex vs f) (Ex ws f) (ExL vs k f $ ExR wxs' f $ Ax fv) (ExL ws k f $ ExR vxs' f $ Ax fw)
+
 -- p : f' |- g'
 ---------------
 -- exImpEx vs k f g p |- (? vs f) ==> (? vs g)
@@ -135,6 +183,33 @@ faIffToExIffEx' k vs f ws g = do
   return $ iffRFull (Ex vs f) (Ex ws g) 
     (ExL vs k f $ ExR wxs' g $ FaL vxs (f <=> g) $ iffMP f' g'') 
     (ExL ws k g $ ExR vxs' f $ FaL vxs' (f <=> g) $ iffMPR f'' g')
+
+-- ! ws (f[vs |=> ws] <=> g) |- (? vs f) <=> (? ws g)
+faIffToExIffEx'' :: Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
+faIffToExIffEx'' k vs f ws g = do
+  let (_, vxs) = varPars k vs 
+  let (_, wxs) = varPars k ws 
+  vws <- mapM2 (\ v_ w_ -> return (v_, Var w_)) vs ws
+  let f' = substForm vxs f 
+  let f'' = substForm vws f 
+  let g' = substForm wxs g 
+  return $ iffRFull (Ex vs f) (Ex ws g) 
+    (ExL vs k f $ ExR wxs g $ FaL wxs (f'' <=> g) $ iffMP f' g') 
+    (ExL ws k g $ ExR vxs f $ FaL wxs (f'' <=> g) $ iffMPR f' g')
+
+-- ! ws (f[vs |=> ws] <=> g) |- (! vs f) <=> (! ws g)
+faIffToFaIffFa'' :: Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
+faIffToFaIffFa'' k vs f ws g = do
+  let (_, vxs) = varPars k vs 
+  let (_, wxs) = varPars k ws 
+  vws <- mapM2 (\ v_ w_ -> return (v_, Var w_)) vs ws
+  let f' = substForm vxs f 
+  let f'' = substForm vws f 
+  let g' = substForm wxs g 
+  return $ iffRFull (Fa vs f) (Fa ws g) 
+    (FaR ws k g $ FaL vxs f $ FaL wxs (f'' <=> g) $ iffMP f' g') 
+    (FaR vs k f $ FaL wxs g $ FaL wxs (f'' <=> g) $ iffMPR f' g')
+
 -- ! vs (f <=> g) |- (! vs f) <=> (! ws g)
 faIffToFaIffFa' :: Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
 faIffToFaIffFa' k vs f ws g = do
@@ -146,9 +221,9 @@ faIffToFaIffFa' k vs f ws g = do
   let g' = substForm wxs g 
   let f'' = substForm vxs' f 
   let g'' = substForm wxs' g 
-  return Asm -- return $ iffRFull (Fa vs f) (Fa ws g) 
-     -- (FaR ws k g $ FaL vxs' f $ FaL vxs' (f <=> g) $ iffMP f'' g') 
-    -- (FaR vs k f $ FaL wxs' g $ FaL vxs (f <=> g) $ iffMPR f' g'')
+  return $ iffRFull (Fa vs f) (Fa ws g) 
+    (FaR ws k g $ FaL vxs' f $ FaL vxs' (f <=> g) $ iffMP f'' g') 
+    (FaR vs k f $ FaL wxs' g $ FaL vxs  (f <=> g) $ iffMPR f' g'')
 
 faIffToFaIffFa :: [Text] -> Int -> Form -> Form -> Prf
 faIffToFaIffFa vs k f g = 

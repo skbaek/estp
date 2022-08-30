@@ -3,6 +3,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use foldr" #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Basic where
 
@@ -12,7 +13,7 @@ import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 
-import Control.Monad as M (MonadPlus, mzero)
+import Control.Monad as M (MonadPlus, mzero, foldM)
 import Control.Monad.Fail as MF (MonadFail, fail)
 -- import Control.Monad.Plus as MP 
 import Control.Applicative as A
@@ -24,13 +25,12 @@ pattern (:>) :: Char -> Text -> Text
 pattern x :> xs <- (T.uncons -> Just (x, xs))
 
 substBv :: [(Text, Term)] -> Text -> Term
-substBv [] s = Bv s
+substBv [] s = Var s
 substBv ((t, x) : txs) s = if t == s then x else substBv txs s
 
 substTerm :: [(Text, Term)] -> Term -> Term
-substTerm txs (Fv k) = Fv k
 substTerm txs (Par k) = Par k
-substTerm txs (Bv t) = substBv txs t
+substTerm txs (Var t) = substBv txs t
 substTerm txs (Fun f xs) = Fun f $ L.map (substTerm txs) xs
 
 substForm :: [(Text, Term)] -> Form -> Form
@@ -47,12 +47,6 @@ substForm vxs (Fa vs f) =
 substForm vxs (Ex vs f) =
   let vxs' = L.filter (\ (v, _) -> v `notElem` vs) vxs in
   Ex vs $ substForm vxs' f
-
-listFvs :: Int -> [Text] -> (Int, [Term])
-listFvs k [] = (k, [])
-listFvs k (_ : vs) =
-  let (m, xs) = listFvs (k + 1) vs in
-  (m, Fv k : xs)
 
 varPars :: Int -> [Text] -> (Int, [(Text, Term)])
 varPars k [] = (k, [])
@@ -173,3 +167,39 @@ pluckFirst f (x : xs) = (f x >>= \ y_ -> return (y_, xs)) <|> DBF.second (x :) <
 
 first :: (MonadFail m, Alternative m) => (a -> m b) -> [a] -> m b
 first f = Prelude.foldr ((<|>) . f) (MF.fail "")
+
+breakSingleton :: [a] -> Maybe a
+breakSingleton [x] = Just x
+breakSingleton _ = Nothing
+
+zt :: Term
+zt = Fun "" []
+
+isNeg :: Form -> Bool
+isNeg (Not _) = True
+isNeg _ = False
+
+isPos :: Form -> Bool
+isPos = not . isNeg
+
+isGndTerm :: Term -> Bool
+isGndTerm (Var _) = False
+isGndTerm (Fun f xs) = L.all isGndTerm xs
+isGndTerm x = True
+
+isGndAtom :: Form -> Bool
+isGndAtom (Eq x y) = isGndTerm x && isGndTerm y
+isGndAtom (Rel _ xs) = L.all isGndTerm xs
+isGndAtom _ = False
+
+isGndLit :: Form -> Bool
+isGndLit (Not f) = isGndAtom f
+isGndLit f = isGndAtom f
+
+mapM2 :: (Monad m, Alternative m) => (a -> b -> m c) -> [a] -> [b] -> m [c]
+mapM2 f xs ys = zipM xs ys >>= mapM (uncurry f)
+
+foldM2 :: (Monad m, Alternative m) => (a -> b -> c -> m a) -> a -> [b] -> [c] -> m a
+foldM2 f x ys zs = do
+  yzs <- zipM ys zs
+  foldM (\ x_ (y_, z_) -> f x_ y_ z_) x yzs

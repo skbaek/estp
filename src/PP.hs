@@ -27,21 +27,29 @@ ppVmap :: (Text, Text) -> Text
 ppVmap (v, w) = v <> " |-> " <> w
 
 ppVM :: VM -> Text
-ppVM gm = ppListNl (\ (v, x) -> v <> " |=> " <> ppTerm x) (HM.toList gm)
+ppVM gm = ppListNl (\ (v, x) -> v <> " |-> " <> ppTerm x) (HM.toList gm)
 
 ppVR :: VR -> Text
-ppVR (lps, (vw, _)) = ppListNl (\ (vs_, ws_) -> ppList id vs_ <> " |=> " <> ppList id ws_) lps <> "\n" <> ppListNl ppVmap (HM.toList vw)
+ppVR (vw, _) = ppListNl ppVmap (HM.toList vw)
+
+ppVCAux :: HM.Map Text (Set Text) -> Text
+ppVCAux vw = ppListNl (\ (v_, ws_) -> v_ <> " |-> " <> ppList id (S.toList ws_)) (HM.toList vw)
+
+ppVC :: VC -> Text
+ppVC (vws, wvs) = ppVCAux vws <> "-------------------------------------\n" <> ppVCAux wvs
 
 ppList :: (a -> Text) -> [a] -> Text
 ppList f xs = "[" <> T.intercalate ", " (L.map f xs) <> "]"
+
+ppSet :: (a -> Text) -> Set a -> Text
+ppSet f s = ppList f (S.toList s)
 
 ppListNl :: (a -> Text) -> [a] -> Text
 ppListNl f xs = T.concat (L.map (\ x -> f x <> "\n") xs)
 
 ppTerm :: Term -> Text
-ppTerm (Fv k) = "$" <> ppInt k
 ppTerm (Par k) =  "#" <> ppInt k
-ppTerm (Bv x) = x
+ppTerm (Var x) = x
 ppTerm (Fun "" []) = "·"
 ppTerm (Fun f xs) = f <> ppArgs (L.map ppTerm xs)
 
