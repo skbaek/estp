@@ -10,10 +10,10 @@ module Basic where
 import Types
 import Data.Text as T (Text, uncons, unpack)
 import Data.List as L
-import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
-import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
+import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
+import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
 
-import Control.Monad as M (MonadPlus, mzero, foldM)
+import Control.Monad as M (MonadPlus, mzero, foldM, guard)
 import Control.Monad.Fail as MF (MonadFail, fail)
 -- import Control.Monad.Plus as MP 
 import Control.Applicative as A
@@ -203,3 +203,272 @@ foldM2 :: (Monad m, Alternative m) => (a -> b -> c -> m a) -> a -> [b] -> [c] ->
 foldM2 f x ys zs = do
   yzs <- zipM ys zs
   foldM (\ x_ (y_, z_) -> f x_ y_ z_) x yzs
+
+top :: Form
+top = And []
+
+bot :: Form
+bot = Or []
+
+isTop :: Form -> Bool
+isTop = (top ==)
+
+isBot :: Form -> Bool
+isBot = (bot ==)
+
+varInt :: Text -> Term -> Bool
+varInt v (Var w) = v == w
+varInt v (Fun f xs) = L.any (varInt v) xs
+varInt v _ = False
+
+varInf :: Text -> Form -> Bool
+varInf v (Eq x y) = varInt v x || varInt v y
+varInf v (Rel _ xs) = L.any (varInt v) xs
+varInf v (Not f) = varInf v f
+varInf v (And fs) = L.any (varInf v) fs
+varInf v (Or fs)  = L.any (varInf v) fs
+varInf v (Imp f g) = varInf v f || varInf v g
+varInf v (Iff f g) = varInf v f || varInf v g
+varInf v (Fa ws f) = v `notElem` ws && varInf v f
+varInf v (Ex ws f) = v `notElem` ws && varInf v f
+
+-- Like StateT but with return tuple swapped
+newtype StateM s m a = StateM { runStateM :: s -> m (s, a) }
+
+instance Functor m => Functor (StateM s m) where
+    fmap f (StateM x) = StateM $ \s -> fmap (DBF.second f) (x s)
+
+instance Monad m => Applicative (StateM s m) where
+    pure x = StateM $ \s -> return (s, x)
+    StateM f <*> StateM x = StateM $ \s -> do (s', f') <- f s
+                                              (s'', x') <- x s'
+                                              return (s'', f' x')
+
+-- | Monadic variant of 'mapAccumL'.
+mapAccumM :: (Monad m, Traversable t)
+          => (a -> b -> m (a, c)) -> a -> t b -> m (a, t c)
+mapAccumM f s t = runStateM (traverse (\x -> StateM (`f` x)) t) s
+
+
+isOr :: Form -> Bool
+isOr (Or _) = True
+isOr _ = False
+
+isAnd :: Form -> Bool
+isAnd (And _) = True
+isAnd _ = False
+
+nt :: Maybe a
+nt = Nothing
+
+breakVar :: Term -> Maybe Text
+breakVar (Var v) = Just v
+breakVar _ = Nothing
+
+isConstant :: Term -> Bool
+isConstant (Fun _ []) = True
+isConstant _ = False
+
+breakFa :: Form -> Maybe ([Text], Form)
+breakFa (Fa vs f) = return (vs, f)
+breakFa _ = mzero
+
+breakEx :: Form -> Maybe ([Text], Form)
+breakEx (Ex vs f) = return (vs, f)
+breakEx _ = mzero
+
+isAtom :: Form -> Bool
+isAtom (Rel _ _) = True
+isAtom (Eq _ _) = True
+isAtom _ = False
+
+isLit :: Form -> Bool
+isLit (Not f) = isAtom f
+isLit f = isAtom f
+
+ru :: (Monad m) => m ()
+ru = return ()
+
+tfuns :: Term -> Set Text
+tfuns (Fun f xs) = S.insert f $ S.unions $ L.map tfuns xs
+tfuns _ = S.empty
+
+fsfuns :: [Form] -> Set Text
+fsfuns = S.unions . L.map ffuns
+
+ffuns :: Form -> Set Text
+ffuns (Rel _ xs) = S.unions $ L.map tfuns xs
+ffuns (Or fs) = S.unions $ L.map ffuns fs
+ffuns (And fs) = S.unions $ L.map ffuns fs
+ffuns (Eq x y) = S.unions $ L.map tfuns [x, y]
+ffuns (Imp f g) = S.unions $ L.map ffuns [f, g]
+ffuns (Iff f g) = S.unions $ L.map ffuns [f, g]
+ffuns (Not f) = ffuns f
+ffuns (Fa _ f) = ffuns f
+ffuns (Ex _ f) = ffuns f
+
+cuts :: [(Form, Prf)] -> Prf -> Prf
+cuts [] = id
+cuts ((f, p) : fps) = Cut f p . cuts fps
+
+guardMsg :: (Alternative m, Monad m) => Bool -> Text -> m ()
+guardMsg True _ = return ()
+guardMsg False s = error (unpack s)
+
+claVars :: Form -> IO (Set Text)
+claVars (Fa vs f) = S.union (S.fromList vs) <$> claVars f
+claVars (Or fs) = S.unions <$> mapM claVars fs
+claVars f = guard (isLit f) >> return S.empty
+
+formVars :: Form -> Set Text
+formVars (Fa vs f) = S.union (S.fromList vs) $ formVars f
+formVars (Ex vs f) = S.union (S.fromList vs) $ formVars f
+formVars (Imp f g) = S.union (formVars f) (formVars g)
+formVars (Iff f g) = S.union (formVars f) (formVars g)
+formVars (Not f) = formVars f
+formVars (Or fs) = S.unions $ L.map formVars fs
+formVars (And fs) = S.unions $ L.map formVars fs
+formVars _ = S.empty
+
+varsInt :: [Text] -> Term -> Bool
+varsInt vs (Var v) = v `elem` vs
+varsInt vs (Fun f xs) = L.any (varsInt vs) xs
+varsInt vs _ = False
+
+varsInf :: [Text] -> Form -> Bool
+varsInf vs (Eq x y) = varsInt vs x || varsInt vs y
+varsInf vs (Rel _ xs) = L.any (varsInt vs) xs
+varsInf vs (Not f) = varsInf vs f
+varsInf vs (And fs) = L.any (varsInf vs) fs
+varsInf vs (Or fs)  = L.any (varsInf vs) fs
+varsInf vs (Imp f g) = varsInf vs f || varsInf vs g
+varsInf vs (Iff f g) = varsInf vs f || varsInf vs g
+varsInf vs (Fa ws f) = varsInf (vs L.\\ ws) f
+varsInf vs (Ex ws f) = varsInf (vs L.\\ ws) f
+
+-- isJust :: Maybe a -> Bool
+-- isJust (Just _) = True
+-- isJust _ = False
+
+gndTerm :: Term -> Term
+gndTerm (Var _) = zt
+gndTerm (Fun f xs) = Fun f $ L.map gndTerm xs
+gndTerm x = x
+
+agvmt :: VM -> Term -> Term
+agvmt gm (Var v) =
+  case HM.lookup v gm of
+    Just x -> gndTerm x
+    _ -> zt
+agvmt gm (Fun f xs) = Fun f $ L.map (agvmt gm) xs
+agvmt _ x = x
+
+avmt :: VM -> Term -> Term
+avmt gm (Var v) =
+  case HM.lookup v gm of
+    Just x -> x
+    _ -> Var v
+avmt gm (Fun f xs) = Fun f $ L.map (avmt gm) xs
+avmt _ x = x
+
+tavmt :: VM -> Term -> Maybe Term
+tavmt gm (Var v) =
+  case HM.lookup v gm of
+    Just x -> return x
+    _ -> mzero -- return $ Var v
+tavmt gm (Fun f xs) = Fun f <$> mapM (tavmt gm) xs
+tavmt _ x = return x
+
+tavmf :: VM -> Form -> Maybe Form
+tavmf gm (Eq x y) = do
+  x' <- tavmt gm x
+  y' <- tavmt gm y
+  return (Eq x' y')
+tavmf gm (Rel r xs) = Rel r <$> mapM (tavmt gm) xs
+tavmf gm (Or fs) = Or <$> mapM (tavmf gm) fs
+tavmf gm (And fs) = And <$> mapM (tavmf gm) fs
+tavmf gm (Not f) = do
+  f' <- tavmf gm f
+  return (Not f')
+tavmf gm (Imp f g) = do
+  f' <- tavmf gm f
+  g' <- tavmf gm g
+  return (Imp f' g')
+tavmf gm (Iff f g) = do
+  f' <- tavmf gm f
+  g' <- tavmf gm g
+  return (Iff f' g')
+tavmf gm (Fa vs f) = Fa vs <$> tavmf gm f
+tavmf gm (Ex vs f) = Ex vs <$> tavmf gm f
+
+getShortList :: [[a]] -> Maybe [a]
+getShortList [] = nt
+getShortList [xs] = return xs
+getShortList ([] : xss) = return []
+getShortList ([x] : xss) = return [x]
+getShortList (xs : xss) = do
+  ys <- getShortList xss
+  if shorter xs ys
+  then return xs
+  else return ys
+
+shorter :: [a] -> [b] -> Bool
+shorter _ [] = False
+shorter [] _ = True
+shorter (_ : xs) (_ : ys) = shorter xs ys
+
+substVar :: Text -> Term -> Term -> Term
+substVar v x (Var w) = if v == w then x else Var w
+substVar v x (Par m) = Par m
+substVar v x (Fun f xs) = Fun f $ L.map (substVar v x) xs
+
+hasVar :: Text -> Term -> Bool
+hasVar v (Var w) = v == w
+hasVar v (Fun _ xs) = L.any (hasVar v) xs
+hasVar _ _ = False
+
+appVrTerm :: VR -> Term -> Term
+appVrTerm vr (Var v) =
+  case HM.lookup v (fst vr) of
+    Just x -> Var x
+    _ -> et "appVrTerm : no mapping"
+appVrTerm vw (Fun f xs) = Fun f $ L.map (appVrTerm vw) xs
+appVrTerm vw x = x
+
+appVrForm :: VR -> Form -> Form
+appVrForm vr (Not f) = Not $ appVrForm vr f
+appVrForm vr (Fa vs f) = Fa (L.map (\ v_ -> HM.findWithDefault "_" v_ (fst vr)) vs) $ appVrForm vr f
+appVrForm vr (Ex vs f) = Ex (L.map (\ v_ -> HM.findWithDefault "_" v_ (fst vr)) vs) $ appVrForm vr f
+appVrForm vr (Imp f g) = Imp (appVrForm vr f) (appVrForm vr g)
+appVrForm vr (Iff f g) = Iff (appVrForm vr f) (appVrForm vr g)
+appVrForm vr (Or fs) = Or $ L.map (appVrForm vr) fs
+appVrForm vr (And fs) = And $ L.map (appVrForm vr) fs
+appVrForm vr (Rel r xs) = Rel r $ L.map (appVrTerm vr) xs
+appVrForm vr (Eq x y) = Eq (appVrTerm vr x) (appVrTerm vr y)
+
+litOccursIn :: Form -> [Form] -> Bool
+litOccursIn (Not (Eq x y)) hs = Not (Eq x y) `elem` hs || Not (Eq y x) `elem` hs
+litOccursIn (Eq x y) hs = Eq x y `elem` hs || Eq y x `elem` hs
+litOccursIn f@(Not (Rel _ _)) hs = f `elem` hs
+litOccursIn f@(Rel _ _) hs = f `elem` hs
+litOccursIn _ _ = False
+
+sublist :: Eq a => [a] -> [a] -> Bool
+sublist [] _ = True
+sublist (x : xs) ys = elem x ys && sublist xs ys
+
+desnoc :: [a] -> Maybe ([a], a)
+desnoc [] = nt
+desnoc [x] = return ([], x)
+desnoc (x : xs) = DBF.first (x :) <$> desnoc xs
+
+formPreds :: Form -> Set Text
+formPreds (Eq _ _) = S.empty
+formPreds (Rel r _) = S.singleton r
+formPreds (Not f) = formPreds f
+formPreds (Or fs) = L.foldl S.union S.empty $ L.map formPreds fs
+formPreds (And fs) = L.foldl S.union S.empty $ L.map formPreds fs
+formPreds (Imp f g) = S.union (formPreds f) (formPreds g)
+formPreds (Iff f g) = S.union (formPreds f) (formPreds g)
+formPreds (Fa _ f) = formPreds f
+formPreds (Ex _ f) = formPreds f

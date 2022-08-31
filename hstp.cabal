@@ -51,7 +51,7 @@ library
   -- exposed-modules:
 
   -- Modules included in this library but not exported.
-  other-modules: Types, Basic, PP, Parse, BT, Check, Sat
+  other-modules: Types, Basic, PP, Parse, Sat
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
@@ -79,7 +79,7 @@ executable hstp
   main-is:             Main.hs
 
   -- Modules included in this executable, other than Main.
-  other-modules: Types, Basic, PP, Parse, BT, Check, Sat, Lem
+  other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:

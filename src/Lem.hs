@@ -13,6 +13,69 @@ mt f g = ImpL f g (ImpRC (Not g) (Not f) $ NotR f $ Ax f) (ImpRA (Not g) (Not f)
 impRefl :: Form -> Prf
 impRefl f = ImpRA f f $ ImpRC f f $ Ax f
 
+-- impToOrNot f g : (f ==> g) |- (g \/ ~f)
+impToOrNot :: Form -> Form -> Prf
+impToOrNot f g = OrR [g, Not f] [g, Not f] $ NotR f $ ImpL f g (Ax f) (Ax g)
+
+-- orNotToImp f g : (g \/ ~f) |- (f ==> g) 
+orNotToImp :: Form -> Form -> Prf
+orNotToImp f g = impRAC f g $ OrL [(g, Ax g), (Not f, NotL f $ Ax f)]
+
+-- impIffOrNot vs f f : |- (f ==> g) <=> (g \/ ~f)
+impIffOrNot :: Form -> Form -> Prf
+impIffOrNot f g = iffRFull (f ==> g) (Or [g, Not f]) (impToOrNot f g) (orNotToImp f g)
+
+-- iffIffAnd f g : |- (f <=> g) <=> ((f \/ ~g) /\ (g \/ ~f))
+iffIffAnd :: Form -> Form -> Prf
+iffIffAnd f g = 
+  iffRFull (f <=> g) (And [Or [f, Not g], Or [g, Not f]])
+    (AndR [(Or [f, Not g], IffLR f g $ impToOrNot g f), (Or [g, Not f], IffLO f g $ impToOrNot f g)])
+    (AndL [Or [f, Not g], Or [g, Not f]] [Or [f, Not g], Or [g, Not f]] $ IffR f g (orNotToImp f g) (orNotToImp g f))
+
+-- notFaIffExNot vs f : |- ~(! vs f) <=> ? vs (~ f)
+notFaIffExNot :: Int -> [Text] -> Form -> Prf
+notFaIffExNot k vs f = 
+  let (_, vxs) = varPars k vs in
+  let f' = substForm vxs f in
+  iffRFull (Not (Fa vs f)) (Ex vs (Not f)) 
+    (NotL (Fa vs f) $ FaR vs k f $ ExR vxs (Not f) $ NotR f' $ Ax f') 
+    (NotR (Fa vs f) $ ExL vs k (Not f) $ FaL vxs f $ NotL f' $ Ax f')
+
+-- notFaIffExNot vs f : |- ~(? vs f) <=> ! vs (~ f)
+notExIffFaNot :: Int -> [Text] -> Form -> Prf
+notExIffFaNot k vs f = 
+  let (_, vxs) = varPars k vs in
+  let f' = substForm vxs f in
+  iffRFull (Not (Ex vs f)) (Fa vs (Not f)) 
+    (NotL (Ex vs f) $ FaR vs k (Not f) $ ExR vxs f $ NotR f' $ Ax f') 
+    (NotR (Ex vs f) $ ExL vs k f $ FaL vxs (Not f) $ NotL f' $ Ax f')
+
+-- notOrIffAndNots fs : |- ~(\/ fs) <=> /\ (~fs)
+notOrIffAndNots :: [Form] -> Prf
+notOrIffAndNots fs = 
+  let nfs = map Not fs in
+  let nfps = map (\ f_ -> (Not f_, NotR f_ (Ax f_))) fs in
+  let fps = map (\ f_ -> (f_, NotL f_ (Ax f_))) fs in
+  iffRFull (Not $ Or fs) (And nfs) 
+    (NotL (Or fs) $ OrR fs fs $ AndR nfps) 
+    (NotR (Or fs) $ AndL nfs nfs $ OrL fps)
+
+-- notAndIffOrNots fs : |- ~(/\ fs) <=> \/ (~fs)
+notAndIffOrNots :: [Form] -> Prf
+notAndIffOrNots fs = 
+  let nfs = map Not fs in
+  let nfps = map (\ f_ -> (Not f_, NotL f_ (Ax f_))) fs in
+  let fps = map (\ f_ -> (f_, NotR f_ (Ax f_))) fs in
+  iffRFull (Not $ And fs) (Or nfs) 
+    (NotL (And fs) $ OrR nfs nfs $ AndR fps) 
+    (NotR (And fs) $ AndL fs fs $ OrL nfps)
+
+-- notImpIffNotand f g : |- ~(f ==> g) <=> (~g /\ f)
+notImpIffNotAnd :: Form -> Form -> Prf
+notImpIffNotAnd f g = 
+  iffRFull (Not (f ==> g)) (And [Not g, f]) 
+    (NotL (f ==> g) $ AndR [(Not g, NotR g $ ImpRC f g $ Ax g), (f, ImpRA f g $ Ax f)]) 
+    (AndL [Not g, f] [Not g, f] $ NotL g $ NotR (f ==> g) $ ImpL f g (Ax f) (Ax g))
 
 mp :: Form -> Form -> Prf
 mp f g = ImpL f g (Ax f) (Ax g)
@@ -104,16 +167,16 @@ impCong e f g h =
   (impRAC (g ==> h) (e ==> f) $ Cut (e ==> g) (IffLO e g $ Ax (e ==> g)) $ Cut (h ==> f) (IffLR f h $ Ax (h ==> f)) $ impTrans3 e g h f)
 
 -- requires : none of vs occurs in f
--- degenFaIff k vs f : |- (! vs f) <=> f
-degenFaIff :: Int -> [Text] -> Form -> Prf 
-degenFaIff k vs f = 
+-- bloatFaIff k vs f : |- (! vs f) <=> f
+bloatFaIff :: Int -> [Text] -> Form -> Prf 
+bloatFaIff k vs f = 
   let vxs = map (, zt) vs in
   iffRFull (Fa vs f) f (FaL vxs f $ Ax f) (FaR vs k f $ Ax f)
 
 -- requires : none of vs occurs in f
--- degenExIff k vs f : |- (? vs f) <=> f
-degenExIff :: Int -> [Text] -> Form -> Prf 
-degenExIff k vs f = 
+-- bloatExIff k vs f : |- (? vs f) <=> f
+bloatExIff :: Int -> [Text] -> Form -> Prf 
+bloatExIff k vs f = 
   let vxs = map (, zt) vs in
   iffRFull (Ex vs f) f (ExL vs k f $ Ax f) (ExR vxs f $ Ax f)
 
@@ -125,9 +188,9 @@ degenHelper vxs w =
 
 -- requires : ws is a subset of vs 
 -- requires : none of (vs \ ws) occurs in f
--- degenFaIffFa k vs ws f : |- (! vs f) <=> (! ws f)
-degenFaIffFa :: Int -> [Text] -> [Text] -> Form -> Prf 
-degenFaIffFa k vs ws f = 
+-- bloatFaIffFa k vs ws f : |- (! vs f) <=> (! ws f)
+bloatFaIffFa :: Int -> [Text] -> [Text] -> Form -> Prf 
+bloatFaIffFa k vs ws f = 
   let (_, vxs) = varPars k vs in
   let (_, wxs) = varPars k ws in
   let vxs' = map (degenHelper wxs) vs in
@@ -138,9 +201,9 @@ degenFaIffFa k vs ws f =
 
 -- requires : ws is a subset of vs 
 -- requires : none of (vs \ ws) occurs in f
--- degenFaIffFa k vs ws f : |- (? vs f) <=> (? ws f)
-degenExIffEx :: Int -> [Text] -> [Text] -> Form -> Prf 
-degenExIffEx k vs ws f = 
+-- bloatExIffEx k vs ws f : |- (? vs f) <=> (? ws f)
+bloatExIffEx :: Int -> [Text] -> [Text] -> Form -> Prf 
+bloatExIffEx k vs ws f = 
   let (_, vxs) = varPars k vs in
   let (_, wxs) = varPars k ws in
   let vxs' = map (degenHelper wxs) vs in
@@ -225,6 +288,28 @@ faIffToFaIffFa' k vs f ws g = do
     (FaR ws k g $ FaL vxs' f $ FaL vxs' (f <=> g) $ iffMP f'' g') 
     (FaR vs k f $ FaL wxs' g $ FaL vxs  (f <=> g) $ iffMPR f' g'')
 
+-- faFaIff k vs ws f : |- ! vs (! ws f) <=> ! (vs ++ ws) f
+faFaIff :: Int -> [Text] -> [Text] -> Form -> Prf
+faFaIff k vs ws f = 
+  let (k', vxs) = varPars k vs in
+  let (_, wxs) = varPars k' ws in
+  let f' = substForm vxs f in
+  let f'' = substForm wxs f' in
+  iffRFull (Fa vs (Fa ws f)) (Fa (vs ++ ws) f) 
+    (FaR (vs ++ ws) k f $ FaL vxs (Fa ws f) $ FaL wxs f' $ Ax f'') 
+    (FaR vs k (Fa ws f) $ FaR ws k' f' $ FaL (vxs ++ wxs) f $ Ax f'')
+
+-- exExIff k vs ws f : |- ? vs (? ws f) <=> ? (vs ++ ws) f
+exExIff :: Int -> [Text] -> [Text] -> Form -> Prf
+exExIff k vs ws f = 
+  let (k', vxs) = varPars k vs in
+  let (_, wxs) = varPars k' ws in
+  let f' = substForm vxs f in
+  let f'' = substForm wxs f' in
+  iffRFull (Ex vs (Ex ws f)) (Ex (vs ++ ws) f) 
+    (ExL vs k (Ex ws f) $ ExL ws k' f' $ ExR (vxs ++ wxs) f $ Ax f'')
+    (ExL (vs ++ ws) k f $ ExR vxs (Ex ws f) $ ExR wxs f' $ Ax f'') 
+    
 faIffToFaIffFa :: [Text] -> Int -> Form -> Form -> Prf
 faIffToFaIffFa vs k f g = 
   let (_, vxs) = varPars k vs in
@@ -267,3 +352,102 @@ relCong r xyps =
 
 notLR :: Form -> Form -> Prf -> Prf
 notLR f g p = NotL f $ NotR g p
+
+-- notNotIff f : |- ~~f <=> f
+notNotIff :: Form -> Prf
+notNotIff f =
+  iffRFull (Not (Not f)) f
+    (NotL (Not f) $ NotR f $ Ax f)
+    (NotR (Not f) $ NotL f $ Ax f)
+
+rDefLemma0 :: Form -> Form -> Prf
+rDefLemma0 f g =
+  let p = IffLO f g (mp f g) in -- f, f <=> g |- g
+  OrR [g, Not f] [g, Not f] $ NotR f p -- f <=> g |- g \/ ~f
+
+rDefLemma1 :: Form -> [Form] -> [Form] -> Prf
+rDefLemma1 r fs fsnr =
+  let pl = rDefLemma0 r (Or fs) in -- (r <=> \/ fs) |- (\/ fs) \/ ~r
+  let ps = map (\ f_ -> (f_, Ax f_)) fs in
+  let pfsnr = OrL [(Or fs, OrL ps), (Not r, Ax (Not r))] in -- pfsnr : (\/ fs) \/ ~r |- fs, ~r
+  let pr = OrR fsnr fsnr pfsnr in                           -- ps    : (\/ fs) \/ ~r |- \/ fsnr
+  Cut (Or [Or fs, Not r]) pl pr -- (r <=> \/ fs) |- \/ fsnr
+
+-- notIffIffAnd f g : |- ~(f <=> g) <=> ((~g \/ ~f) /\ (g \/ f))
+notIffIffAnd :: Form -> Form -> Prf
+notIffIffAnd f g = 
+  let rhs = [Or [Not g, Not f], Or [g, f]] in
+  let _p1 = IffR f g (ImpRC f g $ Ax g) (ImpRC g f $ Ax f) in -- _p1 : f, g |- f <=> g
+  let p1 = OrR [Not g, Not f] [Not g, Not f] $ NotR g $ NotR f _p1 in -- p1 : |- f <=> g, (~g \/ ~f)
+  let p2 = OrR [g, f] [g, f] $ IffR f g (ImpRA f g $ Ax f) (ImpRA g f $ Ax g) in -- p2 : |- f <=> g, (g \/ f)
+  let p3 = OrL [(g, Ax g), (f, iffMP f g)] in -- p3 : f <=> g, (g \/ f) |- g
+  let p4 = OrL [(g, iffMPR f g), (f, Ax f)] in -- p4 : f <=> g, (g \/ f) |- f
+  iffRFull (Not (Iff f g)) (And rhs)
+    (NotL (f <=> g) $ AndR [(Or [Not g, Not f], p1), (Or [g, f], p2)])
+    (NotR (f <=> g) $ AndL rhs rhs $ OrL [(Not g, NotL g p3), (Not f, NotL f p4)]) 
+
+singleOrIff :: Form -> Prf
+singleOrIff f = iffRFull (Or [f]) f (OrL [(f, Ax f)]) (OrR [f] [f] $ Ax f)
+
+singleAndIff :: Form -> Prf
+singleAndIff f = iffRFull (And [f]) f (AndL [f] [f] $ Ax f) (AndR [(f, Ax f)])
+
+-- faTopIff : Fa vs top <=> top
+faTopIff :: Int -> [Text] -> Prf
+faTopIff k vs = 
+  iffRFull (Fa vs top) top (AndR []) (FaR vs k top $ AndR [])
+
+-- faBotIff : Fa vs top <=> top
+faBotIff :: [Text] -> Prf
+faBotIff vs = 
+  let vxs = map (, zt) vs in
+  iffRFull (Fa vs bot) bot (FaL vxs bot $ OrL []) (OrL [])
+
+-- exBotIff : Ex vs bot <=> bot
+exBotIff :: Int -> [Text] -> Prf
+exBotIff k vs =
+  iffRFull (Ex vs bot) bot (ExL vs k bot $ OrL []) (OrL [])
+
+-- exTopIff : Ex vs top <=> top
+exTopIff :: [Text] -> Prf
+exTopIff vs = 
+  let vxs = map (, zt) vs in
+  iffRFull (Ex vs top) top (AndR []) (ExR vxs top $ AndR [])
+
+-- degenOrIff fs : \/ fs <=> top
+-- requires : top <- fs
+degenOrIff :: [Form] -> Prf
+degenOrIff fs = iffRFull (Or fs) top (AndR []) (OrR fs [top] $ AndR [])
+
+-- degenAndIff fs : /\ fs <=> bot
+-- requires : bot <- fs
+degenAndIff :: [Form] -> Prf
+degenAndIff fs = iffRFull (And fs) bot (AndL fs [bot] $ OrL []) (OrL [])
+
+-- bloatOrIff fs : \/ fs <=> \/ (fs \ {bot})
+bloatOrIff :: [Form] -> Prf
+bloatOrIff fs = 
+  let gs = filter (not . isBot) fs in 
+  let fps = 
+        map 
+          ( \ f_ -> 
+             case f_ of 
+               Or [] -> (f_, OrL [])
+               _ -> (f_, Ax f_ ) )
+          fs in
+  let gps = map (\ g_ -> (g_, Ax g_)) gs in
+  iffRFull (Or fs) (Or gs) (OrR gs gs $ OrL fps) (OrR fs fs $ OrL gps)
+
+-- bloatAndIff fs : /\ fs <=> /\ (fs \ {top})
+bloatAndIff :: [Form] -> Prf
+bloatAndIff fs = 
+  let gs = filter (not . isTop) fs in 
+  let fps = 
+        map 
+          ( \ f_ -> 
+             case f_ of 
+               And [] -> (f_, AndR [])
+               _ -> (f_, Ax f_ ) )
+          fs in
+  let gps = map (\ g_ -> (g_, Ax g_)) gs in
+  iffRFull (And fs) (And gs) (AndL fs fs $ AndR gps) (AndL gs gs $ AndR fps)

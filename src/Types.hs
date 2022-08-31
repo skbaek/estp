@@ -66,8 +66,8 @@ data Prf =
 data Elab =
     Plab Prf
   | Rdef Text Form Prf
-  | Tfe Form
-  | Nnf Bool Form
+  -- | Tfe Form
+  -- | Nnf Bool Form
   | AOC [Term] Form Prf
   | Lrats [Form] [Lrat]
   deriving (Show)
@@ -111,3 +111,46 @@ type VC = (HM.Map Text (Set Text), HM.Map Text (Set Text))
 type VR = (HM.Map Text Text, HM.Map Text Text) 
 
 type VM = HM.Map Text Term
+
+data Path =
+    NewRel Text Int
+  | NewFun Text Int
+  | NewEq
+  | NewFa Bool
+  | NewEx Bool
+  | NewImpL
+  | NewImpR
+  | NewIffL
+  | NewIffR
+  | NewOr Int Int
+  | NewAnd Int Int
+  | NewNot
+  deriving (Ord, Eq)
+
+data PrePath =
+    PreRel Text Int
+  | PreFun Text Int
+  | PreEq
+  | PreFa [Text]
+  | PreEx [Text]
+  | PreImpL
+  | PreImpR
+  | PreIffL
+  | PreIffR
+  | PreOr Int Int
+  | PreAnd Int Int
+  | PreNot
+  deriving (Ord, Eq)
+
+type Sig = HM.Map [Path] Int
+type Sigs = HM.Map Text Sig
+
+
+type RSTA = (VM, Maybe (Form, Dir), [Form], [Form], [Form])
+type SST = (VM, [Form], [Form], [(Term, Term)])
+type EFS = (VM, Maybe Bool, [Form])
+type FSTA = (VM, [Form])
+type EQFS = (VM, [Form], [(Term, Term)])
+type MTT = HM.Map Text Text
+type MTI = HM.Map Text Int
+type USOL = [Term]

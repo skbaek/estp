@@ -3,7 +3,7 @@
 module PP where
 
 import Data.List as L
-import Data.Text as T ( concat, intercalate, pack, Text )
+import Data.Text as T ( concat, intercalate, pack, Text, length, take )
 import qualified Data.Text.Lazy as TL (toStrict, intercalate)
 import Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
@@ -111,14 +111,6 @@ ppAnt :: Ant -> Text
 ppAnt Nothing  = ""
 ppAnt (Just t) = ppGterm t
 
--- ppPrvGoal :: PrvGoal -> Text
--- ppPrvGoal (f, g, _) = ppForm f <> " |- " <> ppForm g
-
--- ppInput :: Input -> String
--- ppInput (Inc s) = printf "include(%s)" s
--- ppInput (Cnf n f a) = printf "cnf(%s, %s%s)" n (ppForm f) (ppAnt a)
--- ppInput (Fof n f a) = printf "fof(%s, %s%s)" n (ppForm f) (ppAnt a)
-
 ppAnForm :: AnForm -> String
 ppAnForm (Af n f a) = printf "%s :: %s :: %s" n (ppForm f) (ppAnt a)
 
@@ -163,62 +155,17 @@ ppPrf k (ExR vxs f p) =
 ppPrf k (FaR vs m f p) = ["Fa-R?"]
 ppPrf k (ExL vs m f p) = ["Ex-L?"]
 ppPrf k Asm = ["Asm!"]
--- ppPrf _ _ = ["?"]
 
--- ppPr' :: PR -> [Text]
--- ppPr' (Open f g) = [ppForm f <> " <-|-> " <> ppForm g]
--- ppPr' (ExP vs f ws g p) =
---   [
---     "ExP:",
---     "  f = " <> ppForm (Fa vs f),
---     "  g = " <> ppForm (Fa ws g)
---   ] ++ L.map pad (ppPr' p)
--- ppPr' (FaP vs f ws g p) =
---   [
---     "FaP:",
---     "  f = " <> ppForm (Fa vs f),
---     "  g = " <> ppForm (Fa ws g)
---   ] ++ L.map pad (ppPr' p)
--- ppPr' (NotP p) = "NotP :" : L.map pad (ppPr' p)
--- ppPr' (Clos fd) = "Clos : " : L.map pad (ppFD' fd)
--- ppPr' (EqP Obv xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yl yr)]
--- ppPr' (EqP Rev xl xr yl yr) = ["EqP:" <> ppForm (Eq xl xr) <> " =|= " <> ppForm (Eq yr yl)]
--- ppPr' (ImpP pl pr) = "ImpP :" : L.map pad (ppPr' pl ++ ppPr' pr)
--- ppPr' (IffP pl pr) = "IffP :" : L.map pad (ppPr' pl ++ ppPr' pr)
--- ppPr' (OrP jps gs) = "OrP :" : L.map pad (L.concatMap ppJP' jps ++ L.map ppForm gs)
--- ppPr' AndP {} = ["AndP?"]
--- ppPr' (TransP pl g pr) = "TransP" : L.map pad (ppPr' pl ++ ["Mid : " <> ppForm g] ++ ppPr' pr)
--- 
--- ppJP' :: JP -> [Text]
--- ppJP' (Vac f) = ["Vac :" <> ppForm f]
--- ppJP' (Occ p g) = "Occ : " <> ppForm g : L.map pad (ppPr' p)
--- 
--- ppPR :: PR -> Text
--- ppPR pr = T.intercalate "\n" $ ppPr' pr
--- 
--- ppFD :: FD -> Text
--- ppFD fd = T.intercalate "\n" $ ppFD' fd
--- 
--- ppFD' :: FD -> [Text]
--- ppFD' AxFD = ["Ax"]
--- ppFD' (RWFD Obv f) = ["====> " <> ppForm f]
--- ppFD' (RWFD Rev f) = ["<==== " <> ppForm f]
--- ppFD' (NotFD fd) = "NotFD : " : L.map pad (ppFD' fd)
--- ppFD' (TransFD fdl f fdr) = 
---   "TransFD : " : L.map pad (ppFD' fdl ++ ["Mid : " <> ppForm f] ++ ppFD' fdr)
--- ppFD' (AndFD fds) = "AndFD:" : L.map pad (L.concatMap ppFD' fds)
--- ppFD' (OrFD fds) = "OrFD:" : L.map pad (L.concatMap ppFD' fds)
--- ppFD' (ImpFD fdl fdr) = "ImpFD : " : L.map pad (ppFD' fdl ++ ppFD' fdr)
--- ppFD' (IffFD fdl fdr) = "IffFD : " : L.map pad (ppFD' fdl ++ ppFD' fdr)
--- ppFD' (RelFD _) = ["?"]
--- ppFD' (EqFD _ _) = ["?"]
--- ppFD' PermFD = ["PermFD"]
--- ppFD' WrapFD = ["WrapFD"]
--- ppFD' DropFD = ["DropFD"]
--- -- ppFD' SymFD = ["SymFD"]
--- ppFD' ConstFD = ["ConstFD?"]
--- ppFD' (FaFD vs p) = "FaFD :" : L.map pad (ppFD' p)
--- ppFD' (ExFD _ _) = ["ExFD?"]
--- ppFD' DNFD = ["DNFD"]
--- ppFD' AlphaFD = ["AlphaFD"]
--- 
+ppTake :: Int -> (a -> Text) -> a -> Text
+ppTake k f x =
+  let t = f x in
+  let l = T.length t in
+  if l <= k
+  then t
+  else T.take k t <> "..."
+
+ppTakeEq :: Int -> (Form, Form) -> Text
+ppTakeEq k (f, g) = ppTake k ppForm f <> " <-|-> " <> ppTake k ppForm g
+
+ppSearchState :: VC -> [(Form, Form)] -> Text
+ppSearchState vc = ppListNl (ppTakeEq 40)
