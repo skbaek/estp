@@ -12,7 +12,6 @@ import Data.Text as T (Text, uncons, unpack)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
-
 import Control.Monad as M (MonadPlus, mzero, foldM, guard)
 import Control.Monad.Fail as MF (MonadFail, fail)
 -- import Control.Monad.Plus as MP 
@@ -129,9 +128,9 @@ instance MonadCast Maybe where
            Nothing -> MF.fail ""
            (Just x) -> return x
 
-(?>) :: Maybe a -> (a -> b) -> b -> b
-(?>) (Just x) f _ = f x
-(?>) Nothing _ y = y
+-- (?>) :: Maybe a -> (a -> b) -> b -> b
+-- (?>) (Just x) f _ = f x
+-- (?>) Nothing _ y = y
 
 isPerm :: (Eq a) => [a] -> [a] -> Bool
 isPerm xs ys = null (xs \\ ys) && null (ys \\ xs)

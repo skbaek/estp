@@ -5,37 +5,27 @@
 {-# HLINT ignore "Use foldl" #-}
 {-# HLINT ignore "Use second" #-}
 {-# HLINT ignore "Use list comprehension" #-}
-{-# LANGUAGE TupleSections #-}
 
 module Main where
 
 import Types
 import Basic
 import PP
-import Parse
-import Sat
+import Parse ( parseName )
+import Sat ( sat )
 import Lem
 import Norm
 import Prove
 
-import Control.Monad as M (guard, MonadPlus, foldM, foldM_, (>=>), mzero, when )
+import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when ) 
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
-import System.Environment
-import Data.List as L
-    (filter, null, find, map, length, foldl, elem, partition, all, any, concat, (\\),
-    elemIndex, insert, sortBy, concatMap, unzip, nub, splitAt, delete, reverse )
-import Data.Text as T ( uncons, unpack, pack, Text, take, length )
-import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, delete,
-  union, unions, difference, disjoint, (\\), null, lookupMin, isSubsetOf, intersection, size )
-import qualified Data.Text.Lazy as TL (toStrict, intercalate)
+import System.Environment ( getArgs )
+import Data.List as L ( map, foldl, all, sortBy ) 
+import Data.Text as T ( Text, unpack )
+import Data.Set as S ( empty, insert, member, singleton, toList )  
 import Data.Text.Read as TR ( decimal )
-import Data.Functor ((<&>))
-import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, mapKeys, toList,
-  fromListWithKey, mapWithKey, delete, notMember, findWithDefault, partitionWithKey, isSubmapOf,
-  filterWithKey, update, fromList, alter, foldrWithKey, foldr )
-import Debug.Trace (trace)
-import Data.Maybe as MB ( isNothing, fromMaybe, mapMaybe )
+import Data.Map as HM ( empty, insert, lookup )  
 
 putAnForm :: AnForm -> IO ()
 putAnForm i = Prelude.putStr $ ppAnForm i ++ "\n"
@@ -75,42 +65,6 @@ checkElab sq g (Rdef r f p) = do
   guard $ isRdef r f
   verify 0 (S.singleton f) (S.singleton g) p
 checkElab sq g (AOC xs f p) = isAOC xs f
-checkElab sq g (Lrats fs lrs) = do
-  guard (L.all (`S.member` sq) fs)
-  checkLrats (lratCtx 1 fs) lrs
-
-lratCtx :: Int -> [Form] -> Map Int Form
-lratCtx _ [] = HM.empty
-lratCtx k (f : fs) = HM.insert k f $ lratCtx (k + 1) fs
-
-negLit :: Form -> Form
-negLit (Not f) = f
-negLit f = Not f
-
-negated :: Set Form -> Form -> Bool
-negated fs (Not f) = f `elem` fs
-negated fs f = Not f `elem` fs
-
-checkLrat :: Map Int Form -> Set Form -> [Int] -> IO ()
-checkLrat _ _ [] = mzero
-checkLrat fs fxs [k] = do
-  ls <- cast $ HM.lookup k fs >>= formToLits
-  guard $ L.all (negated fxs) ls
-checkLrat fs fxs (k : ks) = do
-  ls <- cast $ HM.lookup k fs >>= formToLits
-  fx <- cast $ breakSingleton $ nub $ L.filter (not . negated fxs) ls
-  checkLrat fs (S.insert fx fxs) ks
-
-checkLrats :: Map Int Form -> [Lrat] -> IO ()
-checkLrats _ [] = mzero
-checkLrats fs [Add _ [] hs] = checkLrat fs S.empty hs
-checkLrats _ [_] = mzero
-checkLrats fs (Add k ls hs : lrs) = do
-  let ns = S.fromList $ L.map negLit ls
-  checkLrat fs ns hs
-  checkLrats (HM.insert k (Or ls) fs) lrs
-checkLrats fs (Del _ ks : lrs) =
-  checkLrats (L.foldl (flip HM.delete) fs ks) lrs
 
 isSkolemTerm :: [Text] -> Term -> Bool
 isSkolemTerm vs (Fun _ xs) =
@@ -147,9 +101,9 @@ infer "forward_demodulation" [f, g] h  = superpose f g h
 infer "backward_demodulation" [f, g] h = superpose f g h
 infer "negated_conjecture" [f] g = guard (f == g) >> return (Ax f)
 infer "factoring" [f] g = efactor (Just True) f g
-infer "nnf_transformation" [f] g = nnfTrans False f g -- efactor (Just True) f g
-infer "ennf_transformation" [f] g = nnfTrans True f g -- efactor (Just True) f g
-infer "true_and_false_elimination" [f] g = trueFalseElim f g -- efactor (Just True) f g
+infer "nnf_transformation" [f] g = nnfTrans False f g 
+infer "ennf_transformation" [f] g = nnfTrans True f g 
+infer "true_and_false_elimination" [f] g = trueFalseElim f g 
 infer "duplicate_literal_removal" [f] g = efactor (Just True) f g
 infer "equality_resolution" [f] g = efactor (Just False) f g
 infer "trivial_inequality_removal" [f] g = efactor nt f g
@@ -166,7 +120,7 @@ infer "cnf_transformation" [f] g = cnfTrans f g
 infer "avatar_split_clause" (f : fs) g    = avatarSplit fs f g
 infer "unused_predicate_definition_removal" [f] g = updr 0 f g 
 infer "avatar_contradiction_clause" [f] g = efactor (Just True) f g 
-infer "skolemisation" (f : fs) g = skolemize fs 0 f g  -- et "todo : skolemisation" -- skolemize fs (f, g, 0) blank
+infer "skolemisation" (f : fs) g = skolemize fs 0 f g  
 infer r fs g = et $ "No inference : " <> r
 
 
@@ -182,40 +136,12 @@ elab s (Af n g (Just (Gfun "introduced" [Gfun "choice_axiom" [], Glist []]))) = 
   return $ AOC xs f p
 elab s (Af _ g (Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l]))) = do
   fs <- cast (mapM gFunFunctor l) >>= mapM (`lookupM` s)
-  -- sat fs <&> Lrats fs
-  Lrats fs <$> sat fs 
+  Plab <$> sat fs
 elab s (Af _ g (Just (Gfun "inference" [Gfun r [], _, Glist l]))) = do
   fs <- cast (mapM gFunFunctor l) >>= mapM (`lookupM` s)
   p <- infer r fs g
   return $ Plab p
 elab _ (Af _ _ a) = error $ "Unimplemented inference : " ++ show a
-
-main :: IO ()
-main = do
-  (tptp : tstp : flags) <- getArgs
-  tptp_afs <- parseName tptp
-  tstp_afs <- sortAfs <$> parseName tstp
-  let hs = L.foldl addHyp (HM.empty, S.empty) tptp_afs
-  Prelude.putStr $ tptp ++ "\n"
-  if "silent" `elem` flags
-    then return ()
-    else mapM_ putAnForm tptp_afs
-  Prelude.putStr $ tstp ++ "\n"
-  if "silent" `elem` flags
-    then return ()
-    else mapM_ putAnForm tstp_afs
-  if tooHard tptp
-  then return ()
-  else foldM_ elabIO hs tstp_afs
-  Prelude.putStr "Elab complete.\n\n"
-
-tooHard :: String -> Bool
-tooHard n = False -- n `elem` ["ALG038+1", "ALG016+1", "HAL004+1", "ALG114+1", "ALG111+1", "ALG121+1"]
-
-  -- Prelude.putStr $ tstp ++ "\n"
-  -- tstp_afs <- sortAfs <$> parseName tstp
-  -- foldM_ elabIO' HM.empty tstp_afs
-  -- Prelude.putStr "Elab complete.\n\n"
 
 
 
@@ -271,11 +197,11 @@ verify k lft rgt (OrL gls) = do
   mapM_ (verifyLftGoal k lft rgt) gls
 verify k lft rgt (OrR fs gs p) = do
   guard (sublist gs fs && S.member (Or fs) rgt) <|> error "OrR-fail"
-  verify k lft (foldl (flip S.insert) rgt gs) p
+  verify k lft (L.foldl (flip S.insert) rgt gs) p
 verify k lft rgt (AndL fs gs p) = do
   guard (sublist gs fs) <|> error "AndL-fail : not subset"
   guard (S.member (And fs) lft) <|> ev "AndL-fail : " (And fs) lft rgt
-  verify k (foldl (flip S.insert) lft gs) rgt p
+  verify k (L.foldl (flip S.insert) lft gs) rgt p
 verify k lft rgt (AndR gls) = do
   let fs = L.map fst gls 
   guard (S.member (And fs) rgt) <|> error "AndR-fail"
@@ -323,130 +249,32 @@ verify k lft rgt (Cut f p0 p1) = do
   verify k (S.insert f lft) rgt p1
 verify k lft rgt (Mrk s p) = verify k lft rgt p 
 
-nnfTrans :: Bool -> Form -> Form -> IO Prf
-nnfTrans b f g = do 
-  p <- pnnf b 0 f g 
-  return $ Cut (f <=> g) p $ iffMP f g
 
-trueFalseElim :: Form -> Form -> IO Prf
-trueFalseElim f g = do 
-  let f' = boolSimp f
-  let f'' = uws f'
-  guard $ f'' == g
-  p0 <- pbs 0 f f'
-  p1 <- puw 0 f' f''
-  return $ cutIff f f' p0 $ cutIff f' f'' p1 $ Ax g
 
-pnnf :: Bool -> Int -> Form -> Form -> IO Prf
-pnnf b k (Not (Not f)) g = do 
-  p <- pnnf b k f g 
-  return $ iffsTrans [(Not (Not f), notNotIff f), (f, p)] g
-pnnf b k (Not (Or fs)) (And gs) = do
-  let nfs = L.map Not fs 
-  nfgps <- mapM2 (\ nf_ g_ -> (nf_ <=> g_,) <$> pnnf b k nf_ g_) nfs gs
-  p <- cuts nfgps <$> cast (iffsToAndIffAnd nfs gs)
-  return $ iffsTrans [(Not (Or fs), notOrIffAndNots fs), (And nfs, p)] (And gs)
-pnnf b k (Not (And fs)) (Or gs) = do
-  let nfs = L.map Not fs 
-  nfgps <- mapM2 (\ nf_ g_ -> (nf_ <=> g_,) <$> pnnf b k nf_ g_) nfs gs
-  p <- cuts nfgps <$> cast (iffsToOrIffOr nfs gs)
-  return $ iffsTrans [(Not (And fs), notAndIffOrNots fs), (Or nfs, p)] (Or gs)
-pnnf b k (Not (Imp f g)) h = do
-  p <- pnnf b k (And [Not g, f]) h
-  return $ iffsTrans [(Not (Imp f g), notImpIffNotAnd f g), (And [Not g, f], p)] h
-pnnf True k (Not (Iff f g)) (Not fg) = do
-  p <- pnnf True k (f <=> g) fg
-  return $ Cut ((f <=> g) <=> fg) p $ iffToNotIffNot (f <=> g) fg
-pnnf False k (Not (Iff f g)) (And [Or [ng', nf'], Or [g', f']]) = do 
-  png <- pnnf False k (Not g) ng'
-  pnf <- pnnf False k (Not f) nf'
-  pf <- pnnf False k f f'
-  pg <- pnnf False k g g'
-  _px <- cast $ iffsToOrIffOr [Not g, Not f] [ng', nf']
-  let px = Cut (Not g <=> ng') png $ Cut (Not f <=> nf') pnf _px -- px |- Or [Not g, Not f] <=> Or [ng', nf']
-  _py <- cast $ iffsToOrIffOr [g, f] [g', f']
-  let py = Cut (g <=> g') pg $ Cut (f <=> f') pf _py -- py |- Or [g, f] <=> Or [g', f']
-  _pz <- cast $ iffsToAndIffAnd [Or [Not g, Not f], Or [g, f]] [Or [ng', nf'], Or [g', f']]
-  let pz = Cut (Or [Not g, Not f] <=> Or [ng', nf']) px $ Cut (Or [g, f] <=> Or [g', f']) py _pz -- pz : |- (And [Or [Not g, Not f], Or [g, f]], pz) <=> (And [Or [ng', nf'], Or [g', f']]) 
-  return $ 
-    iffsTrans 
-      [ (Not (Iff f g), notIffIffAnd f g), 
-        (And [Or [Not g, Not f], Or [g, f]], pz) ] 
-    (And [Or [ng', nf'], Or [g', f']]) 
+{- Main -}
 
-pnnf b k (Not (Fa vs f)) (Ex ws nf) = do 
-  guard $ vs == ws
-  let (k', vxs) = varPars k vs
-  let f' = substForm vxs f
-  let nf' = substForm vxs nf
-  pnf <- pnnf b k' (Not f') nf'
-  let p = Cut (Fa vs $ Not f <=> nf) (FaR vs k (Not f <=> nf) pnf) $ faIffToExIffEx vs k (Not f) nf
-  return $ iffsTrans [(Not (Fa vs f), notFaIffExNot k vs f), (Ex vs (Not f), p)] (Ex ws nf)
+skipList :: String -> Bool
+skipList n = False 
 
-pnnf b k (Not (Ex vs f)) (Fa ws nf) = do 
-  guard $ vs == ws
-  let (k', vxs) = varPars k vs
-  let f' = substForm vxs f
-  let nf' = substForm vxs nf
-  pnf <- pnnf b k' (Not f') nf'
-  let p = Cut (Fa vs $ Not f <=> nf) (FaR vs k (Not f <=> nf) pnf) $ faIffToFaIffFa vs k (Not f) nf
-  return $ iffsTrans [(Not (Ex vs f), notExIffFaNot k vs f), (Fa vs (Not f), p)] (Fa ws nf)
+elaborate :: [String] -> IO ()
+elaborate (tptp : tstp : flags) = do
+  tptp_afs <- parseName tptp
+  tstp_afs <- sortAfs <$> parseName tstp
+  let hs = L.foldl addHyp (HM.empty, S.empty) tptp_afs
+  Prelude.putStr $ tptp ++ "\n"
+  when ("silent" `elem` flags) $ mapM_ putAnForm tptp_afs
+  Prelude.putStr $ tstp ++ "\n"
+  when ("silent" `elem` flags) $ mapM_ putAnForm tstp_afs
+  foldM_ elabIO hs tstp_afs
+  Prelude.putStr "Elab complete.\n\n"
 
-pnnf b k (Fa vs f) (Fa ws g) = do 
-  guard $ vs == ws
-  let (k', vxs) = varPars k vs
-  let f' = substForm vxs f
-  let g' = substForm vxs g
-  p <- pnnf b k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+check :: [String] -> IO ()
+check (tptp : estp : flags) = do _
 
-pnnf b k (Ex vs f) (Ex ws g) = do 
-  guard $ vs == ws
-  let (k', vxs) = varPars k vs
-  let f' = substForm vxs f
-  let g' = substForm vxs g
-  p <- pnnf b k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
-
-pnnf b k (Imp f g) (Or [g', nf']) = do 
-  pf <- pnnf b k (Not f) nf'
-  pg <- pnnf b k g g'
-  _p <- cast $ iffsToOrIffOr [g, Not f] [g', nf']
-  let p = cuts [(Not f <=> nf', pf), (g <=> g', pg)] _p
-  return $ iffsTrans [(f ==> g, impIffOrNot f g), (Or [g, Not f], p)] (Or [g', nf'])
-
-pnnf b k (And fs) (And gs) = do
-  fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pnnf b k f_ g_) fs gs
-  cuts fgps <$> cast (iffsToAndIffAnd fs gs)
-pnnf b k (Or fs) (Or gs) = do
-  fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pnnf b k f_ g_) fs gs
-  cuts fgps <$> cast (iffsToOrIffOr fs gs)
-pnnf True k (Iff f g) (Iff f' g') = do
-  pf <- pnnf True k f f'
-  pg <- pnnf True k g g'
-  return $ Cut (f <=> f') pf $ Cut (g <=> g') pg $ iffCong f g f' g' 
-pnnf False k (Iff f g) (And [Or [f', ng'], Or [g', nf']]) = do 
-  png <- pnnf False k (Not g) ng'
-  pnf <- pnnf False k (Not f) nf'
-  pf <- pnnf False k f f'
-  pg <- pnnf False k g g'
-  _px <- cast $ iffsToOrIffOr [f, Not g] [f', ng']
-  let px = Cut (f <=> f') pf $ Cut (Not g <=> ng') png _px -- px |- Or [f, Not g] <=> Or [f', ng']
-  _py <- cast $ iffsToOrIffOr [g, Not f] [g', nf']
-  let py = Cut (g <=> g') pg $ Cut (Not f <=> nf') pnf _py -- py |- Or [g, Not f] <=> Or [g', nf']
-  _pz <- cast $ iffsToAndIffAnd [Or [f, Not g], Or [g, Not f]] [Or [f', ng'], Or [g', nf']]
-  let pz = Cut (Or [f, Not g] <=> Or [f', ng']) px $ Cut (Or [g, Not f] <=> Or [g', nf']) py _pz 
-  return $ 
-    iffsTrans 
-      [ (Iff f g, iffIffAnd f g), 
-        (And [Or [f, Not g], Or [g, Not f]], pz) ] 
-    (And [Or [f', ng'], Or [g', nf']]) 
-pnnf _ _ f@(Not (Rel _ _)) g
-  | f == g = return $ iffRefl f
-pnnf _ _ f@(Not (Eq _ _)) g
-  | f == g = return $ iffRefl f
-pnnf _ _ f@(Rel _ _) g
-  | f == g = return $ iffRefl f
-pnnf _ _ f@(Eq _ _) g
-  | f == g = return $ iffRefl f
-pnnf _ _ f g = et $ "prove-nnf\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
+main :: IO ()
+main = do
+  (cmd : args) <- getArgs
+  case cmd of  
+    "elab" -> elaborate args
+    "check" -> check args
+    _ -> et "undefined command"

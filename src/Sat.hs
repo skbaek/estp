@@ -9,6 +9,8 @@ import Basic
 import PP
 import Data.Text as T
 import Data.List as L
+import Data.Map as HM (Map, lookup, insert, map, empty)
+import Data.Set as S (Set, insert, fromList)
 import Data.Text.IO as TIO
 import Data.Functor ((<&>))
 import Control.Monad as M (guard, foldM, foldM_, (>=>), mzero)
@@ -75,7 +77,87 @@ textsToLrat as (t : ts) = do
   return $ Add k fs ks
 textsToLrat _ _ = Nothing
 
-sat :: [Form] -> IO [Lrat]
+useRgtLit :: Form -> Prf
+useRgtLit (Not f) = NotR f $ Ax f
+useRgtLit f = NotR f $ Ax f
+
+useLftLit :: Form -> Prf
+useLftLit (Not f) = NotL f $ Ax f
+useLftLit f = NotL f $ Ax f
+
+lratPrf :: Map Int Form -> [Form] -> [Int] -> IO Prf
+lratPrf fs ls hs = do 
+  let nls = L.map negLit ls  
+  let nlps = L.map (\ l_ -> (negLit l_, useRgtLit l_)) ls 
+  let fxs = S.fromList nls
+  p <- lratPrfCore fs fxs hs
+  return $ Cut (And nls) (OrR ls ls $ AndR nlps) (AndL nls nls p)
+
+lratsPrf :: Map Int Form -> [Lrat] -> IO Prf
+lratsPrf _ [] = et "Empty LRAT proof"
+lratsPrf fs [Add _ [] hs] = do 
+  p <- lratPrf fs [] hs 
+  return $ Cut bot p (OrL [])
+lratsPrf fs (Add k ls hs : lrs) = do 
+  p0 <- lratPrf fs ls hs 
+  let fs' = HM.insert k (Or ls) fs
+  p1 <- lratsPrf fs' lrs 
+  return $ Cut (Or ls) p0 p1
+lratsPrf fs (_ : lrs) = lratsPrf fs lrs
+
+lratCtx :: Int -> [Form] -> Map Int Form
+lratCtx _ [] = HM.empty
+lratCtx k (f : fs) = HM.insert k f $ lratCtx (k + 1) fs
+
+negLit :: Form -> Form
+negLit (Not f) = f
+negLit f = Not f
+
+negated :: Set Form -> Form -> Bool
+negated fs (Not f) = f `elem` fs
+negated fs f = Not f `elem` fs
+
+useLastCla :: Seq -> Form -> IO Prf -- todo : remove checks
+useLastCla fxs (Or fs)  
+  | L.all (negated fxs) fs = return $ OrL $ L.map (\ f_ -> (f_, useLftLit f_)) fs
+useLastCla fxs f  
+  | negated fxs f = return $ useLftLit f
+useLastCla _ _ = et "use last claus"
+
+lratPrfCore :: Map Int Form -> Seq -> [Int] -> IO Prf
+lratPrfCore _ _ [] = et "lrat : hints exhausted"
+lratPrfCore fs fxs [h] = do 
+  f <- cast $ HM.lookup h fs 
+  useLastCla fxs f 
+lratPrfCore fs fxs (h : hs) = do
+  f <- cast $ HM.lookup h fs 
+  l <- findNewLit fxs f
+  let cl = negLit l
+  let fxs0 = S.insert cl fxs
+  let fxs1 = S.insert l fxs
+  p0 <- useCla fxs0 f 
+  p1 <- lratPrfCore fs fxs1 hs 
+  return $ Cut l (movLitLft l p0) p1
+
+movLitLft :: Form -> Prf -> Prf
+movLitLft (Not f) p = NotR f p
+movLitLft f p = Cut (Not f) (NotR f $ Ax f) p
+
+useCla :: Seq -> Form -> IO Prf
+useCla fxs (Or fs) = do
+  guardMsg (L.all (negated fxs) fs) "not all negated"
+  return $ OrL $ L.map (\ f_ -> (f_, useLftLit f_)) fs
+useCla fxs f = do
+  guardMsg (negated fxs f) "not all negated"
+  return $ useLftLit f
+
+findNewLit :: Seq -> Form -> IO Form
+findNewLit fxs (Or fs) = cast $ breakSingleton $ nub $ L.filter (not . negated fxs) fs
+findNewLit fxs f 
+  | isLit f && not (negated fxs f) = return f 
+  | otherwise = et "cannot find new lit"
+
+sat :: [Form] -> IO Prf
 sat fs = do
   Prelude.putStr "Premises:\n"
   mapM_ (\ f_ -> Prelude.putStr $ unpack $ ppForm f_ <> "\n") fs
@@ -93,4 +175,5 @@ sat fs = do
   t <- TIO.readFile "temp.lrat"
   runCommand "rm temp.*" >>= waitForProcess
   let lns = L.map T.words $ T.lines t
-  cast $ mapM (textsToLrat as) lns
+  lrs <- cast $ mapM (textsToLrat as) lns
+  lratsPrf (lratCtx 1 fs) lrs 

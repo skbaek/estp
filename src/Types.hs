@@ -69,8 +69,9 @@ data Elab =
   -- | Tfe Form
   -- | Nnf Bool Form
   | AOC [Term] Form Prf
-  | Lrats [Form] [Lrat]
   deriving (Show)
+
+-- | Lrats [Form] [Lrat]
 
 data Input =
     Cnf Text Form (Maybe Gterm)
@@ -103,13 +104,8 @@ type NSeq = Map Text Form
 type Seq = Set Form
 type Hyps = (NSeq, Seq)
 
--- type Bij a b = (HM.Map a b, HM.Map b a)
-
--- type VR = ([([Text], [Text])], Bij Text Text)
 type VC = (HM.Map Text (Set Text), HM.Map Text (Set Text)) 
-
 type VR = (HM.Map Text Text, HM.Map Text Text) 
-
 type VM = HM.Map Text Term
 
 data Path =

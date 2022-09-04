@@ -79,7 +79,7 @@ ppForm (Fa vs f) = "! " <> ppList id vs <> " : " <> ppForm f
 ppForm (Ex vs f) = "? " <> ppList id vs <> " : " <> ppForm f
 
 ppFormNl :: Form -> Text
-ppFormNl f = T.intercalate "\n" $ ppFormNl' f
+ppFormNl f = T.intercalate "\n" (ppFormNl' f) <> "\n"
 
 ppFormNl' :: Form -> [Text]
 ppFormNl' (Eq t s) = [ppTerm t <> " = " <> ppTerm s]
