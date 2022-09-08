@@ -12,7 +12,7 @@ import PP
 import Data.List as L (length, null, map, find, foldl, any, filter, concatMap, concat, all, (\\))
 import Data.Text as T (Text, unpack)
 import Data.Set as S
-  ( Set, isSubsetOf, toList, union, intersection, (\\), null, fromList, member, delete, difference, disjoint )
+  ( Set, empty, isSubsetOf, toList, union, intersection, (\\), null, fromList, member, delete, difference, disjoint, insert )
 import Data.Map as HM
   ( Map, toList, fromList, empty, lookup, insert, isSubmapOf, map, filterWithKey, findWithDefault, mapWithKey,
     alter, foldrWithKey, notMember )
@@ -54,43 +54,45 @@ andIffFlatAnd fs gs = do
   return $ iffRFull (And fs) (And gs) (andLs (And fs) $ AndR gps) (AndL gs gs p) --(OrR gs gs p0) (orRs (Or fs) $ OrL gps)
 
 pdne :: Int -> Form -> Form -> IO Prf
-pdne k (Not f) (Not g) = do
-  p <- pdne k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
-pdne k (Not (Not f)) g = do
-  p <- pdne k f g -- p : |- f <=> g
-  return $ cuts [(Not (Not f) <=> f, notNotIff f), (f <=> g, p)] $ iffTrans (Not (Not f)) f g
-pdne k (Or fs) (Or gs) = do
-  fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pdne k f_ g_) fs gs
-  cuts fgps <$> cast (iffsToOrIffOr fs gs)
-pdne k (And fs) (And gs) = do
-  fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pdne k f_ g_) fs gs
-  cuts fgps <$> cast (iffsToAndIffAnd fs gs)
-pdne k (Imp e f) (Imp g h) = do
-  pl <- pdne k e g -- pl : |- fl <=> gl 
-  pr <- pdne k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
-pdne k (Iff e f) (Iff g h) = do
-  pl <- pdne k e g -- pl : |- fl <=> gl 
-  pr <- pdne k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
-pdne k (Fa vs f) (Fa ws g) = do
-  guard (vs == ws)
-  let (k', vxs) = varPars k vs
-  let f' = substForm vxs f
-  let g' = substForm vxs g
-  p <- pdne k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
-pdne k (Ex vs f) (Ex ws g) = do
-  guard (vs == ws)
-  let (k', vxs) = varPars k vs
-  let f' = substForm vxs f
-  let g' = substForm vxs g
-  p <- pdne k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
-pdne _ f g
+pdne k f g 
   | f == g = return $ iffRefl f
-  | otherwise = et "prove-DNE"
+  | otherwise = 
+    case (f, g) of
+     (Not f, Not g) -> do
+       p <- pdne k f g
+       return $ Cut (f <=> g) p $ iffToNotIffNot f g
+     (Not (Not f), g) -> do
+       p <- pdne k f g -- p : |- f <=> g
+       return $ cuts [(Not (Not f) <=> f, notNotIff f), (f <=> g, p)] $ iffTrans (Not (Not f)) f g
+     (Or fs, Or gs) -> do
+       fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pdne k f_ g_) fs gs
+       cuts fgps <$> cast (iffsToOrIffOr fs gs)
+     (And fs, And gs) -> do
+       fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pdne k f_ g_) fs gs
+       cuts fgps <$> cast (iffsToAndIffAnd fs gs)
+     (Imp e f, Imp g h) -> do
+       pl <- pdne k e g -- pl : |- fl <=> gl 
+       pr <- pdne k f h -- pl : |- fr <=> gr
+       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+     (Iff e f, Iff g h) -> do
+       pl <- pdne k e g -- pl : |- fl <=> gl 
+       pr <- pdne k f h -- pl : |- fr <=> gr
+       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+     (Fa vs f, Fa ws g) -> do
+       guard (vs == ws)
+       let (k', vxs) = varPars k vs
+       let f' = substForm vxs f
+       let g' = substForm vxs g
+       p <- pdne k' f' g'
+       return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+     (Ex vs f, Ex ws g) -> do
+       guard (vs == ws)
+       let (k', vxs) = varPars k vs
+       let f' = substForm vxs f
+       let g' = substForm vxs g
+       p <- pdne k' f' g'
+       return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+     _ -> et "prove-DNE"
 
 prn :: Int -> Form -> Form -> IO Prf
 prn k (Not f) (Not g) = do
@@ -1148,14 +1150,14 @@ conTerm vm x y = do
   return vm
 
 orig :: Form -> Form -> IO Prf
-orig _f _g = do
-  (f, g, pf) <- origPrep _f _g
-  cvc <- makeVC f g
+orig f g = do
+  (f', g', pf) <- origPrep f g
+  cvc <- makeVC f' g'
   -- vc <- origSearchTimed 1000000 True cvc f g
-  vc <- origSearch True 0 cvc [(f, g)]
+  vc <- origSearch True 0 cvc [(f', g')]
   let vr = vcToVr vc
-  p <- uvm 0 vr f g
-  return $ pf p
+  p <- porg vr 0 f' g'
+  return $ Cut (f <=> g) (pf p) $ iffMP f g
 
 origSearchTimed :: Int -> Bool -> VC -> Form -> Form -> IO VC
 origSearchTimed tm md vc f g = do
@@ -1267,28 +1269,76 @@ mergeBySigs fm gm =
         _ -> et "Cannot merge sigs : 1" )
     [] fm
 
+uniqVars :: [Form] -> Bool
+uniqVars fs = isJust $ foldM uniqVarsCore S.empty fs
+
+uniqVarsAux :: Set Text -> Text -> Maybe (Set Text)
+uniqVarsAux vs v 
+  | S.member v vs = nt
+  | otherwise = return $ S.insert v vs
+
+uniqVarsCore :: Set Text -> Form -> Maybe (Set Text)
+uniqVarsCore vs (Not f) = uniqVarsCore vs f
+uniqVarsCore vs (Or fs) = foldM uniqVarsCore vs fs
+uniqVarsCore vs (And fs) = foldM uniqVarsCore vs fs
+uniqVarsCore vs (Imp f g) = foldM uniqVarsCore vs [f, g] 
+uniqVarsCore vs (Iff f g) = foldM uniqVarsCore vs [f, g] 
+uniqVarsCore vs (Fa ws f) = foldM uniqVarsAux vs ws >>= (`uniqVarsCore` f)
+uniqVarsCore vs (Ex ws f) = foldM uniqVarsAux vs ws >>= (`uniqVarsCore` f)
+uniqVarsCore vs _ = return vs
+
+rnPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
+rnPrep f g 
+  | uniqVars [f, g] = return (f, g, id)
+  | otherwise = do
+    ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
+    pf <- prn 0 f f' -- pfrn : |- f <=> f'
+    pg <- prn 0 g' g -- pfrn : |- f <=> f'
+    return (f', g', \ p_ -> Mrk ("rename-prep\nf : " <> ppForm f <> "\ng : " <> ppForm g) $ iffsTrans [(f, pf), (f', p_), (g', pg)] g)
+
+dnePrep :: Form -> Form -> IO (Form, Prf -> Prf)
+dnePrep f g
+  | dne f == f = return (f, id)
+  | otherwise = do 
+    let f' = dne f 
+    p <- pdne 0 f f'
+    return (f', \ p_ -> Mrk "dne-prep" $ iffsTrans [(f, p), (f', p_)] g)
+
+flatPrep :: Form -> Form -> IO (Form, Prf -> Prf)
+flatPrep f g 
+  | fltn f == f = return (f, id)
+  | otherwise = do 
+    let f' = fltn f 
+    p <- pfl 0 f f'
+    return (f', \ p_ -> Mrk "flat-prep" $ iffsTrans [(f, p), (f', p_)] g)
+
 origPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
 origPrep f g = do
-  ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
-  let f'' = dne f'
-  let f''' = fltn f''
-  let g'' = dne g'
-  let g''' = fltn g''
+  (f', g', pf0) <- rnPrep f g  
+  (f'', pf1) <- dnePrep f' g'
+  (f''', pf2) <- flatPrep f'' g'
+  return (f''', g', pf0 . pf1 . pf2)
 
-  pfrn <- prn 0 f f' -- pfrn : |- f <=> f'
-  pfdn <- pdne 0 f' f'' -- pfrn : |- f <=> f'
-  pffl <- pfl 0 f'' f'''
-  let pf =
-         cuts [ (f <=> f', pfrn), (f' <=> f'', pfdn), (f'' <=> f''', pffl),
-                (f <=> f'', iffTrans f f' f''), (f <=> f''', iffTrans f f'' f''') ] (iffMP f f''')
-  pgrn <- prn 0 g g' -- pfrn : |- f <=> f'
-  pgdn <- pdne 0 g' g'' -- pfrn : |- f <=> f'
-  pgfl <- pfl 0 g'' g'''
-  let pg =
-         cuts [ (g <=> g', pgrn), (g' <=> g'', pgdn), (g'' <=> g''', pgfl),
-                (g <=> g'', iffTrans g g' g''), (g <=> g''', iffTrans g g'' g''') ] (iffMPR g g''')
-  let pfun = \ p_ -> Cut f''' pf $ Cut g''' p_ pg
-  return (f''', g''', pfun)
+--origPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
+--origPrep f g = do
+--  ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
+--  let f'' = dne f'
+--  let f''' = fltn f''
+--  guard (g == dne g)
+--  guard (g == fltn g)
+--
+--  pfrn <- prn 0 f f'     -- pfrn : |- f <=> f'
+--  pfdn <- pdne 0 f' f''  -- pfrn : |- f <=> f'
+--  pffl <- pfl 0 f'' f''' -- pffl : |- f'' <=> f'''
+--  let pf = iffsTrans [(f, pfrn), (f', pfdn), (f'', pffl)] f'''
+--
+--  pg <- prn 0 g' g -- pgrn : |- g' <=> g
+--  -- pgdn <- pdne 0 g' g'' -- pfrn : |- f <=> f'
+--  -- pgfl <- pfl 0 g'' g'''
+--  -- let pg = iffsTrans [(g, pgrn), (g', pgdn), (g'', pgfl)] g'''
+--  -- let pg' = Cut (g <=> g''') pg $ iffSym g g''' -- pg' |- g''' <=> g
+--
+--  return (f''', g', \ p_ -> iffsTrans [(f, pf), (f''', p_), (g', pg)] g)
 
 conAuxAux :: Text -> Set Text -> Text -> Set Text -> Set Text
 conAuxAux v wso w vs =
@@ -1315,6 +1365,56 @@ posCount fs = L.length $ L.filter isPos fs
 
 negCount :: [Form] -> Int
 negCount fs = L.length $ L.filter isNeg fs
+
+porg :: VR -> Int -> Form -> Form -> IO Prf
+porg vm k f g 
+  | f == g = return $ iffRefl f
+  | otherwise = 
+    case (f, g) of
+     (Not f, Not g) -> do
+       p <- porg vm k f g
+       return $ Cut (f <=> g) p $ iffToNotIffNot f g
+     (Or fs, Or gs) -> do
+       fgps <- porgAux vm k fs gs
+       let fgs = L.map (\ (f_, g_, _) -> (f_, g_)) fgps
+       let iffps = L.map (\ (f_, g_, p_) -> (f_ <=> g_, p_)) fgps
+       cuts iffps <$> cast (iffsToOrIffOr' fgs fs gs)
+     (And fs, And gs) -> do
+       fgps <- porgAux vm k fs gs
+       let fgs = L.map (\ (f_, g_, _) -> (f_, g_)) fgps
+       let iffps = L.map (\ (f_, g_, p_) -> (f_ <=> g_, p_)) fgps
+       cuts iffps <$> cast (iffsToAndIffAnd' fgs fs gs)
+     (Imp e f, Imp g h) -> do
+       pl <- porg vm k e g -- pl : |- fl <=> gl 
+       pr <- porg vm k f h -- pl : |- fr <=> gr
+       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+     (Iff e f, Iff g h) -> do
+       pl <- porg vm k e g -- pl : |- fl <=> gl 
+       pr <- porg vm k f h -- pl : |- fr <=> gr
+       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+     (Fa vs f, Fa ws g) -> do
+       let (k', xs) = listPars k ws
+       vxs <- zipM vs xs
+       wxs <- zipM ws xs
+       vws <- mapM (pairWithVR' vm) vs 
+       let f' = substForm vxs f
+       let f'' = substForm vws f
+       let g' = substForm wxs g
+       guard (substForm wxs f'' == f') 
+       p <- porg vm k' f' g'
+       Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
+     (Ex vs f, Ex ws g) -> do
+       let (k', xs) = listPars k ws
+       vxs <- zipM vs xs
+       wxs <- zipM ws xs
+       vws <- mapM (pairWithVR' vm) vs 
+       let f' = substForm vxs f
+       let f'' = substForm vws f
+       let g' = substForm wxs g
+       guard (substForm wxs f'' == f') 
+       p <- porg vm k' f' g'
+       Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
+     _ -> et "prove-orig"
 
 uvm :: Int -> VR -> Form -> Form -> IO Prf
 uvm k vr f g =
@@ -1407,6 +1507,12 @@ useAndVR k vm ffs (g : gs) = do
   gps <- useAndVR k vm fs gs
   return $ (g, p) : gps
 useAndVR _ _ (_ : _) [] = mzero
+
+pairWithVR' :: VR -> Text -> IO (Text, Term)
+pairWithVR' (vw, _) v = 
+  case HM.lookup v vw of 
+    Just w -> return (v, Var w)
+    _ -> mzero
 
 pairWithVR :: VR -> [(Text, Term)] -> Text -> Term
 pairWithVR (vw, _) wxs v =
@@ -1563,6 +1669,13 @@ dunfold es f h = do
   pl <- ppuf 0 f f'
   pr <- uips (puf 0 es) f' gs h
   return $ Cut f' (Cut (f <=> f') pl (iffMP f f')) pr
+
+porgAux :: VR -> Int -> [Form] -> [Form] -> IO [(Form, Form, Prf)]
+porgAux _ _ [] _ = return []
+porgAux vm k (f : fs) ggs = do
+  ((g, p), gs) <- pluckFirst (\ g_ -> (g_,) <$> porg vm k f g_) ggs
+  fgps <- porgAux vm k fs gs
+  return ((f, g, p) : fgps)
 
 ppufAux :: Int -> [Form] -> [Form] -> IO [(Form, Form, Prf)]
 ppufAux _ [] _ = return []

@@ -3,6 +3,8 @@
 module Parse where
 
 import Types
+import Basic ( et, cast, readInt )
+
 import Data.Text as T
     ( cons, drop, isPrefixOf, length, null, pack, uncons, Text )
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
@@ -52,6 +54,9 @@ instance Monad Parser where
 instance Alternative Parser where
   empty = failure
   (<|>) = option
+
+instance MonadFail Parser where
+  fail _ = failure
 
 failure :: Parser a
 failure = Parser (const Nothing)
@@ -240,7 +245,7 @@ singleQuoted = do
   s <- plus sqChar
   char '\''
   ws
-  unit $ pack s
+  unit $ "'" <> pack s <> "'"
 
 distinctObject :: Parser Text
 distinctObject = do
@@ -364,7 +369,8 @@ term = (upperWord >>= unit . Var) <|> do { f <- functor ; ts <- arguments ; unit
 generalTerm :: Parser Gterm
 generalTerm =
   do { lit "[" ; ts <- commaSepStar generalTerm ; lit "]" ; unit (Glist ts) } <|>
-  do { f <- functor ; ts <- gargs ; unit $ Gfun f ts }
+  do { f <- functor ; ts <- gargs ; unit $ Gfun f ts } <|>
+  do { kt <- integer ; cast (readInt kt) >>= (unit . Gnum) }
 
 termInfixOpLform :: Term -> Text -> Parser Form
 termInfixOpLform t "=" = do
@@ -491,7 +497,7 @@ parseText t =
       else do
         sfx <- parseText s
         return (pfx ++ sfx)
-    _ -> ioError $ userError "Text given, but failed to parse input"
+    _ -> et ("Failed to parse input : " <> t)
 
 parseName :: String -> IO [AnForm]
 parseName n = do

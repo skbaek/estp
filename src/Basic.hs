@@ -8,7 +8,7 @@
 module Basic where
 
 import Types
-import Data.Text as T (Text, uncons, unpack)
+import Data.Text as T (Text, uncons, unpack, null)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
@@ -19,6 +19,7 @@ import Control.Applicative as A
 import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
 -- import Data.Hashable (Hashable)
+import Data.Text.Read as TR ( decimal )
 
 pattern (:>) :: Char -> Text -> Text
 pattern x :> xs <- (T.uncons -> Just (x, xs))
@@ -133,7 +134,7 @@ instance MonadCast Maybe where
 -- (?>) Nothing _ y = y
 
 isPerm :: (Eq a) => [a] -> [a] -> Bool
-isPerm xs ys = null (xs \\ ys) && null (ys \\ xs)
+isPerm xs ys = L.null (xs \\ ys) && L.null (ys \\ xs)
 
 mark :: Int -> IO ()
 mark k = print $ "Marking checkpoint " <> show k
@@ -244,8 +245,7 @@ instance Monad m => Applicative (StateM s m) where
                                               return (s'', f' x')
 
 -- | Monadic variant of 'mapAccumL'.
-mapAccumM :: (Monad m, Traversable t)
-          => (a -> b -> m (a, c)) -> a -> t b -> m (a, t c)
+mapAccumM :: (Monad m, Traversable t) => (a -> b -> m (a, c)) -> a -> t b -> m (a, t c)
 mapAccumM f s t = runStateM (traverse (\x -> StateM (`f` x)) t) s
 
 
@@ -471,3 +471,11 @@ formPreds (Imp f g) = S.union (formPreds f) (formPreds g)
 formPreds (Iff f g) = S.union (formPreds f) (formPreds g)
 formPreds (Fa _ f) = formPreds f
 formPreds (Ex _ f) = formPreds f
+
+readInt :: Text -> Maybe Int
+readInt t = 
+  case TR.decimal t of 
+    Left _ -> et $ "cannot read int : " <> t
+    Right (k, t') -> do 
+      guard $ T.null t' 
+      return k

@@ -48,7 +48,7 @@ ppListNl :: (a -> Text) -> [a] -> Text
 ppListNl f xs = T.concat (L.map (\ x -> f x <> "\n") xs)
 
 ppTerm :: Term -> Text
-ppTerm (Par k) =  "#" <> ppInt k
+ppTerm (Par k) = "#" <> ppInt k
 ppTerm (Var x) = x
 ppTerm (Fun "" []) = "·"
 ppTerm (Fun f xs) = f <> ppArgs (L.map ppTerm xs)
@@ -56,6 +56,9 @@ ppTerm (Fun f xs) = f <> ppArgs (L.map ppTerm xs)
 ppJct :: Bool -> String
 ppJct True  = " /\\ "
 ppJct False = " \\/ "
+
+ppApp :: Text -> [Text] -> Text
+ppApp f ts = f <> ppArgs ts
 
 ppArgs :: [Text] -> Text
 ppArgs [] = ""
@@ -106,6 +109,7 @@ ppSeq s = ppList ppForm $ S.toList s
 ppGterm :: Gterm -> Text
 ppGterm (Gfun f ts) = f <> ppArgs (L.map ppGterm ts)
 ppGterm (Glist ts) = ppList id $ L.map ppGterm ts
+ppGterm (Gnum k) = ppInt k
 
 ppAnt :: Ant -> Text
 ppAnt Nothing  = ""
@@ -135,7 +139,7 @@ ppPrf k (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k 
 ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
 ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (ImpRA f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (Mrk s p) = ("Mark : " <> pack s) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (Mrk s p) = ("Mark : " <> s) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (FunC _ _) = ["Fun-C?"]
 ppPrf k (RelC _ _) = ["Rel-C?"]
 ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
@@ -144,7 +148,7 @@ ppPrf k (AndL fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k 
 ppPrf k (AndR _) = ["And-R?"]
 ppPrf k (EqC x y) = ["Eq-C?"]
 ppPrf k (EqS x y) = ["Eq-S?"]
-ppPrf k (EqR x) = ["Eq-R?"]
+ppPrf k (EqR x) = ["Eq-R : " <> ppTerm x]
 ppPrf k (EqT x y z) = ["Eq-T?"]
 ppPrf k (FaL vxs f p) =
   let (vs, xs) = unzip vxs in
@@ -152,8 +156,10 @@ ppPrf k (FaL vxs f p) =
 ppPrf k (ExR vxs f p) =
   let (vs, xs) = unzip vxs in
   ("Ex-R : " <> ppForm (Ex vs f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FaR vs m f p) = ["Fa-R?"]
-ppPrf k (ExL vs m f p) = ["Ex-L?"]
+ppPrf k (FaR vs m f p) = 
+  "Fa-R : " <> ppForm (Fa vs f) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (ExL vs m f p) = 
+  "Ex-L : " <> ppForm (Ex vs f) : L.map pad (ppPrf (k - 1) p)
 ppPrf k Asm = ["Asm!"]
 
 ppTake :: Int -> (a -> Text) -> a -> Text

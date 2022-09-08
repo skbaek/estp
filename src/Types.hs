@@ -59,19 +59,15 @@ data Prf =
   | ExL [Text] Int Form Prf
   | ExR [(Text, Term)] Form Prf
   | Cut Form Prf Prf
-  | Mrk String Prf 
+  | Mrk Text Prf 
   | Asm
   deriving (Show)
 
 data Elab =
-    Plab Prf
+    Plab Form Prf
   | Rdef Text Form Prf
-  -- | Tfe Form
-  -- | Nnf Bool Form
   | AOC [Term] Form Prf
   deriving (Show)
-
--- | Lrats [Form] [Lrat]
 
 data Input =
     Cnf Text Form (Maybe Gterm)
@@ -82,6 +78,7 @@ data Input =
 data Gterm =
     Gfun Text [Gterm]
   | Glist [Gterm]
+  | Gnum Int
   deriving (Show)
 
 type Ant = Maybe Gterm
@@ -90,12 +87,17 @@ data AnForm = Af Text Form (Maybe Gterm)
 
 type Prob = [Input]
 
--- data JMode = Conj | Disj
 data Dir = 
   Obv | Rev
   deriving (Show, Eq, Ord)
 
--- data CMode = Mono | Bi
+data Side = 
+  Lft | Rgt
+  deriving (Show, Eq, Ord)
+
+data Pol = 
+  Pos | Neg
+  deriving (Show, Eq, Ord)
 
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
