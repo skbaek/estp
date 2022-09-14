@@ -8,6 +8,8 @@
 module Basic where
 
 import Types
+import PP
+
 import Data.Text as T (Text, uncons, unpack, null)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
@@ -20,6 +22,7 @@ import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
 -- import Data.Hashable (Hashable)
 import Data.Text.Read as TR ( decimal )
+import Debug.Trace (trace)
 
 pattern (:>) :: Char -> Text -> Text
 pattern x :> xs <- (T.uncons -> Just (x, xs))
@@ -29,7 +32,7 @@ substBv [] s = Var s
 substBv ((t, x) : txs) s = if t == s then x else substBv txs s
 
 substTerm :: [(Text, Term)] -> Term -> Term
-substTerm txs (Par k) = Par k
+-- substTerm txs (Par k) = Par k
 substTerm txs (Var t) = substBv txs t
 substTerm txs (Fun f xs) = Fun f $ L.map (substTerm txs) xs
 
@@ -48,17 +51,20 @@ substForm vxs (Ex vs f) =
   let vxs' = L.filter (\ (v, _) -> v `notElem` vs) vxs in
   Ex vs $ substForm vxs' f
 
+par :: Int -> Term
+par k = Fun (ppSQ $ "#" <> ppInt k) []
+
 varPars :: Int -> [Text] -> (Int, [(Text, Term)])
 varPars k [] = (k, [])
 varPars k (v : vs) =
   let (m, vxs) = varPars (k + 1) vs in
-  (m, (v, Par k) : vxs)
+  (m, (v, par k) : vxs)
 
 listPars :: Int -> [Text] -> (Int, [Term])
 listPars k [] = (k, [])
 listPars k (_ : vs) =
   let (m, xs) = listPars (k + 1) vs in
-  (m, Par k : xs)
+  (m, par k : xs)
 
 zipM :: (Monad m, Alternative m) => [a] -> [b] -> m [(a, b)]
 zipM [] [] = return []
@@ -173,7 +179,7 @@ breakSingleton [x] = Just x
 breakSingleton _ = Nothing
 
 zt :: Term
-zt = Fun "" []
+zt = Fun "c" []
 
 isNeg :: Form -> Bool
 isNeg (Not _) = True
@@ -185,7 +191,7 @@ isPos = not . isNeg
 isGndTerm :: Term -> Bool
 isGndTerm (Var _) = False
 isGndTerm (Fun f xs) = L.all isGndTerm xs
-isGndTerm x = True
+-- isGndTerm x = True
 
 isGndAtom :: Form -> Bool
 isGndAtom (Eq x y) = isGndTerm x && isGndTerm y
@@ -219,7 +225,7 @@ isBot = (bot ==)
 varInt :: Text -> Term -> Bool
 varInt v (Var w) = v == w
 varInt v (Fun f xs) = L.any (varInt v) xs
-varInt v _ = False
+-- varInt v _ = False
 
 varInf :: Text -> Form -> Bool
 varInf v (Eq x y) = varInt v x || varInt v y
@@ -332,7 +338,7 @@ formVars _ = S.empty
 varsInt :: [Text] -> Term -> Bool
 varsInt vs (Var v) = v `elem` vs
 varsInt vs (Fun f xs) = L.any (varsInt vs) xs
-varsInt vs _ = False
+-- varsInt vs _ = False
 
 varsInf :: [Text] -> Form -> Bool
 varsInf vs (Eq x y) = varsInt vs x || varsInt vs y
@@ -352,7 +358,7 @@ varsInf vs (Ex ws f) = varsInf (vs L.\\ ws) f
 gndTerm :: Term -> Term
 gndTerm (Var _) = zt
 gndTerm (Fun f xs) = Fun f $ L.map gndTerm xs
-gndTerm x = x
+-- gndTerm x = x
 
 agvmt :: VM -> Term -> Term
 agvmt gm (Var v) =
@@ -360,7 +366,7 @@ agvmt gm (Var v) =
     Just x -> gndTerm x
     _ -> zt
 agvmt gm (Fun f xs) = Fun f $ L.map (agvmt gm) xs
-agvmt _ x = x
+-- agvmt _ x = x
 
 avmt :: VM -> Term -> Term
 avmt gm (Var v) =
@@ -368,7 +374,6 @@ avmt gm (Var v) =
     Just x -> x
     _ -> Var v
 avmt gm (Fun f xs) = Fun f $ L.map (avmt gm) xs
-avmt _ x = x
 
 tavmt :: VM -> Term -> Maybe Term
 tavmt gm (Var v) =
@@ -376,7 +381,6 @@ tavmt gm (Var v) =
     Just x -> return x
     _ -> mzero -- return $ Var v
 tavmt gm (Fun f xs) = Fun f <$> mapM (tavmt gm) xs
-tavmt _ x = return x
 
 tavmf :: VM -> Form -> Maybe Form
 tavmf gm (Eq x y) = do
@@ -418,13 +422,12 @@ shorter (_ : xs) (_ : ys) = shorter xs ys
 
 substVar :: Text -> Term -> Term -> Term
 substVar v x (Var w) = if v == w then x else Var w
-substVar v x (Par m) = Par m
+-- substVar v x (Par m) = Par m
 substVar v x (Fun f xs) = Fun f $ L.map (substVar v x) xs
 
 hasVar :: Text -> Term -> Bool
 hasVar v (Var w) = v == w
 hasVar v (Fun _ xs) = L.any (hasVar v) xs
-hasVar _ _ = False
 
 appVrTerm :: VR -> Term -> Term
 appVrTerm vr (Var v) =
@@ -432,7 +435,6 @@ appVrTerm vr (Var v) =
     Just x -> Var x
     _ -> et "appVrTerm : no mapping"
 appVrTerm vw (Fun f xs) = Fun f $ L.map (appVrTerm vw) xs
-appVrTerm vw x = x
 
 appVrForm :: VR -> Form -> Form
 appVrForm vr (Not f) = Not $ appVrForm vr f
@@ -479,3 +481,5 @@ readInt t =
     Right (k, t') -> do 
       guard $ T.null t' 
       return k
+
+{- write -}

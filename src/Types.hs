@@ -8,8 +8,8 @@ import Control.Monad.Fail as MF (MonadFail, fail)
 import Data.Functor ((<&>))
 
 data Term =
-    Par Int
-  | Var Text
+    -- Par Int
+    Var Text
   | Fun Text [Term]
   deriving (Show, Eq, Ord)
 
@@ -39,7 +39,8 @@ data Prf =
   | EqR Term
   | EqS Term Term
   | EqT Term Term Term
-  | EqC (Term, Term, Prf) (Term, Term, Prf)
+  -- | EqC (Term, Term, Prf) (Term, Term, Prf)
+  -- | EqC Term Term Term Term
   | FunC Text [(Term, Term, Prf)]
   | RelC Text [(Term, Term, Prf)]
   | NotL Form Prf
@@ -152,3 +153,32 @@ type EQFS = (VM, [Form], [(Term, Term)])
 type MTT = HM.Map Text Text
 type MTI = HM.Map Text Int
 type USOL = [Term]
+
+type EP = (Int, [(Int, Int)])
+type EF = (Form, Pol, EP, Int, Inf)
+
+
+data Inf =
+    InfAx Text Text
+  | InfEqR Text
+  | InfEqS Text Text
+  | InfEqT Text Text Text
+  | InfEqC Text Text Text
+  | InfFunC Text [Text]
+  | InfRelC Text [Text]
+  | InfNotL Text
+  | InfNotR Text
+  | InfOrL Text
+  | InfOrR Text Int
+  | InfAndL Text Int
+  | InfAndR Text
+  | InfImpL Text
+  | InfImpR Text Side
+  | InfIffL Text Dir
+  | InfIffR Text
+  | InfFaL Text [Term]
+  | InfFaR Text Int 
+  | InfExL Text Int 
+  | InfExR Text [Term]
+  | InfCut
+  deriving (Show)

@@ -224,7 +224,7 @@ numeric = char '0' <|> nonZeroNumeric
 positiveDecimal :: Parser Text
 positiveDecimal = do
   c <- nonZeroNumeric
-  cs <- plus numeric
+  cs <- star numeric
   unit $ pack $ c : cs
 
 decimal :: Parser Text
@@ -465,7 +465,7 @@ mergeVars :: [Text] -> [Text] -> [Text]
 mergeVars vs ws = vs ++ (ws \\ vs)
 
 termBvs :: Term -> [Text]
-termBvs (Par _) = []
+-- termBvs (Par _) = []
 termBvs (Var v) = [v]
 termBvs (Fun _ ts) = foldl mergeVars [] (map termBvs ts)
 

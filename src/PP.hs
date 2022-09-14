@@ -17,14 +17,11 @@ ppLrat :: Lrat -> Text
 ppLrat (Del k ks) = ppInt k  <> ". Del " <> T.intercalate " " (L.map ppInt ks)
 ppLrat (Add k fs ms) = ppInt k  <> ". Add " <> T.intercalate " " (L.map ppForm fs) <> ", Using : " <> T.intercalate  " " (L.map ppInt ms)
 
-ppInt :: Integral a => a -> Text
-ppInt = TL.toStrict . B.toLazyText . B.decimal
-
 ppMapping :: (Text, Term) -> Text
 ppMapping (t, x) = t <> " |-> " <> ppTerm x
 
 ppVmap :: (Text, Text) -> Text
-ppVmap (v, w) = v <> " |-> " <> w
+ppVmap (v, w) = v <> " <-|-> " <> w
 
 ppVM :: VM -> Text
 ppVM gm = ppListNl (\ (v, x) -> v <> " |-> " <> ppTerm x) (HM.toList gm)
@@ -48,7 +45,7 @@ ppListNl :: (a -> Text) -> [a] -> Text
 ppListNl f xs = T.concat (L.map (\ x -> f x <> "\n") xs)
 
 ppTerm :: Term -> Text
-ppTerm (Par k) = "#" <> ppInt k
+-- ppTerm (Par k) = "#" <> ppInt k
 ppTerm (Var x) = x
 ppTerm (Fun "" []) = "·"
 ppTerm (Fun f xs) = f <> ppArgs (L.map ppTerm xs)
@@ -74,8 +71,8 @@ ppForm (Rel r xs) = r <> ppArgs (L.map ppTerm xs)
 ppForm (Not f) = "~ " <> ppForm f
 ppForm (And []) = "$true"
 ppForm (Or  []) = "$false"
-ppForm (And fs) = "(" <> T.intercalate " /\\ " (L.map ppForm fs) <> ")"
-ppForm (Or  fs) = "(" <> T.intercalate " \\/ " (L.map ppForm fs) <> ")"
+ppForm (And fs) = "(" <> T.intercalate " & " (L.map ppForm fs) <> ")"
+ppForm (Or  fs) = "(" <> T.intercalate " | " (L.map ppForm fs) <> ")"
 ppForm (Imp f g) = "(" <> ppForm f <> " => " <> ppForm g <> ")"
 ppForm (Iff f g) = "(" <> ppForm f <> " <=> " <> ppForm g <> ")"
 ppForm (Fa vs f) = "! " <> ppList id vs <> " : " <> ppForm f
@@ -145,8 +142,8 @@ ppPrf k (RelC _ _) = ["Rel-C?"]
 ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
 ppPrf k (OrR fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (AndL fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (AndR _) = ["And-R?"]
-ppPrf k (EqC x y) = ["Eq-C?"]
+ppPrf k (AndR fps) = "And-R" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
+-- ppPrf k (EqC w x y z) = ["Eq-C?"]
 ppPrf k (EqS x y) = ["Eq-S?"]
 ppPrf k (EqR x) = ["Eq-R : " <> ppTerm x]
 ppPrf k (EqT x y z) = ["Eq-T?"]
@@ -175,3 +172,92 @@ ppTakeEq k (f, g) = ppTake k ppForm f <> " <-|-> " <> ppTake k ppForm g
 
 ppSearchState :: VC -> [(Form, Form)] -> Text
 ppSearchState vc = ppListNl (ppTakeEq 40)
+
+writeTerm :: Term -> Text
+writeTerm (Var x) = x
+writeTerm (Fun f xs) = f <> ppArgs (L.map writeTerm xs)
+
+writeForm :: Form -> Text
+writeForm (Eq t s) = "(" <> writeTerm t <> " = " <> writeTerm s <> ")"
+writeForm (Rel r xs) = r <> ppArgs (L.map writeTerm xs)
+writeForm (Not f) = "~ " <> writeForm f
+writeForm (And []) = "$true"
+writeForm (Or  []) = "$false"
+writeForm (And fs) = "(" <> T.intercalate " & " (L.map writeForm fs) <> ")"
+writeForm (Or  fs) = "(" <> T.intercalate " | " (L.map writeForm fs) <> ")"
+writeForm (Imp f g) = "(" <> writeForm f <> " => " <> writeForm g <> ")"
+writeForm (Iff f g) = "(" <> writeForm f <> " <=> " <> writeForm g <> ")"
+writeForm (Fa vs f) = "! " <> ppList id vs <> " : " <> writeForm f
+writeForm (Ex vs f) = "? " <> ppList id vs <> " : " <> writeForm f
+
+writeEF :: EF -> Text
+writeEF (f, sd, ep, k, i) = ppApp "fof" [ppEP ep, "plain", writeForm f, ppApp "tab" [ppPol sd, ppInt k, ppInf i]] <> "."
+
+ppEP :: EP -> Text
+-- ppEP (k, []) = ppSQ $ ppInt k
+--ppEP (k, l) = ppSQ $ T.intercalate ":" (L.map (\ (m_, n_) -> ppInt n_ <> "." <> ppInt m_) (L.reverse l)) <> ":" <> ppInt k
+ppEP (k, l) = ppSQ $ T.intercalate ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
+
+ppSide :: Side -> Text
+ppSide Lft = "lft"
+ppSide Rgt = "rgt"
+
+ppInf :: Inf -> Text
+ppInf InfCut = "cut"
+ppInf (InfEqR nm) = ppApp "eqr" [nm]
+ppInf (InfEqS nm0 nm1) = ppApp "eqr" [nm0, nm1]
+ppInf (InfEqT nm0 nm1 nm2) = ppApp "eqr" [nm0, nm1, nm2]
+ppInf (InfEqC nm0 nm1 nm2) = ppApp "eqr" [nm0, nm1, nm2]
+-- ppInf (InfFunC Text [Text]) = _
+-- ppInf (InfRelC Text [Text]) = _
+ppInf (InfNotL nm) = ppApp "notl" [nm]
+ppInf (InfNotR nm) = ppApp "notr" [nm]
+-- ppInf (InfOrR Text Int) = _
+-- ppInf (InfAndL Text Int) = _
+ppInf (InfImpR n sd) = ppApp "impr" [n, ppSide sd]
+ppInf (InfIffL n dr) = ppApp "iffl" [n, ppDir dr]
+ppInf (InfIffR n) = ppApp "iffr" [n]
+ppInf (InfImpL n) = ppApp "impl" [n]
+ppInf (InfOrR n k) = ppApp "orr" [n, ppInt k]
+ppInf (InfAndL n k) = ppApp "andl" [n, ppInt k]
+ppInf (InfOrL n) = ppApp "orl" [n]
+ppInf (InfAndR n) = ppApp "andr" [n]
+ppInf (InfFaL nm xs) = ppApp "fal" [nm, ppList writeTerm xs]
+ppInf (InfFaR nm k) = ppApp "far" [nm, ppInt k]
+ppInf (InfExL nm k) = ppApp "exl" [nm, ppInt k]
+ppInf (InfExR nm xs) = ppApp "exr" [nm, ppList writeTerm xs]
+ppInf (InfAx n m) = ppApp "ax" [n, m]
+ppInf i = error $ "No printer for inf : " ++ show i
+
+ppDir :: Dir -> Text
+ppDir Obv = "obv"
+ppDir Rev = "rev"
+
+ppPol :: Pol -> Text
+ppPol Pos = "pos"
+ppPol Neg = "neg"
+
+ppElab :: Elab -> Text
+ppElab (Plab f p) = T.intercalate "\n" $ ["Plab", "f :", ppForm f, "prf :"] ++ ppPrf 20 p
+ppElab (Rdef r _ _) = "rdef : " <> r
+ppElab (AOC xs _ _) = "AOC :\nxs : " <> ppListNl ppTerm xs
+
+ppSQ :: Text -> Text
+ppSQ t = "'" <> t <> "'"
+
+ppInt :: Int -> Text
+ppInt 0 = "0"
+ppInt 2 = "2"
+ppInt 1 = "1"
+ppInt 3 = "3"
+ppInt 4 = "4"
+ppInt 5 = "5"
+ppInt 6 = "6"
+ppInt 7 = "7"
+ppInt 8 = "8"
+ppInt 9 = "9"
+ppInt k = ppInt (k `div` 10) <> ppInt (k `rem` 10)
+
+ppPolForm :: (Form, Pol) -> Text
+ppPolForm (f, Pos) = ppForm f <> " |-"
+ppPolForm (f, Neg) = "|- " <> ppForm f

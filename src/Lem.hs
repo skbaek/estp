@@ -6,6 +6,7 @@ import Types
 import Basic
 import Data.List
 import Data.Text ( Text )
+import Data.Map as HM (Map, lookup)
 
 mt :: Form -> Form -> Prf -- f => g |- ~g => ~f
 mt f g = ImpL f g (ImpRC (Not g) (Not f) $ NotR f $ Ax f) (ImpRA (Not g) (Not f) $ NotL g $ Ax g)
@@ -260,6 +261,7 @@ faIffToExIffEx'' k vs f ws g = do
     (ExL vs k f $ ExR wxs g $ FaL wxs (f'' <=> g) $ iffMP f' g') 
     (ExL ws k g $ ExR vxs f $ FaL wxs (f'' <=> g) $ iffMPR f' g')
 
+
 -- ! ws (f[vs |=> ws] <=> g) |- (! vs f) <=> (! ws g)
 faIffToFaIffFa'' :: Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
 faIffToFaIffFa'' k vs f ws g = do
@@ -287,6 +289,44 @@ faIffToFaIffFa' k vs f ws g = do
   return $ iffRFull (Fa vs f) (Fa ws g) 
     (FaR ws k g $ FaL vxs' f $ FaL vxs' (f <=> g) $ iffMP f'' g') 
     (FaR vs k f $ FaL wxs' g $ FaL vxs  (f <=> g) $ iffMPR f' g'')
+
+findEqvInst :: HM.Map Text Text -> [(Text, Term)] -> Text -> Maybe (Text, Term)
+findEqvInst vw wxs v = do 
+  w <- HM.lookup v vw 
+  (_, x) <- find ((w ==) . fst) wxs
+  return (v, x)
+
+-- ! ws (f[vw] <=> g) |- (! vs f) <=> (! ws g)
+genFaIffToFaIffFa :: VR -> Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
+genFaIffToFaIffFa (vw, wv) k vs f ws g = do
+  let (_, vxs) = varPars k vs 
+  let (_, wxs) = varPars k ws 
+  vxs' <- mapM (cast . findEqvInst vw wxs) vs
+  wxs' <- mapM (cast . findEqvInst wv vxs) ws
+  let f' = substForm vxs f 
+  let g' = substForm wxs g 
+  let f'' = substForm vxs' f 
+  let g'' = substForm wxs' g 
+  let fp = appVrForm (vw, wv) f
+  return $ iffRFull (Fa vs f) (Fa ws g) 
+    (FaR ws k g $ FaL vxs' f $ FaL wxs  (fp <=> g) $ iffMP  f'' g' ) 
+    (FaR vs k f $ FaL wxs' g $ FaL wxs' (fp <=> g) $ iffMPR f'  g'')
+
+-- ! ws (f[vw] <=> g) |- (? vs f) <=> (? ws g)
+genFaIffToExIffEx :: VR -> Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
+genFaIffToExIffEx (vw, wv) k vs f ws g = do
+  let (_, vxs) = varPars k vs 
+  let (_, wxs) = varPars k ws 
+  vxs' <- mapM (cast . findEqvInst vw wxs) vs
+  wxs' <- mapM (cast . findEqvInst wv vxs) ws
+  let f' = substForm vxs f 
+  let g' = substForm wxs g 
+  let f'' = substForm vxs' f 
+  let g'' = substForm wxs' g 
+  let fp = appVrForm (vw, wv) f
+  return $ iffRFull (Ex vs f) (Ex ws g) 
+    (ExL vs k f $ ExR wxs' g $ FaL wxs' (fp <=> g) $ iffMP  f'' g' ) 
+    (ExL ws k g $ ExR vxs' f $ FaL wxs  (fp <=> g) $ iffMPR f'  g'')
 
 -- faFaIff k vs ws f : |- ! vs (! ws f) <=> ! (vs ++ ws) f
 faFaIff :: Int -> [Text] -> [Text] -> Form -> Prf
@@ -334,9 +374,9 @@ congAux [] pf = pf
 congAux ((x, y, p) : xyps) pf = 
   Cut (x === y) p $ Cut (y === x) (EqS x y) $ congAux xyps pf
 
-eqCong :: (Term, Term, Prf) -> (Term, Term, Prf) -> Prf
-eqCong tax@(a, x, _) tby@(b, y, _) = 
-  congAux [tax, tby] $ iffRFull (a === b) (x === y) (EqC (a, x, Ax (a === x)) (b, y, Ax (b === y))) (EqC (x, a, Ax (x === a)) (y, b, Ax (y === b))) 
+-- eqCong :: (Term, Term, Prf) -> (Term, Term, Prf) -> Prf
+-- eqCong tax@(a, x, _) tby@(b, y, _) = 
+--   congAux [tax, tby] $ iffRFull (a === b) (x === y) (EqC (a, x, Ax (a === x)) (b, y, Ax (b === y))) (EqC (x, a, Ax (x === a)) (y, b, Ax (y === b))) 
 
 iffRFull :: Form -> Form -> Prf -> Prf -> Prf
 iffRFull f g po pr = IffR f g (impRAC f g po) (impRAC g f pr)

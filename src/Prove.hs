@@ -22,6 +22,7 @@ import Control.Applicative ( Alternative((<|>)) )
 import qualified Data.Bifunctor as DBF
 import Data.Tuple (swap)
 import System.Timeout (timeout)
+import Debug.Trace (trace)
 
 andRs :: [(Form, Prf)] -> Form -> IO Prf
 andRs fps (And fs) = AndR <$> mapM (\ f_ -> (f_,) <$> andRs fps f_) fs
@@ -475,7 +476,7 @@ ubv vm v x =
      return $ HM.insert v x' vm'
 
 ut :: VM -> Term -> Term -> Maybe VM
-ut vm (Par k) (Par m) = guard (k == m) >> return vm
+-- ut vm (Par k) (Par m) = guard (k == m) >> return vm
 ut vm (Fun f xs) (Fun g ys) = do
   guard $ f == g
   xys <- zipM xs ys
@@ -656,9 +657,32 @@ unspecs fls hls = L.filter (\ (f_, _) -> not (L.any (lspec f_) hls)) (plucks fls
 cutIff :: Form -> Form -> Prf -> Prf -> Prf
 cutIff f g pfg p = Cut (f <=> g) pfg $ Cut g (iffMP f g) p
 
+
+nubIndexForm :: Form -> Int
+nubIndexForm (Not f) = nubIndexForm f
+nubIndexForm (Or fs) = maximum $ L.map nubIndexForm fs
+nubIndexForm (And fs) = maximum $ L.map nubIndexForm fs
+nubIndexForm (Imp f g) = maximum $ L.map nubIndexForm [f, g]
+nubIndexForm (Iff f g) = maximum $ L.map nubIndexForm [f, g]
+nubIndexForm (Fa vs f) = maximum $ nubIndexForm f : L.map nubIndexVar vs
+nubIndexForm (Ex vs f) = maximum $ nubIndexForm f : L.map nubIndexVar vs
+nubIndexForm _ = 0
+
+nubIndexVar :: Text -> Int
+nubIndexVar ('X' :> t) = 
+  case readInt t of  
+    Just k -> trace "nub found!!!\n" k + 1
+    _ -> 0
+nubIndexVar _ = 0
+
+nubForms :: [Form] -> [Form]
+nubForms fs = do
+  let k = maximum (L.map nubIndexForm fs) 
+  fst $ rnfs HM.empty k fs
+
 resolve :: Form -> Form -> Form -> IO Prf
 resolve f g h = do
-  ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
+  let [f', g'] = nubForms [f, g]
   fls <- cast $ premLits f'
   gls <- cast $ premLits g'
   -- (_, hls) <- cast $ concLits 0 h
@@ -705,7 +729,7 @@ superpose f g h = do
   -- pt $ "f : " <> ppForm f <> "\n"
   -- pt $ "g : " <> ppForm g <> "\n"
   -- pt $ "h : " <> ppForm h <> "\n"
-  ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
+  let [f', g'] = nubForms [f, g]
   -- pt $ "f' : " <> ppForm f' <> "\n"
   -- pt $ "g' : " <> ppForm g' <> "\n"
   fls <- cast $ premLits f'
@@ -778,7 +802,6 @@ subt vm (Var v) =
     Just x -> x
     _ -> Var v
 subt vm (Fun f xs) = Fun f $ L.map (subt vm) xs
-subt vm x = x
 
 subf ::  VM -> Form -> Form
 subf vm (Eq x y) =
@@ -1060,57 +1083,49 @@ rectify f g = do
   p1 <- orig nf g
   return $ cutIff f nf p0 p1
 
-rnt :: MTT -> Term -> Maybe Term
-rnt m (Var v) = do
-  w <- HM.lookup v m
-  return $ Var w
-rnt m (Fun f xs) = Fun f <$> mapM (rnt m) xs
-rnt m x = return x
+rnt :: MTT -> Term -> Term
+rnt mp (Var v) = 
+  case HM.lookup v mp of
+    Just w -> Var w
+    _ -> et "unbound variable detected\n"
+rnt mp (Fun f xs) = Fun f $ L.map (rnt mp) xs
 
-rnfs :: MTT -> MTI -> [Form] -> Maybe ([Form], MTI)
-rnfs tt ti [] = return ([], ti)
-rnfs tt ti (f : fs) = do
-  (f', ti') <- rnf tt ti f
-  DBF.first (f' :) <$> rnfs tt ti' fs
+rnfs :: MTT -> Int -> [Form] -> ([Form], Int)
+rnfs mp k [] = ([], k)
+rnfs mp k (f : fs) = 
+  let (f', k') = rnf mp k f in
+  DBF.first (f' :) $ rnfs mp k' fs 
 
-rnf :: MTT -> MTI -> Form -> Maybe (Form, MTI)
-rnf tt ti (Rel r xs) = do
-  xs' <- mapM (rnt tt) xs
-  return (Rel r xs', ti)
-rnf tt ti (Eq x y) = do
-  [x', y'] <- mapM (rnt tt) [x, y]
-  return (Eq x' y', ti)
-rnf tt ti (Not f) = DBF.first Not <$> rnf tt ti f
-rnf tt ti (Or fs) = DBF.first Or <$> rnfs tt ti fs
-rnf tt ti (And fs) = DBF.first And <$> rnfs tt ti fs
-rnf tt ti (Imp f g) = do
-  ([f', g'], ti') <- rnfs tt ti [f, g]
-  return (Imp f' g', ti')
-rnf tt ti (Iff f g) = do
-  ([f', g'], ti') <- rnfs tt ti [f, g]
-  return (Iff f' g', ti')
-rnf tt ti (Fa vs f) = do
-  let (vs', tt', ti') = rnvs tt ti vs
-  (f', ti'') <- rnf tt' ti' f
-  return (Fa vs' f', ti'')
-rnf tt ti (Ex vs f) = do
-  let (vs', tt', ti') = rnvs tt ti vs
-  (f', ti'') <- rnf tt' ti' f
-  return (Ex vs' f', ti'')
+rnf :: MTT -> Int -> Form -> (Form, Int)
+rnf mp k (Rel r xs) = (Rel r (L.map (rnt mp) xs), k)
+rnf mp k (Eq x y) = (Eq (rnt mp x) (rnt mp y), k)
+rnf tt ti (Not f) = DBF.first Not $ rnf tt ti f
+rnf tt ti (Or fs) = DBF.first Or $ rnfs tt ti fs
+rnf tt ti (And fs) = DBF.first And $ rnfs tt ti fs
+rnf mp k (Imp f g) = 
+  let (f', k') = rnf mp k f in
+  let (g', k'') = rnf mp k' g in
+  (Imp f' g', k'')
+rnf mp k (Iff f g) = 
+  let (f', k') = rnf mp k f in
+  let (g', k'') = rnf mp k' g in
+  (Iff f' g', k'')
+rnf tt ti (Fa vs f) = 
+  let (vs', tt', ti') = rnvs tt ti vs in
+  let (f', ti'') = rnf tt' ti' f in
+  (Fa vs' f', ti'')
+rnf tt ti (Ex vs f) = 
+  let (vs', tt', ti') = rnvs tt ti vs in
+  let (f', ti'') = rnf tt' ti' f in
+  (Ex vs' f', ti'')
 
-rnvs :: MTT -> MTI -> [Text] -> ([Text], MTT, MTI)
-rnvs tt ti [] = ([], tt, ti)
-rnvs tt ti (v : vs) =
-  let k = 1 + HM.findWithDefault (-1) v ti in
-  let v' = addTicks k v in
-  let tt' = HM.insert v v' tt in
-  let ti' = HM.insert v k ti in
-  let (vs', tt'', ti'') = rnvs tt' ti' vs in
-  (v' : vs', tt'', ti'')
-
-addTicks :: Int -> Text -> Text
-addTicks 0 t = t
-addTicks k t = addTicks (k - 1) t <> "'"
+rnvs :: MTT -> Int -> [Text] -> ([Text], MTT, Int)
+rnvs mp k [] = ([], mp, k)
+rnvs mp k (v : vs) =
+  let v' = "X" <> ppInt k in
+  let mp' = HM.insert v v' mp in
+  let (vs', mp'', k') = rnvs mp' (k + 1) vs in
+  (v' : vs', mp'', k')
 
 conAux :: Text -> Set Text -> VC -> Maybe VC
 conAux v nws (vws, wvs) = do
@@ -1153,10 +1168,16 @@ orig :: Form -> Form -> IO Prf
 orig f g = do
   (f', g', pf) <- origPrep f g
   cvc <- makeVC f' g'
-  -- vc <- origSearchTimed 1000000 True cvc f g
   vc <- origSearch True 0 cvc [(f', g')]
   let vr = vcToVr vc
+  
+  pt $ ppListNl (\ (v_, w_) -> v_ <> " <-|-> " <> w_) (HM.toList $ fst vr)
+
+  pt $ "f' : " <> ppForm f' <> "\n"
+  pt $ "g' : " <> ppForm g' <> "\n"
   p <- porg vr 0 f' g'
+  pt "Success!\n"
+  let vr = vcToVr vc
   return $ Cut (f <=> g) (pf p) $ iffMP f g
 
 origSearchTimed :: Int -> Bool -> VC -> Form -> Form -> IO VC
@@ -1244,7 +1265,7 @@ termSigs sg pts (Var v) =
 termSigs sg pts (Fun f xs) =
   let ptxs = extendPrePathsFun pts f 0 xs in
   L.foldl (uncurry . termSigs) sg ptxs
-termSigs sg _ (Par _) = sg
+--termSigs sg _ (Par _) = sg
 
 insertBySig :: Text -> Maybe [Text] -> Maybe [Text]
 insertBySig v (Just vs) = Just (v : vs)
@@ -1291,7 +1312,7 @@ rnPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
 rnPrep f g 
   | uniqVars [f, g] = return (f, g, id)
   | otherwise = do
-    ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
+    let [f', g'] = nubForms [f, g]
     pf <- prn 0 f f' -- pfrn : |- f <=> f'
     pg <- prn 0 g' g -- pfrn : |- f <=> f'
     return (f', g', \ p_ -> Mrk ("rename-prep\nf : " <> ppForm f <> "\ng : " <> ppForm g) $ iffsTrans [(f, pf), (f', p_), (g', pg)] g)
@@ -1318,27 +1339,6 @@ origPrep f g = do
   (f'', pf1) <- dnePrep f' g'
   (f''', pf2) <- flatPrep f'' g'
   return (f''', g', pf0 . pf1 . pf2)
-
---origPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
---origPrep f g = do
---  ([f', g'], _) <- cast $ rnfs HM.empty HM.empty [f, g]
---  let f'' = dne f'
---  let f''' = fltn f''
---  guard (g == dne g)
---  guard (g == fltn g)
---
---  pfrn <- prn 0 f f'     -- pfrn : |- f <=> f'
---  pfdn <- pdne 0 f' f''  -- pfrn : |- f <=> f'
---  pffl <- pfl 0 f'' f''' -- pffl : |- f'' <=> f'''
---  let pf = iffsTrans [(f, pfrn), (f', pfdn), (f'', pffl)] f'''
---
---  pg <- prn 0 g' g -- pgrn : |- g' <=> g
---  -- pgdn <- pdne 0 g' g'' -- pfrn : |- f <=> f'
---  -- pgfl <- pfl 0 g'' g'''
---  -- let pg = iffsTrans [(g, pgrn), (g', pgdn), (g'', pgfl)] g'''
---  -- let pg' = Cut (g <=> g''') pg $ iffSym g g''' -- pg' |- g''' <=> g
---
---  return (f''', g', \ p_ -> iffsTrans [(f, pf), (f''', p_), (g', pg)] g)
 
 conAuxAux :: Text -> Set Text -> Text -> Set Text -> Set Text
 conAuxAux v wso w vs =
@@ -1392,29 +1392,45 @@ porg vm k f g
        pl <- porg vm k e g -- pl : |- fl <=> gl 
        pr <- porg vm k f h -- pl : |- fr <=> gr
        return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+     -- (Fa vs f, Fa ws g) -> do
+     --   let (k', xs) = listPars k ws
+     --   vxs <- zipM vs xs
+     --   wxs <- zipM ws xs
+     --   vws <- mapM (pairWithVR' vm) vs 
+     --   let f' = substForm vxs f
+     --   let f'' = substForm vws f
+     --   let g' = substForm wxs g
+     --   guardMsg (substForm wxs f'' == f') "Double substitution mismatch"
+     --   p <- porg vm k' f' g'
+     --   Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
      (Fa vs f, Fa ws g) -> do
        let (k', xs) = listPars k ws
-       vxs <- zipM vs xs
        wxs <- zipM ws xs
-       vws <- mapM (pairWithVR' vm) vs 
-       let f' = substForm vxs f
-       let f'' = substForm vws f
        let g' = substForm wxs g
-       guard (substForm wxs f'' == f') 
-       p <- porg vm k' f' g'
-       Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
+       let fp = appVrForm vm f
+       let fp' = substForm wxs fp
+       p <- porg vm k' fp' g'
+       Cut (Fa ws $ fp <=> g) (FaR ws k (fp <=> g) p) <$> genFaIffToFaIffFa vm k vs f ws g
      (Ex vs f, Ex ws g) -> do
        let (k', xs) = listPars k ws
-       vxs <- zipM vs xs
        wxs <- zipM ws xs
-       vws <- mapM (pairWithVR' vm) vs 
-       let f' = substForm vxs f
-       let f'' = substForm vws f
        let g' = substForm wxs g
-       guard (substForm wxs f'' == f') 
-       p <- porg vm k' f' g'
-       Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
-     _ -> et "prove-orig"
+       let fp = appVrForm vm f
+       let fp' = substForm wxs fp
+       p <- porg vm k' fp' g'
+       Cut (Fa ws $ fp <=> g) (FaR ws k (fp <=> g) p) <$> genFaIffToExIffEx vm k vs f ws g
+     -- (Ex vs f, Ex ws g) -> do
+     --   let (k', xs) = listPars k ws
+     --   vxs <- zipM vs xs
+     --   wxs <- zipM ws xs
+     --   vws <- mapM (pairWithVR' vm) vs 
+     --   let f' = substForm vxs f
+     --   let f'' = substForm vws f
+     --   let g' = substForm wxs g
+     --   guard (substForm wxs f'' == f') 
+     --   p <- porg vm k' f' g'
+     --   Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
+     (f, g) -> mzero -- et $ "prove-orig\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
 uvm :: Int -> VR -> Form -> Form -> IO Prf
 uvm k vr f g =
