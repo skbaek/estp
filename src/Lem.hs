@@ -374,6 +374,23 @@ congAux [] pf = pf
 congAux ((x, y, p) : xyps) pf = 
   Cut (x === y) p $ Cut (y === x) (EqS x y) $ congAux xyps pf
 
+-- eqCong w x y z : w = x, x = y, y = z |- w = z
+eqTrans2 :: Term -> Term -> Term -> Term -> Prf
+eqTrans2 w x y z = Cut (x === z) (EqT x y z) (EqT w x z)
+
+-- -- pwy : |- w = y
+-- -- pxz : |- x = z 
+-- -- eqCong w x y z pwy pxz : |- (w = x) <=> (y = z) 
+-- eqCong' :: Term -> Term -> Term -> Term -> Prf -> Prf -> Prf
+-- eqCong' w x y z pwy pxz = cuts [(w === y, pwy), (x === z, pxz)] $ eqCong w x y z 
+-- 
+-- -- eqCong w x y z pwy pxz : w = y, x = z |- (w = x) <=> (y = z) 
+-- eqCong :: Term -> Term -> Term -> Term -> Prf
+-- eqCong w x y z = 
+--   iffRFull (w === x) (y === z) 
+--     (Cut (y === w) (EqS w y) $ eqTrans2 y w x z) -- w = y, x = z, w = x |- y = z
+--     (Cut (z === x) (EqS x z) $ eqTrans2 w y z x) -- w = y, x = z, y = z |- w = x
+
 -- eqCong :: (Term, Term, Prf) -> (Term, Term, Prf) -> Prf
 -- eqCong tax@(a, x, _) tby@(b, y, _) = 
 --   congAux [tax, tby] $ iffRFull (a === b) (x === y) (EqC (a, x, Ax (a === x)) (b, y, Ax (b === y))) (EqC (x, a, Ax (x === a)) (y, b, Ax (y === b))) 

@@ -41,7 +41,8 @@ data Prf =
   | EqT Term Term Term
   -- | EqC (Term, Term, Prf) (Term, Term, Prf)
   -- | EqC Term Term Term Term
-  | FunC Text [(Term, Term, Prf)]
+  -- | FunC Text [(Term, Term, Prf)]
+  | FunC Text [Term] [Term]
   | RelC Text [(Term, Term, Prf)]
   | NotL Form Prf
   | NotR Form Prf

@@ -378,6 +378,17 @@ expp br f sd ep k (EqR x) = do
   epg <- cast $ HM.lookup (Eq x x, Neg) br
   return [(f, sd, ep, k, InfEqR epg)]
 
+expp br f sd ep k (EqS x y) = do
+  epf <- cast $ HM.lookup (Eq x y, Pos) br
+  epg <- cast $ HM.lookup (Eq y x, Neg) br
+  return [(f, sd, ep, k, InfEqS epf epg)]
+
+expp br f sd ep k (EqT x y z) = do
+  epf <- cast $ HM.lookup (Eq x y, Pos) br
+  epg <- cast $ HM.lookup (Eq y z, Pos) br
+  eph <- cast $ HM.lookup (Eq x z, Neg) br
+  return [(f, sd, ep, k, InfEqT epf epg eph)]
+
 expp _ f b ep k p = et $ T.intercalate "\n" $ "expansion not implemented" : ppPrf 10 p
 
 expOr :: Branch -> Int -> Text -> Int -> Form -> Pol -> EP -> [Form] -> Prf -> IO [EF]
@@ -434,7 +445,7 @@ elaborate full (tptp : tstp : estp : flags) = do
          else expand0 hbr (And []) (0, []) es
   writeElab estp efs
 
-elaborate _ args = error "invalid arguments"
+elaborate _ args = error $ "invalid arguments : " ++ unwords args
 
 
 writeElab :: String -> [EF] -> IO ()

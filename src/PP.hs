@@ -137,7 +137,7 @@ ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (
 ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (ImpRA f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (Mrk s p) = ("Mark : " <> s) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FunC _ _) = ["Fun-C?"]
+ppPrf k (FunC _ _ _) = ["Fun-C?"]
 ppPrf k (RelC _ _) = ["Rel-C?"]
 ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
 ppPrf k (OrR fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)

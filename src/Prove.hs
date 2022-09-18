@@ -259,7 +259,11 @@ puf _ es (Rel r xs) (Rel s ys) = do
 puf _ es (Eq a b) (Eq x y) = do
   pax <- put es a x
   pby <- put es b y
-  return $ eqCong (a, x, pax) (b, y, pby)
+  return $ 
+    cuts [(a === x, pax), (b === y, pby)] $ 
+      iffRFull (a === b) (x === y) 
+        (Cut (x === a) (EqS a x) $ eqTrans2 x a b y) 
+        (Cut (y === b) (EqS b y) $ eqTrans2 a x y b)
 puf _ _ f g =
   et $ "prove-unfold\n f : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
@@ -772,10 +776,10 @@ rwf x y (Rel r xs) (Rel s ys) = do
 rwf x y (Eq a b) (Eq c d) =
   ( do pac <- rwt x y a c
        pbd <- rwt x y b d
-       return $ EqC (a, c, pac) (b, d, pbd) ) <|>
+       return $ cuts [(a === c, pac), (b === d, pbd), (c === a, EqS a c)] $ eqTrans2 c a b d) <|>
   ( do pad <- rwt x y a d
        pbc <- rwt x y b c
-       return $ Cut (d === c) (EqC (a, d, pad) (b, c, pbc)) (EqS d c) )
+       return $ cuts [(a === d, pad), (b === c, pbc), (b === a, EqS a b), (c === b, EqS b c)] $ eqTrans2 c b a d)
 rwf _ _ _ _ = mzero
 
 useEqPremLit :: Term -> Term -> Prf -> Form -> [Form] -> IO Prf
