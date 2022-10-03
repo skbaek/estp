@@ -20,18 +20,18 @@ boolSimp (Or fs) =
   let gs = L.map boolSimp fs in
   if top `elem` gs 
     then top
+    -- else case L.filter (/= bot) gs of
+    --        [g] -> g
+    --        hs -> Or hs
     else Or $ L.filter (/= bot) gs 
-      -- case L.filter (/= bot) gs of
-      --   [g] -> g
-      --   hs -> Or hs
 boolSimp (And fs) =
   let gs = L.map boolSimp fs in
   if bot `elem` gs 
     then bot
+    -- else case L.filter (/= top) gs of
+    --        [g] -> g
+    --        hs -> And hs
     else And $ L.filter (/= top) gs 
-      -- case L.filter (/= top) gs of
-      --   [g] -> g
-      --   hs -> And hs
 boolSimp (Fa vs f) =
   case boolSimp f of
     And [] -> And []

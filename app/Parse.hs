@@ -3,7 +3,7 @@
 module Parse where
 
 import Types
-import Basic ( et, cast, readInt )
+import Basic ( et, cast, readInt, unquote )
 
 import Data.Text as T
     ( cons, drop, isPrefixOf, length, null, pack, uncons, Text )
@@ -370,7 +370,8 @@ generalTerm :: Parser Gterm
 generalTerm =
   do { lit "[" ; ts <- commaSepStar generalTerm ; lit "]" ; unit (Glist ts) } <|>
   do { f <- functor ; ts <- gargs ; unit $ Gfun f ts } <|>
-  do { kt <- integer ; cast (readInt kt) >>= (unit . Gnum) }
+  do { kt <- integer ; cast (readInt kt) >>= (unit . Gnum) } <|>
+  do { v <- upperWord ; unit (Gvar v) }
 
 termInfixOpLform :: Term -> Text -> Parser Form
 termInfixOpLform t "=" = do
@@ -483,7 +484,8 @@ formBvs (Ex vs f) = vs ++ (formBvs f \\ vs)
 parseInput :: Input -> IO [AnForm]
 parseInput (Inc s) = do
   tptp <- getEnv "TPTP"
-  parseName $ tptp ++ "/" ++ unpack s
+  s' <- cast $ unquote s
+  parseName $ tptp ++ "/" ++ unpack s'
 parseInput (Cnf n f t) = return [Af n f t]
 parseInput (Fof n f t) = return [Af n f t]
 

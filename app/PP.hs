@@ -6,7 +6,7 @@ import Data.List as L
 import Data.Text as T ( concat, intercalate, pack, Text, length, take )
 import qualified Data.Text.Lazy as TL (toStrict, intercalate)
 import Data.Text.Lazy.Builder as B
-import qualified Data.Text.Lazy.Builder.Int as B
+-- import qualified Data.Text.Lazy.Builder.Int as B
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Text.Printf
 import Data.Map as HM
@@ -107,6 +107,7 @@ ppGterm :: Gterm -> Text
 ppGterm (Gfun f ts) = f <> ppArgs (L.map ppGterm ts)
 ppGterm (Glist ts) = ppList id $ L.map ppGterm ts
 ppGterm (Gnum k) = ppInt k
+ppGterm (Gvar v) = v
 
 ppAnt :: Ant -> Text
 ppAnt Nothing  = ""
@@ -138,7 +139,7 @@ ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k 
 ppPrf k (ImpRA f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (Mrk s p) = ("Mark : " <> s) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (FunC f xs ys) = ["Fun-C : ", "  f : " <> f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrf k (RelC _ _) = ["Rel-C?"]
+ppPrf k (RelC r xs ys) = ["Rel-C : ", "  r : " <> r, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
 ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
 ppPrf k (OrR fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (AndL fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k - 1) p)
@@ -191,7 +192,7 @@ writeForm (Fa vs f) = "! " <> ppList id vs <> " : " <> writeForm f
 writeForm (Ex vs f) = "? " <> ppList id vs <> " : " <> writeForm f
 
 writeEF :: EF -> Text
-writeEF (f, sd, ep, k, i) = ppApp "fof" [ppEP ep, "plain", writeForm f, ppApp "tab" [ppPol sd, ppInt k, ppInf i]] <> "."
+writeEF (f, sd, ep, k, i, cmt) = ppApp "fof" [ppEP ep, "plain", writeForm f, ppApp "tab" [ppPol sd, ppInt k, ppInf i, cmt]] <> "."
 
 ppEP :: EP -> Text
 -- ppEP (k, []) = ppSQ $ ppInt k
@@ -218,8 +219,8 @@ ppInf (InfImpR n sd) = ppApp "impr" [n, ppSide sd]
 ppInf (InfIffL n dr) = ppApp "iffl" [n, ppDir dr]
 ppInf (InfIffR n) = ppApp "iffr" [n]
 ppInf (InfImpL n) = ppApp "impl" [n]
-ppInf (InfOrR n k) = ppApp "orr" [n, ppInt k]
-ppInf (InfAndL n k) = ppApp "andl" [n, ppInt k]
+ppInf (InfOrR n) = ppApp "orr" [n]
+ppInf (InfAndL n) = ppApp "andl" [n]
 ppInf (InfOrL n) = ppApp "orl" [n]
 ppInf (InfAndR n) = ppApp "andr" [n]
 ppInf (InfFaL nm xs) = ppApp "fal" [nm, ppList writeTerm xs]
@@ -228,7 +229,10 @@ ppInf (InfExL nm k) = ppApp "exl" [nm, ppInt k]
 ppInf (InfExR nm xs) = ppApp "exr" [nm, ppList writeTerm xs]
 ppInf (InfAx n m) = ppApp "ax" [n, m]
 ppInf (InfFunC ns m) = ppApp "func" [ppList id ns, m]
-ppInf (InfRelC ns m) = ppApp "relc" [ppList id ns, m]
+ppInf (InfRelC ns m n) = ppApp "relc" [ppList id ns, m, n]
+ppInf InfRdef = "rdef" 
+ppInf (InfAoC xs) = ppApp "aoc" [ppList writeTerm xs]
+ppInf Close = "close"
 
 ppDir :: Dir -> Text
 ppDir Obv = "obv"
@@ -239,25 +243,28 @@ ppPol Pos = "pos"
 ppPol Neg = "neg"
 
 ppElab :: Elab -> Text
-ppElab (Plab f p) = T.intercalate "\n" $ ["Plab", "f :", ppForm f, "prf :"] ++ ppPrf 20 p
-ppElab (Rdef r _ _) = "rdef : " <> r
-ppElab (AOC xs _ _) = "AOC :\nxs : " <> ppListNl ppTerm xs
+ppElab (Plab f p t) = T.intercalate "\n" $ ["Plab", "f :" <> ppForm f, "prf :"] ++ ppPrf 20 p ++ ["Notes : " <> t]
+ppElab (Rdef r f g _ t) = "rdef : " <> r <> " : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> t
+ppElab (AOC xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> t
 
 ppSQ :: Text -> Text
 ppSQ t = "'" <> t <> "'"
 
+ppNat :: Int -> Text
+ppNat 0 = "0"
+ppNat 2 = "2"
+ppNat 1 = "1"
+ppNat 3 = "3"
+ppNat 4 = "4"
+ppNat 5 = "5"
+ppNat 6 = "6"
+ppNat 7 = "7"
+ppNat 8 = "8"
+ppNat 9 = "9"
+ppNat k = ppNat (k `div` 10) <> ppNat (k `rem` 10)
+
 ppInt :: Int -> Text
-ppInt 0 = "0"
-ppInt 2 = "2"
-ppInt 1 = "1"
-ppInt 3 = "3"
-ppInt 4 = "4"
-ppInt 5 = "5"
-ppInt 6 = "6"
-ppInt 7 = "7"
-ppInt 8 = "8"
-ppInt 9 = "9"
-ppInt k = ppInt (k `div` 10) <> ppInt (k `rem` 10)
+ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k
 
 ppPolForm :: (Form, Pol) -> Text
 ppPolForm (f, Pos) = ppForm f <> " |-"

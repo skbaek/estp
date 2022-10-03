@@ -159,15 +159,16 @@ findNewLit fxs f
 
 sat :: [Form] -> IO Prf
 sat fs = do
-  Prelude.putStr "Premises:\n"
-  mapM_ (\ f_ -> Prelude.putStr $ unpack $ ppForm f_ <> "\n") fs
+  -- Prelude.putStr "Premises:\n"
+  -- mapM_ (\ f_ -> Prelude.putStr $ unpack $ ppForm f_ <> "\n") fs
   lss <- cast $ mapM formToLits fs
   as <- cast $ mapM litToAtom (L.concat lss) <&> nub
   nss <- cast $ mapM (litsToNums as) lss
   let max = L.length as
   let head = "p cnf " <> ppInt max <> " " <> ppInt (L.length nss)
   let body = L.map (\ ns -> T.intercalate " " $ L.map ppInt $ ns ++ [0]) nss
-  TIO.writeFile "temp.cnf" $ T.intercalate "\n" $ head : body
+  let dimacs = T.intercalate "\n" $ head : body
+  TIO.writeFile "temp.cnf" dimacs
   print "Running cadical..."
   runCommand "cadical -q temp.cnf temp.drat" >>= waitForProcess
   print "Running drat-trim..."

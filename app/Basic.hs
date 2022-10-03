@@ -10,7 +10,8 @@ module Basic where
 import Types
 import PP
 
-import Data.Text as T (Text, uncons, unpack, null)
+import Data.Maybe (fromMaybe)
+import Data.Text as T (Text, uncons, unsnoc, unpack, null)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
@@ -147,6 +148,9 @@ mark k = print $ "Marking checkpoint " <> show k
 
 pt :: Text -> IO ()
 pt t = Prelude.putStr $ unpack t
+
+ptnl :: Text -> IO ()
+ptnl t = Prelude.putStr $ unpack $ t <> "\n"
 
 et :: Text -> a
 et t = error (unpack t)
@@ -477,9 +481,41 @@ formPreds (Ex _ f) = formPreds f
 readInt :: Text -> Maybe Int
 readInt t = 
   case TR.decimal t of 
-    Left _ -> et $ "cannot read int : " <> t
+    Left _ -> nt -- et $ "cannot read int : " <> t
     Right (k, t') -> do 
       guard $ T.null t' 
       return k
+
+unquote :: Text -> Maybe Text
+unquote t = do 
+  ('\'', t') <- T.uncons t
+  (t'', '\'') <- T.unsnoc t'
+  return t''
+
+pairWithVR' :: VR -> Text -> IO (Text, Term)
+pairWithVR' (vw, _) v = 
+  case HM.lookup v vw of 
+    Just w -> return (v, Var w)
+    _ -> mzero
+
+pairWithVR :: VR -> [(Text, Term)] -> Text -> Term
+pairWithVR (vw, _) wxs v =
+  fromMaybe zt ( do w <- HM.lookup v vw
+                    snd <$> L.find ((w ==) . fst) wxs )
+
+formSJ :: Form -> Bool
+formSJ (Or [_])  = True
+formSJ (And [_]) = True
+formSJ (Not f) = formSJ f
+formSJ (Imp f g) = formSJ f || formSJ g
+formSJ (Iff f g) = formSJ f || formSJ g
+formSJ (Or fs) = L.any formSJ fs
+formSJ (And fs) = L.any formSJ fs
+formSJ (Fa _ f) = formSJ f
+formSJ (Ex _ f) = formSJ f
+formSJ _ = False
+
+elabSingleJunct :: EF -> Bool
+elabSingleJunct (f, _, _, _, _, _) = formSJ f
 
 {- write -}

@@ -36,11 +36,8 @@ data Prf =
   | EqR Term
   | EqS Term Term
   | EqT Term Term Term
-  -- | EqC (Term, Term, Prf) (Term, Term, Prf)
-  -- | EqC Term Term Term Term
-  -- | FunC Text [(Term, Term, Prf)]
   | FunC Text [Term] [Term]
-  | RelC Text [(Term, Term, Prf)]
+  | RelC Text [Term] [Term]
   | NotL Form Prf
   | NotR Form Prf
   | OrL [(Form, Prf)]
@@ -63,10 +60,11 @@ data Prf =
   deriving (Show)
 
 data Elab =
-    Plab Form Prf
-  | Rdef Text Form Prf
-  | AOC [Term] Form Prf
+    Plab Form Prf Text
+  | Rdef Text Form Form Prf Text
+  | AOC [Term] Form Form Prf Text
   deriving (Show)
+-- | ElabFail Form Text
 
 data Input =
     Cnf Text Form (Maybe Gterm)
@@ -78,6 +76,7 @@ data Gterm =
     Gfun Text [Gterm]
   | Glist [Gterm]
   | Gnum Int
+  | Gvar Text
   deriving (Show)
 
 type Ant = Maybe Gterm
@@ -153,8 +152,7 @@ type MTI = HM.Map Text Int
 type USOL = [Term]
 
 type EP = (Int, [(Int, Int)])
-type EF = (Form, Pol, EP, Int, Inf)
-
+type EF = (Form, Pol, EP, Int, Inf, Text)
 
 data Inf =
     InfAx Text Text
@@ -163,12 +161,12 @@ data Inf =
   | InfEqT Text Text Text
   -- | InfEqC Text Text Text
   | InfFunC [Text] Text
-  | InfRelC [Text] Text
+  | InfRelC [Text] Text Text
   | InfNotL Text
   | InfNotR Text
   | InfOrL Text
-  | InfOrR Text Int
-  | InfAndL Text Int
+  | InfOrR Text 
+  | InfAndL Text
   | InfAndR Text
   | InfImpL Text
   | InfImpR Text Side
@@ -179,4 +177,7 @@ data Inf =
   | InfExL Text Int 
   | InfExR Text [Term]
   | InfCut
+  | InfRdef
+  | InfAoC [Term]
+  | Close
   deriving (Show)

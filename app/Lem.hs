@@ -307,7 +307,9 @@ genFaIffToFaIffFa (vw, wv) k vs f ws g = do
   let g' = substForm wxs g 
   let f'' = substForm vxs' f 
   let g'' = substForm wxs' g 
-  let fp = appVrForm (vw, wv) f
+  -- let fp = appVrForm (vw, wv) f
+  vws <- mapM (pairWithVR' (vw, wv)) vs 
+  let fp = substForm vws f
   return $ iffRFull (Fa vs f) (Fa ws g) 
     (FaR ws k g $ FaL vxs' f $ FaL wxs  (fp <=> g) $ iffMP  f'' g' ) 
     (FaR vs k f $ FaL wxs' g $ FaL wxs' (fp <=> g) $ iffMPR f'  g'')
@@ -323,7 +325,9 @@ genFaIffToExIffEx (vw, wv) k vs f ws g = do
   let g' = substForm wxs g 
   let f'' = substForm vxs' f 
   let g'' = substForm wxs' g 
-  let fp = appVrForm (vw, wv) f
+  -- let fp = appVrForm (vw, wv) f
+  vws <- mapM (pairWithVR' (vw, wv)) vs 
+  let fp = substForm vws f
   return $ iffRFull (Ex vs f) (Ex ws g) 
     (ExL vs k f $ ExR wxs' g $ FaL wxs' (fp <=> g) $ iffMP  f'' g' ) 
     (ExL ws k g $ ExR vxs' f $ FaL wxs  (fp <=> g) $ iffMPR f'  g'')
@@ -369,10 +373,9 @@ faIffToExIffEx vs k f g =
     (exImpEx vs k f g $ FaL vxs (f <=> g) $ iffMP f' g') 
     (exImpEx vs k g f $ FaL vxs (f <=> g) $ iffMPR f' g')
 
-congAux :: [(Term, Term, Prf)] -> Prf -> Prf
-congAux [] pf = pf
-congAux ((x, y, p) : xyps) pf = 
-  Cut (x === y) p $ Cut (y === x) (EqS x y) $ congAux xyps pf
+congAux :: [(Term, Term)] -> Prf -> Prf
+congAux [] = id
+congAux ((x, y) : xys) = Cut (y === x) (EqS x y) . congAux xys 
 
 -- eqCong w x y z : w = x, x = y, y = z |- w = z
 eqTrans2 :: Term -> Term -> Term -> Term -> Prf
@@ -398,14 +401,20 @@ eqTrans2 w x y z = Cut (x === z) (EqT x y z) (EqT w x z)
 iffRFull :: Form -> Form -> Prf -> Prf -> Prf
 iffRFull f g po pr = IffR f g (impRAC f g po) (impRAC g f pr)
 
-relCong :: Text -> [(Term, Term, Prf)] -> Prf
-relCong r xyps = 
-  let (xs, ys, _) = unzip3 xyps in
-  let xyps' = map (\ (x_, y_, _) -> (x_, y_, Ax (x_ === y_))) xyps in
-  let yxps = map (\ (x_, y_, _) -> (y_, x_, Ax (y_ === x_))) xyps in
-  let f = Rel r xs in
-  let g = Rel r ys in
-  congAux xyps $ iffRFull f g (RelC r xyps') (RelC r yxps)
+-- relCong r xs ys : x0 = y0 ... xn = yn |- r(x0 ... xn) <=> r(y0 ... yn)
+relCong :: Text -> [Term] -> [Term] -> IO Prf
+relCong r xs ys = do 
+  xys <- zipM xs ys 
+  return $ congAux xys $ iffRFull (Rel r xs) (Rel r ys) (RelC r xs ys) (RelC r ys xs)
+
+-- relCong :: Text -> [(Term, Term, Prf)] -> Prf
+-- relCong r xyps = 
+--   let (xs, ys, _) = unzip3 xyps in
+--   let xyps' = map (\ (x_, y_, _) -> (x_, y_, Ax (x_ === y_))) xyps in
+--   let yxps = map (\ (x_, y_, _) -> (y_, x_, Ax (y_ === x_))) xyps in
+--   let f = Rel r xs in
+--   let g = Rel r ys in
+--   congAux xyps $ iffRFull f g (RelC r xyps') (RelC r yxps)
 
 notLR :: Form -> Form -> Prf -> Prf
 notLR f g p = NotL f $ NotR g p
@@ -494,6 +503,20 @@ bloatOrIff fs =
           fs in
   let gps = map (\ g_ -> (g_, Ax g_)) gs in
   iffRFull (Or fs) (Or gs) (OrR gs gs $ OrL fps) (OrR fs fs $ OrL gps)
+
+-- requires : (fs \ {bot}) = {f}
+-- bloatOrIff' fs f : \/ fs <=> f
+bloatOrIff' :: [Form] -> Form -> Prf
+bloatOrIff' fs f = 
+  let fps = map (\ f_ -> if isBot f_ then (f_, OrL []) else (f_, Ax f_)) fs in
+  iffRFull (Or fs) f (OrL fps) (OrR fs [f] $ Ax f)
+
+-- requires : (fs \ {top}) = {f}
+-- bloatAndIff' fs f : /\ fs <=> f
+bloatAndIff' :: [Form] -> Form -> Prf
+bloatAndIff' fs f = 
+  let fps = map (\ f_ -> if isTop f_ then (f_, AndR []) else (f_, Ax f_)) fs in
+  iffRFull (And fs) f (AndL fs [f] $ Ax f) (AndR fps)
 
 -- bloatAndIff fs : /\ fs <=> /\ (fs \ {top})
 bloatAndIff :: [Form] -> Prf

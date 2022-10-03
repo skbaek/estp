@@ -7777,7 +7777,6 @@ inclist(
     ('SWW295+1', '/home/sk/tptp/Problems/SWW/SWW295+1.p', '/home/sk/tstp/vampire/SWW295+1.s'),
     ('SWW302+1', '/home/sk/tptp/Problems/SWW/SWW302+1.p', '/home/sk/tstp/vampire/SWW302+1.s'),
     ('SWW300+1', '/home/sk/tptp/Problems/SWW/SWW300+1.p', '/home/sk/tstp/vampire/SWW300+1.s'),
-    ('SWW294+1', '/home/sk/tptp/Problems/SWW/SWW294+1.p', '/home/sk/tstp/vampire/SWW294+1.s'),
     ('SWW344+1', '/home/sk/tptp/Problems/SWW/SWW344+1.p', '/home/sk/tstp/vampire/SWW344+1.s'),
     ('SWW345+1', '/home/sk/tptp/Problems/SWW/SWW345+1.p', '/home/sk/tstp/vampire/SWW345+1.s'),
     ('SWW317+1', '/home/sk/tptp/Problems/SWW/SWW317+1.p', '/home/sk/tstp/vampire/SWW317+1.s'),

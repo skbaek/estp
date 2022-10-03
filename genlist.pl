@@ -47,10 +47,10 @@ print_triple((X,Y,Z)) :- format("    ('~w', '~w', '~w')", [X, Y, Z]).
 % bad_solution('HWV059+1'). % Vampire fails orig
 % bad_solution('HWV058+1'). % Vampire fails orig
 % 
-% bad_solution('SWW294+1'). % PPR fail due to rare quantifier permutation
 % bad_solution('SYN007+1.014'). % needs >32GB memory 
 % bad_solution('NUM378+1.020.020'). % needs >32GB memory
 
+bad_solution('SWW294+1'). % PPR fail due to rare quantifier permutation
 bad_solution('SYN986+1.004'). % Outlier problem with too many nested predicates, parsing issue
 bad_solution('SYO561+1'). % Nonexistent hypothesis name
 
