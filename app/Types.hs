@@ -1,6 +1,6 @@
 module Types where 
 
-import Data.Text (Text)
+import Data.Text.Lazy (Text)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )

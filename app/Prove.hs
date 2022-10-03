@@ -10,7 +10,7 @@ import Lem
 import PP
 
 import Data.List as L (length, null, map, find, foldl, any, filter, concatMap, concat, all, (\\))
-import Data.Text as T (Text, unpack)
+import Data.Text.Lazy as T (Text, unpack)
 import Data.Set as S
   ( Set, empty, isSubsetOf, toList, union, intersection, (\\), null, fromList, member, delete, difference, disjoint, insert )
 import Data.Map as HM
@@ -264,7 +264,7 @@ puf _ es (Eq a b) (Eq x y) = do
         (Cut (x === a) (EqS a x) $ eqTrans2 x a b y) 
         (Cut (y === b) (EqS b y) $ eqTrans2 a x y b)
 puf _ _ f g =
-  et $ "prove-unfold\n f : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
+  eb $ "prove-unfold\n f : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
 pfl :: Int -> Form -> Form -> IO Prf
 pfl k (Not f) (Not g) = do
@@ -341,7 +341,7 @@ pnm k (Fa vs f) _g
           (Fa ws f <=> Fa ws g, faIffToFaIffFa ws k f g) ] $
         iffTrans (Fa vs f) (Fa ws f) (Fa ws g)
   | otherwise = do
-    pt $ "Variables " <> ppList id vs <> " do not occur in " <> ppForm _g <> "\n"
+    pb $ "Variables " <> ppList ft vs <> " do not occur in " <> ppForm _g <> "\n"
     p <- pnm k f _g
     return $ cuts [(Fa vs f <=> f, bloatFaIff k vs f), (f <=> _g, p)] $ iffTrans (Fa vs f) f _g
 pnm k (Ex vs f) _g
@@ -363,7 +363,7 @@ pnm k (Ex vs f) _g
     return $ cuts [(Ex vs f <=> f, bloatExIff k vs f), (f <=> _g, p)] $ iffTrans (Ex vs f) f _g
 pnm _ f g
   | f == g = return $ iffRefl f
-  | otherwise = et $ "prove-normalized error\nf = " <> ppForm f <> "\ng = " <> ppForm g <> "\n"
+  | otherwise = eb $ "prove-normalized error\nf = " <> ppForm f <> "\ng = " <> ppForm g <> "\n"
 
 useConcs :: Int -> [Form] -> IO (Int, [Form], Prf -> Prf)
 useConcs k [] = return (k, [], id)
@@ -384,7 +384,7 @@ useConc k (Or fs) = do
 useConc k g =
   if isLit g
   then return (k, [g], id)
-  else et $ "use conc : not lit : " <> ppForm g
+  else eb $ "use conc : not lit : " <> ppForm g
 
 expandLit :: Int -> Form -> Form -> IO (Int, [Form], Prf -> Prf)
 expandLit k (Not g) (Iff g' h)
@@ -554,8 +554,8 @@ mapPremLit hs f@(Not (Eq x y))
   | f `elem` hs = return $ Ax f
   | x == y = return $ NotL (x === x) $ EqR x
   | Not (Eq y x) `elem` hs = return $ NotL (x === y) $ NotR (y === x) $ EqS y x
-  | otherwise = et $ "use-prem-neq : " <> ppForm f
-mapPremLit _ f = et $ "map-prem-lit-exception : " <> ppForm f <> "\n"
+  | otherwise = eb $ "use-prem-neq : " <> ppForm f
+mapPremLit _ f = eb $ "map-prem-lit-exception : " <> ppForm f <> "\n"
 
 efactor :: Maybe Bool -> Form -> Form -> IO Prf
 efactor mb f g = do
@@ -1125,7 +1125,7 @@ rnf tt ti (Ex vs f) =
 rnvs :: MTT -> Int -> [Text] -> ([Text], MTT, Int)
 rnvs mp k [] = ([], mp, k)
 rnvs mp k (v : vs) =
-  let v' = "X" <> ppInt k in
+  let v' = "X" <> tlt (ppInt k) in
   let mp' = HM.insert v v' mp in
   let (vs', mp'', k') = rnvs mp' (k + 1) vs in
   (v' : vs', mp'', k')
@@ -1199,7 +1199,7 @@ failAsm k pf = do
 origSearchTimed :: Int -> Bool -> VC -> Form -> Form -> IO VC
 origSearchTimed tm md vc f g = do
   pt $ "Search mode : " <> (if md then "deep" else "quick") <> "\n"
-  pt $ "Search time : " <> ppInt tm <> " ms\n"
+  pb $ "Search time : " <> ppInt tm <> " ms\n"
   rst <- timeout tm (origSearch md 0 vc [(f, g)])
   case rst of 
     Just vc' -> return vc' 
@@ -1603,7 +1603,7 @@ df1rw (Iff l r : es) g =
   if g == l
   then return (l <=> r, r)
   else df1rw es g
-df1rw (e : es) f = et $ "non-definition : " <> ppForm e
+df1rw (e : es) f = eb $ "non-definition : " <> ppForm e
 
 dfj :: [Form] -> [Form] -> IO (Form, [Form])
 dfj es (f : fs) = (DBF.second (: fs) <$> df1 es f) <|> (DBF.second (f :) <$> dfj es fs)
@@ -1649,7 +1649,7 @@ dutt x (Obv, Eq a b)
 dutt x (Rev, Eq a b)
   | x == b = return a
   | otherwise = nt
-dutt _ (dr, f) = et $ "non-equation : " <> ppForm f <> "\n"
+dutt _ (dr, f) = eb $ "non-equation : " <> ppForm f <> "\n"
 
 du :: [(Dir, Form)] -> Term -> Term -> IO USOL
 du es x y = do
@@ -1925,7 +1925,7 @@ uuf k (Fa vs f) e (Fa ws g) = do
 uuf k (Not f) e (Not g) = do
   p <- uuf k f e g
   return $ Cut (f <=> g) p $ iffToNotIffNot f g
-uuf _ f _ g = et $ "uuf unimplmented case,\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
+uuf _ f _ g = eb $ "uuf unimplmented case,\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
 vxsToVm :: [(Text, Term)] -> VM
 vxsToVm = L.foldl (\ vm_ (v_, x_) -> HM.insert v_ x_ vm_) HM.empty
@@ -1969,7 +1969,7 @@ uegr k gm (Ex vs f) e (Ex ws g) = do
   p <- ueg k' gm' f' e g'
   return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 uegr _ _ f e g =
-  et $ "UEGR failed:\n f : " <> ppForm f <> "\ne : " <> ppForm e <> "\ng : " <> ppForm g <> "\n"
+  eb $ "UEGR failed:\n f : " <> ppForm f <> "\ne : " <> ppForm e <> "\ng : " <> ppForm g <> "\n"
 
 uegt :: VM -> Form -> Form -> Form -> IO Prf
 uegt gm f (Iff l r) g = do
@@ -1983,7 +1983,7 @@ uegt gm f (Fa vs (Iff l r)) g = do
   guard $ l' == f
   guard $ r' == g
   return $ FaL vxs (l <=> r) $ Ax (f <=> g)
-uegt _ _ e _ = et $ "Not a definition : " <> ppForm e
+uegt _ _ e _ = eb $ "Not a definition : " <> ppForm e
 
 revDir :: Dir -> Dir
 revDir Obv = Rev
@@ -2099,7 +2099,7 @@ mkRdef r (Or fs) = do
   (fs', Not (Rel s xs)) <- desnoc fs
   guard (r == s)
   return (Iff (Rel s xs) (Or fs'))
-mkRdef _ f = error $ unpack $ "Cannot make rdef :\n" <> ppFormNl f
+mkRdef _ f = eb $ "Cannot make rdef :\n" <> ppFormNl f
 
 proveRdef :: Form -> Form -> IO Prf
 proveRdef (Fa vs f) (Fa ws g) = do
@@ -2121,7 +2121,7 @@ proveRdef' (Iff r (Or fs)) (Or fsnr)  = do
   (fs', Not r') <- cast $ desnoc fsnr
   guard (r == r' && fs == fs')
   return $ rDefLemma1 r fs fsnr
-proveRdef' f g = et $ "Anomaly! : " <> ppForm f <> " |- " <> ppForm g <> "\n"
+proveRdef' f g = eb $ "Anomaly! : " <> ppForm f <> " |- " <> ppForm g <> "\n"
 
 relDef :: Text -> Text -> Form -> IO Elab
 relDef n r g = do
@@ -2250,7 +2250,7 @@ iffSimp f g (Iff f' g') = do
   guardMsg "iff-simp" $ g == g'
   return $ iffRefl (f <=> g)
 iffSimp f g h = 
-  et $ 
+  eb $ 
     "iff-simp\n" <> 
     "f : " <> ppForm f <> "\n" <>
     "g : " <> ppForm g <> "\n" <>
@@ -2284,7 +2284,7 @@ impSimp f g (Imp f' g') = do
   guardMsg "imp-simp" $ g == g'
   return $ iffRefl (f ==> g)
 impSimp f g h = 
-  et $ 
+  eb $ 
     "imp-simp\n" <> 
     "f : " <> ppForm f <> "\n" <>
     "g : " <> ppForm g <> "\n" <>
@@ -2375,7 +2375,7 @@ pbs k (Ex vs f) h = do
   return $ iffsTrans [(Ex vs f, pfg'), (Ex vs g, pgh)] h
 pbs _ f g
   | f == g = return $ iffRefl f
-  | otherwise = et $ "prove-bool-simp\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
+  | otherwise = eb $ "prove-bool-simp\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
 removePure :: Form -> Form -> IO Prf
 removePure f g = do
@@ -2385,7 +2385,7 @@ removePure f g = do
   let f3 = uws f2
   let f4 = fltn f3
   let f5 = qmerge f4
-  guardMsg ("PPR mismatch\nf' : " <> ppForm f5 <> "\ng :  " <> ppForm g <> "\n") (f5 == g)
+  guardMsg (tlt $ "PPR mismatch\nf' : " <> ppForm f5 <> "\ng :  " <> ppForm g <> "\n") (f5 == g)
   p1 <- ppp 0 f f1
   p2 <- pbs 0 f1 f2
   p3 <- puw 0 f2 f3
@@ -2473,7 +2473,7 @@ skol ds k (Or fs) (Or gs) = do
   fps <- mapM2 (\ f_ g_ -> (f_,) <$> skolemize ds k f_ g_) fs gs
   return $ OrR gs gs $ OrL fps
 skol fs k f g = do
-  et $ "skol\n" <>
+  eb $ "skol\n" <>
        "fs :\n" <>
        ppListNl ppForm fs <> "\n" <>
        "f : " <> ppForm f <> "\n" <>
@@ -2491,7 +2491,7 @@ updr k (Iff e f) (Imp g h)
   | e == g && f == h = return $ IffLO e f $ Ax (e ==> f)  
   | e == h && f == g = return $ IffLR e f $ Ax (f ==> e)
   | otherwise = et "not an iff component"
-updr k f g = et $
+updr k f g = eb $
   "UPDR\n" <>
   "f : " <> ppForm f <> "\n" <>
   "g : " <> ppForm g <> "\n" 
@@ -2622,4 +2622,4 @@ pnnf _ _ f@(Rel _ _) g
   | f == g = return $ iffRefl f
 pnnf _ _ f@(Eq _ _) g
   | f == g = return $ iffRefl f
-pnnf _ _ f g = et $ "prove-nnf\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
+pnnf _ _ f g = eb $ "prove-nnf\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"

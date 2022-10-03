@@ -23,10 +23,11 @@ import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
 import System.Environment ( getArgs )
 import Data.List as L ( map, foldl, all, sortBy, concat, reverse, length, any, filter )
-import Data.Text as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
+import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
+import Data.Text.Lazy.Builder (Builder)
 import Data.Set as S ( empty, insert, member, singleton, toList )
 import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey )
-import Data.Text.IO as TIO ( hPutStrLn, hPutStr, writeFile )
+import Data.Text.Lazy.IO as TIO ( hPutStrLn, hPutStr, writeFile )
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode) )
 
@@ -179,15 +180,15 @@ verifyLftGoal :: Int -> Seq -> Seq -> (Form, Prf) -> IO ()
 verifyLftGoal k lft rgt (f, p) = verify k (S.insert f lft) rgt p
 
 ev :: Text -> Form -> Seq -> Seq -> IO ()
-ev t f lhs rhs = et $ t <> ppForm f <> "\nLHS :\n" <> ppListNl ppForm (S.toList lhs) <> "\nRHS :\n" <> ppListNl ppForm (S.toList rhs) <> "\n"
+ev t f lhs rhs = eb $ ft t <> ppForm f <> "\nLHS :\n" <> ppListNl ppForm (S.toList lhs) <> "\nRHS :\n" <> ppListNl ppForm (S.toList rhs) <> "\n"
 
 verify :: Int -> Seq -> Seq -> Prf -> IO ()
 verify _ _ _ Asm = return ()
 verify _ lft rgt (Ax f) = do
   let lhs_text = ppListNl ppForm (S.toList lft)
   let rhs_text = ppListNl ppForm (S.toList rgt)
-  guard (S.member f lft) <|> et ("Ax fail, LHS missing : " <> ppForm f <> "\nLHS = " <> lhs_text)
-  guard (S.member f rgt) <|> et ("Ax fail, RHS missing : " <> ppForm f <> "\nRHS = " <> rhs_text)
+  guard (S.member f lft) <|> eb ("Ax fail, LHS missing : " <> ppForm f <> "\nLHS = " <> lhs_text)
+  guard (S.member f rgt) <|> eb ("Ax fail, RHS missing : " <> ppForm f <> "\nRHS = " <> rhs_text)
 verify _ lft rgt (EqR x) = guard (S.member (Eq x x) rgt) <|> error "EqR-fail"
 -- verify k lft rgt (EqC (x0, y0, p0) (x1, y1, p1)) = do
 --   guard (S.member (Eq x0 x1) lft && S.member (Eq y0 y1) rgt) <|> error "EqC-fail"
@@ -224,7 +225,7 @@ verify k lft rgt (NotR f p) = do
   verify k (S.insert f lft) rgt p
 verify k lft rgt (OrL gls) = do
   let fs = L.map fst gls
-  guard (S.member (Or fs) lft) <|> error ("OrL-fail : " ++ unpack (ppForm (Or fs)))
+  guard (S.member (Or fs) lft) <|> eb ("OrL-fail : " <> ppForm (Or fs))
   mapM_ (verifyLftGoal k lft rgt) gls
 verify k lft rgt (OrR fs gs p) = do
   guard (sublist gs fs && S.member (Or fs) rgt) <|> error "OrR-fail"
@@ -296,12 +297,12 @@ epFork :: Int -> EP -> EP
 epFork 0 ep = epIncr ep
 epFork m (k, l) = (0, (m - 1, k) : l)
 
-ppBranch :: Branch -> Text
+ppBranch :: Branch -> Builder
 ppBranch br = ppListNl ppPolForm $ L.map fst (HM.toList br)
 
 addExp :: Branch -> Form -> Pol -> EP -> Int -> Prf -> IO [EF]
 addExp br f pl ep k p = do
-  let br' = HM.insert (f, pl) (ppEP ep) br
+  let br' = HM.insert (f, pl) (tlt $ ppEP ep) br
   -- pt "\nWorking on proof :\n"
   -- pt $ T.intercalate "\n" $ ppPrf 100 p
   -- pt "\nContext:\n"
@@ -444,13 +445,13 @@ expp br f sd ep k (RelC r xs ys) = do
 
 expp br f sd ep k Asm = return [(f, sd, ep, k, Close, "'none'")]
 
-expp _ f b ep k p = et $ T.intercalate "\n" $ "expansion not implemented" : ppPrf 10 p
+expp _ f b ep k p = eb $ ppInter "\n" $ "expansion not implemented" : ppPrf 10 p
 
 expOr :: Branch -> Int -> Text ->  Form -> Pol -> EP -> [Form] -> Prf -> IO [EF]
 expOr br k epg f pl ep [] p = expp br f pl ep k p
 expOr br k epg f pl ep (g : gs) p = do
   let ep' = epIncr ep 
-  let br' = HM.insert (g, Neg) (ppEP ep') br 
+  let br' = HM.insert (g, Neg) (tlt $ ppEP ep') br 
   efs <- expOr br' k epg g Neg ep' gs p
   return $ (f, pl, ep, k, InfOrR epg, "'none'") : efs
 
@@ -458,7 +459,7 @@ expAnd :: Branch -> Int -> Text -> Form -> Pol -> EP -> [Form] -> Prf -> IO [EF]
 expAnd br k epg f pl ep [] p = expp br f pl ep k p
 expAnd br k epg f pl ep (g : gs) p = do
   let ep' = epIncr ep 
-  let br' = HM.insert (g, Pos) (ppEP ep') br 
+  let br' = HM.insert (g, Pos) (tlt $ ppEP ep') br 
   efs <- expAnd br' k epg g Pos ep' gs p
   return $ (f, pl, ep, k, InfAndL epg, "'none'") : efs
 
@@ -477,25 +478,25 @@ expand' br f ep (el : els) = do
   expand br f ep (el : els) 
 
 expand :: Branch -> Form -> EP -> [Elab] -> IO [EF]
-expand _ (Or []) ep [] = return [(Or [], Pos, ep, 0, InfOrL (ppEP ep), "'EOP'")]
+expand _ (Or []) ep [] = return [(Or [], Pos, ep, 0, InfOrL (tlt $ ppEP ep), "'EOP'")]
 expand _ f ep [] = et "last added formula must be bot\n"
 expand br f ep (Plab g p tx : els) = do
-  let br' = HM.insert (f, Pos) (ppEP ep) br
+  let br' = HM.insert (f, Pos) (tlt $ppEP ep) br
   efs0 <- expand' br' g (epFork 0 ep) els
   efs1 <- addExp br' g Neg (epFork 1 ep) 0 p
   return $ (f, Pos, ep, 0, InfCut, tx) : efs0 ++ efs1
 expand br f ep (Rdef r g h p tx : els) = do 
-  let br' = HM.insert (f, Pos) (ppEP ep) br
+  let br' = HM.insert (f, Pos) (tlt $ ppEP ep) br
   let ep' = epIncr ep
-  let br'' = HM.insert (g, Pos) (ppEP ep') br'
+  let br'' = HM.insert (g, Pos) (tlt $ ppEP ep') br'
   let ep'' = epIncr ep'
   efs0 <- addExp br'' h Neg (epFork 1 ep') 0 p
   efs1 <- expand' br'' h ep'' els
   return $ (f, Pos, ep, 0, InfRdef, tx) : (g, Pos, ep', 0, InfCut, "'rel-def-cut'") : efs0 ++ efs1
 expand br f ep (AOC xs g h p tx : els) = do 
-  let br' = HM.insert (f, Pos) (ppEP ep) br
+  let br' = HM.insert (f, Pos) (tlt $ppEP ep) br
   let ep' = epIncr ep
-  let br'' = HM.insert (g, Pos) (ppEP ep') br'
+  let br'' = HM.insert (g, Pos) (tlt $ ppEP ep') br'
   let ep'' = epIncr ep'
   efs0 <- expand' br'' h ep'' els
   efs1 <- addExp br'' h Neg (epFork 1 ep') 0 p
@@ -594,7 +595,7 @@ elaborate (tptp : tstp : estp : flags) = do
   (_, es) <- mapAccumM (elabIO verbose) hs tstp_afs 
   let allCount = L.length es 
   let fullCount = L.length $ L.filter (not . elabHasAsm) es
-  ptnl $ "Full elaboration rate = " <> ppInt fullCount <> "/" <> ppInt allCount
+  pb $ "Full elaboration rate = " <> ppInt fullCount <> "/" <> ppInt allCount <> "\n"
   let hbr = HM.foldrWithKey (\ nm_ f_ br_ -> HM.insert (f_, Pos) nm_ br_) HM.empty (fst hs)
   efs <- expand' hbr (And []) (0, []) es
   --guardMsg "single-junct detected" $ not $ L.any elabSingleJunct efs
@@ -669,12 +670,12 @@ resj (Rdef xs f g p t) = Rdef xs (rfsj f) (rfsj g) (rpsj p) t
 
 detectSJ :: EF -> IO ()
 detectSJ (f, _, ep, _, _, _) 
-  | formSJ f = et $ "single junct at EP : " <> ppEP ep
+  | formSJ f = eb $ "single junct at EP : " <> ppEP ep
   | otherwise = return ()
 
 writeElab :: String -> [EF] -> IO ()
 writeElab nm efs = do
-  let output = T.intercalate "\n" $ L.map writeEF efs
+  let output = tlt $ ppInter "\n" $ L.map writeEF efs
   Prelude.putStrLn $ "Writing EF : " <> nm
   -- h <- SIO.openFile nm WriteMode
   -- -- mapM_ (TIO.hPutStrLn h . writeEF) efs
@@ -818,7 +819,7 @@ check (tptp : estp : flags) = do
   efs <- mapM afToEf estp_afs
   let _bmp = L.foldl (\ mp_ (Af nm_ f_ _) -> HM.insert nm_ (f_, Pos) mp_) HM.empty tptp_afs
   -- pt $ ppListNl writeEF efs
-  let bmp = L.foldl (\ mp_ (f_, pl_, ep_, _, _, _) -> HM.insert (ppEP ep_) (f_, pl_) mp_) _bmp efs
+  let bmp = L.foldl (\ mp_ (f_, pl_, ep_, _, _, _) -> HM.insert (tlt $ ppEP ep_) (f_, pl_) mp_) _bmp efs
   let fmp = L.foldl (\ mp_ (f_, pl_, ep_, k_, _, _) -> HM.insert ep_ (f_, pl_, k_) mp_) HM.empty efs
   (top, Pos, 0) <- cast $ HM.lookup (0, []) fmp
   mapM_ (checkEF' vb bmp fmp) efs
@@ -826,19 +827,19 @@ check _ = et "invalid args for check"
 
 checkEF' :: Bool -> HM.Map Text (Form, Pol) -> HM.Map EP (Form, Pol, Int) -> EF -> IO ()
 checkEF' vb bm fm ef = do
-  when vb $ pt $ "checking EF : " <> writeEF ef <> "\n"
+  when vb $ pb $ "checking EF : " <> writeEF ef <> "\n"
   checkEF bm fm ef 
 
-ppFM :: HM.Map EP (Form, Pol, Int) -> Text
+ppFM :: HM.Map EP (Form, Pol, Int) -> Builder
 ppFM fm = ppListNl (\ (ep_, (f_, pl_, _)) -> ppEP ep_ <> " : " <> ppPolForm (f_, pl_)) $ HM.toList fm
 
 type Branch' = HM.Map Text (Form, Pol) 
 
-ppHM :: (a -> Text) -> (b -> Text) -> HM.Map a b -> Text
+ppHM :: (a -> Builder) -> (b -> Builder) -> HM.Map a b -> Builder
 ppHM f g m = ppListNl (\ (x_, y_) -> f x_ <> " : " <> g y_) $ HM.toList m
 
-ppBranch' :: Branch' -> Text
-ppBranch' = ppHM id ppPolForm 
+ppBranch' :: Branch' -> Builder
+ppBranch' = ppHM ft ppPolForm 
 
 checkEF :: Branch' -> HM.Map EP (Form, Pol, Int) -> EF -> IO ()
 
@@ -856,7 +857,7 @@ checkEF bm fm (_, _, ep, k, InfOrL nm, _) = do
   pf <- cast $ HM.lookup nm bm 
   case pf of 
     (Or fs, Pos) -> guard $ checkJunct fm ep k Pos 0 fs
-    _ -> et $ "Not a positive disjunction : " <> ppPolForm pf
+    _ -> eb $ "Not a positive disjunction : " <> ppPolForm pf
 
 
 checkEF bm fm (_, _, ep, k, InfAndR nm, _) = do 

@@ -5,7 +5,7 @@ module Lem where
 import Types
 import Basic
 import Data.List
-import Data.Text ( Text )
+import Data.Text.Lazy ( Text )
 import Data.Map as HM (Map, lookup)
 
 mt :: Form -> Form -> Prf -- f => g |- ~g => ~f

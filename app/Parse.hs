@@ -5,14 +5,13 @@ module Parse where
 import Types
 import Basic ( et, cast, readInt, unquote )
 
-import Data.Text as T
-    ( cons, drop, isPrefixOf, length, null, pack, uncons, Text )
+import Data.Text.Lazy as T
+    ( cons, drop, isPrefixOf, length, null, pack, uncons, Text, unpack )
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
 import Data.List (elem, foldl, map, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
-import Data.Text.IO as TIO
+import Data.Text.Lazy.IO as TIO
 import System.Environment (getEnv)
-import Data.Text (unpack)
 
 newtype Parser a = Parser { parse :: Text -> Maybe (a, Text) }
 

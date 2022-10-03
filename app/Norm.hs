@@ -3,7 +3,7 @@ module Norm where
 import Types
 import Basic
 
-import Data.Text as T ( Text )
+import Data.Text.Lazy as T ( Text )
 import Data.Set as S ( Set, member )
 
 import Data.List as L

@@ -11,7 +11,8 @@ import Types
 import PP
 
 import Data.Maybe (fromMaybe)
-import Data.Text as T (Text, uncons, unsnoc, unpack, null)
+import Data.Text.Lazy as T (Text, uncons, unsnoc, unpack, null)
+import Data.Text.Lazy.Builder (Builder)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
@@ -22,7 +23,7 @@ import Control.Applicative as A
 import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
 -- import Data.Hashable (Hashable)
-import Data.Text.Read as TR ( decimal )
+import Data.Text.Lazy.Read as TR ( decimal )
 import Debug.Trace (trace)
 
 pattern (:>) :: Char -> Text -> Text
@@ -53,7 +54,7 @@ substForm vxs (Ex vs f) =
   Ex vs $ substForm vxs' f
 
 par :: Int -> Term
-par k = Fun (ppSQ $ "#" <> ppInt k) []
+par k = Fun (tlt $ ppSQ $ "#" <> ppInt k) []
 
 varPars :: Int -> [Text] -> (Int, [(Text, Term)])
 varPars k [] = (k, [])
@@ -149,11 +150,17 @@ mark k = print $ "Marking checkpoint " <> show k
 pt :: Text -> IO ()
 pt t = Prelude.putStr $ unpack t
 
+pb :: Builder -> IO ()
+pb = pt . tlt 
+
 ptnl :: Text -> IO ()
 ptnl t = Prelude.putStr $ unpack $ t <> "\n"
 
 et :: Text -> a
 et t = error (unpack t)
+
+eb :: Builder -> a
+eb b = et $ tlt b
 
 deleteOnce :: (Eq a) => a -> [a] -> Maybe [a]
 deleteOnce _ [] = Nothing

@@ -7,11 +7,11 @@ import System.Process
 import Types
 import Basic
 import PP
-import Data.Text as T
+import Data.Text.Lazy as T
 import Data.List as L
 import Data.Map as HM (Map, lookup, insert, map, empty)
 import Data.Set as S (Set, insert, fromList)
-import Data.Text.IO as TIO
+import Data.Text.Lazy.IO as TIO
 import Data.Functor ((<&>))
 import Control.Monad as M (guard, foldM, foldM_, (>=>), mzero)
 
@@ -166,8 +166,8 @@ sat fs = do
   nss <- cast $ mapM (litsToNums as) lss
   let max = L.length as
   let head = "p cnf " <> ppInt max <> " " <> ppInt (L.length nss)
-  let body = L.map (\ ns -> T.intercalate " " $ L.map ppInt $ ns ++ [0]) nss
-  let dimacs = T.intercalate "\n" $ head : body
+  let body = L.map (\ ns -> ppInter " " $ L.map ppInt $ ns ++ [0]) nss
+  let dimacs = tlt $ ppInter "\n" $ head : body
   TIO.writeFile "temp.cnf" dimacs
   print "Running cadical..."
   runCommand "cadical -q temp.cnf temp.drat" >>= waitForProcess
