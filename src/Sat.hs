@@ -145,10 +145,10 @@ movLitLft f p = Cut (Not f) (NotR f $ Ax f) p
 
 useCla :: Seq -> Form -> IO Prf
 useCla fxs (Or fs) = do
-  guardMsg (L.all (negated fxs) fs) "not all negated"
+  guardMsg "not all negated" $ L.all (negated fxs) fs
   return $ OrL $ L.map (\ f_ -> (f_, useLftLit f_)) fs
 useCla fxs f = do
-  guardMsg (negated fxs f) "not all negated"
+  guardMsg "not all negated" $ negated fxs f
   return $ useLftLit f
 
 findNewLit :: Seq -> Form -> IO Form

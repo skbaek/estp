@@ -42,14 +42,14 @@ andLs _ p = p
 
 orIffFlatOr :: [Form] -> [Form] -> IO Prf
 orIffFlatOr fs gs = do
-  guardMsg (flatOr fs == gs) "flatten result mismatch"
+  guardMsg "flatten result mismatch" $ flatOr fs == gs
   let gps = L.map (\ g_ -> (g_, Ax g_)) gs
   p <- orLs gps (Or fs)
   return $ iffRFull (Or fs) (Or gs) (OrR gs gs p) (orRs (Or fs) $ OrL gps)
 
 andIffFlatAnd :: [Form] -> [Form] -> IO Prf
 andIffFlatAnd fs gs = do
-  guardMsg (flatAnd fs == gs) "flatten result mismatch"
+  guardMsg "flatten result mismatch" $ flatAnd fs == gs
   let gps = L.map (\ g_ -> (g_, Ax g_)) gs
   p <- andRs gps (And fs)
   return $ iffRFull (And fs) (And gs) (andLs (And fs) $ AndR gps) (AndL gs gs p) --(OrR gs gs p0) (orRs (Or fs) $ OrL gps)
@@ -121,9 +121,7 @@ prn k (Fa vs f) (Fa ws g) = do
   let f' = substForm vxs f
   let f'' = substForm vws f
   let g' = substForm wxs g
-  guardMsg
-    (substForm wxs f'' == f') $
-    "\nf = " <> ppForm f <> "\nf-sub = " <> ppForm f' <> "\nf-rnm = " <> ppForm f'' <> "\nf-rnm-sub = " <> ppForm (substForm wxs f'') <> "\n"
+  guard (substForm wxs f'' == f') 
   p <- prn k' f' g'
   Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
 prn k (Ex vs f) (Ex ws g) = do
@@ -134,9 +132,7 @@ prn k (Ex vs f) (Ex ws g) = do
   let f' = substForm vxs f
   let f'' = substForm vws f
   let g' = substForm wxs g
-  guardMsg
-    (substForm wxs f'' == f') $
-    "\nf = " <> ppForm f <> "\nf-sub = " <> ppForm f' <> "\nf-rnm = " <> ppForm f'' <> "\nf-rnm-sub = " <> ppForm (substForm wxs f'') <> "\n"
+  guard (substForm wxs f'' == f') 
   p <- prn k' f' g'
   Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
 prn _ f g
@@ -215,8 +211,8 @@ put es x@(Fun f xs) y@(Fun g ys)
   | otherwise =
     first (putt x y) es <|> do
       guard $ f == g
-      xyps <- mapM2 (\ x_ y_ -> (x_, y_,) <$> put es x_ y_) xs ys
-      return $ FunC f xyps
+      xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> put es x_ y_) xs ys
+      return $ cuts xyps $ FunC f xs ys
 put es x y
   | x == y = return $ EqR x
   | otherwise = first (putt x y) es
@@ -330,7 +326,7 @@ pnm k (Iff e f) (Iff g h) = do
 pnm k (Fa vs f) _g
   | L.any (`varInf` f) vs = do
     (ws, g) <- cast $ breakFa _g
-    guardMsg (ws == L.filter (`varInf` f) vs) "Normalized list mismatch"
+    guardMsg "Normalized list mismatch" $ ws == L.filter (`varInf` f) vs
     let (k', wxs) = varPars k ws
     let f' = substForm wxs f
     let g' = substForm wxs g
@@ -348,7 +344,7 @@ pnm k (Fa vs f) _g
 pnm k (Ex vs f) _g
   | L.any (`varInf` f) vs = do
     (ws, g) <- cast $ breakEx _g
-    guardMsg (ws == L.filter (`varInf` f) vs) "Normalized list mismatch"
+    guardMsg "Normalized list mismatch" $ ws == L.filter (`varInf` f) vs
     let (k', wxs) = varPars k ws
     let f' = substForm wxs f
     let g' = substForm wxs g
@@ -759,8 +755,8 @@ rwt x y a@(Fun f xs) b@(Fun g ys)
   | x == a && y == b = return $ Ax (x === y)
   | otherwise = do
     guard $ f == g
-    xyps <- mapM2 (\ x_ y_ -> (x_, y_,) <$> rwt x y x_ y_) xs ys
-    return $ FunC f xyps
+    xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> rwt x y x_ y_) xs ys
+    return $ cuts xyps $ FunC f xs ys
 rwt x y a b
   | a == b = return $ EqR a
   | x == a && y == b = return $ Ax (x === y)
@@ -1404,7 +1400,7 @@ porg vm k f g
      --   let f' = substForm vxs f
      --   let f'' = substForm vws f
      --   let g' = substForm wxs g
-     --   guardMsg (substForm wxs f'' == f') "Double substitution mismatch"
+     --   guardMsg "Double substitution mismatch" $ substForm wxs f'' == f'
      --   p <- porg vm k' f' g'
      --   Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
      (Fa vs f, Fa ws g) -> do
@@ -1681,7 +1677,7 @@ dunfold es f h = do
   -- pt "Unfold solution found :\n"
   -- pt $ ppListNl ppUsol uss
   (h', gs) <- dips f' uss
-  guardMsg (h == h') "Simultaneous substitution result does not match target"
+  guardMsg "Simultaneous substitution result does not match target" $ h == h'
   -- pt "All interpolants :\n"
   -- pt $ ppListNl ppForm gs
   -- pt $ "f : " <> ppForm f <> "\n"
@@ -1805,7 +1801,7 @@ definFold es f g = do
 
 uufs :: Form -> [(Form, Form)] -> Form -> IO Prf
 uufs f [] h = do
-  guardMsg (f == h) "f and g not equal after rewriting"
+  guardMsg "f and g not equal after rewriting" $ f == h
   return $ Ax f
 uufs f ((e, g) : egs) h = do
   -- pt $ "f to be rewritten : " <> ppForm f <> "\n"
@@ -1817,7 +1813,7 @@ uufs f ((e, g) : egs) h = do
 
 uips :: (Form -> Form -> IO Prf) -> Form -> [Form] -> Form -> IO Prf
 uips pf f [] h = do
-  guardMsg (f == h) "f and g not equal after rewriting"
+  guardMsg "f and g not equal after rewriting" $ f == h
   return $ Ax f
 uips pf f (g : gs) h = do
   pl <- pf f g
@@ -1826,7 +1822,7 @@ uips pf f (g : gs) h = do
 
 uegs :: Form -> [(Form, Form)] -> Form -> IO Prf
 uegs f [] h = do
-  guardMsg (f == h) "f and g not equal after rewriting"
+  guardMsg "f and g not equal after rewriting" $ f == h
   return $ Ax f
 uegs f ((e, g) : egs) h = do
   pl <- uegs f egs g
@@ -1848,8 +1844,8 @@ uut x e y =
 uutr :: Term -> Form -> Term -> IO Prf
 uutr (Fun f xs) e (Fun g ys) = do
   guard $ f == g
-  xyps <- mapM2 (\ x_ y_ -> (x_, y_,) <$> uut x_ e y_) xs ys
-  return $ FunC f xyps
+  xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> uut x_ e y_) xs ys
+  return $ cuts xyps $ FunC f xs ys
 uutr _ _ _ = et "uutr cannot recurse"
 
 uutt :: Term -> Form -> Term -> IO Prf
@@ -2160,7 +2156,7 @@ exSimp :: Int -> [Text] -> Form -> Form -> IO Prf
 exSimp k vs (And []) (And []) = return $ exTopIff vs
 exSimp k vs (Or []) (Or []) = return $ exBotIff k vs
 exSimp k vs f (Ex ws g) = do 
-  guardMsg (vs == ws && f == g) "ex-simp"
+  guardMsg "ex-simp" $ vs == ws && f == g
   return $ iffRefl (Ex vs f)
 exSimp _ _ _ _ = et "ex-simp"
 
@@ -2168,7 +2164,7 @@ faSimp :: Int -> [Text] -> Form -> Form -> IO Prf
 faSimp k vs (And []) (And []) = return $ faTopIff k vs
 faSimp k vs (Or []) (Or []) = return $ faBotIff vs
 faSimp k vs f (Fa ws g) = do 
-  guardMsg (vs == ws && f == g) "ex-simp"
+  guardMsg "ex-simp" $ vs == ws && f == g
   return $ iffRefl (Fa vs f)
 faSimp _ _ _ _ = et "fa-simp"
 
@@ -2180,33 +2176,33 @@ notSimp _ _ = et "not-simp"
 
 iffSimp :: Form -> Form -> Form -> IO Prf
 iffSimp f (And []) g = do
-  guardMsg (f == g) "iff-simp"
+  guardMsg "iff-simp" $ f == g
   return $
     iffRFull (f <=> top) f
       (Cut top (AndR []) $ iffMPR f top)
       (iffRFull f top (AndR []) (Ax f))
 iffSimp (And []) f g = do
-  guardMsg (f == g) "iff-simp"
+  guardMsg "iff-simp" $ f == g
   return $
     iffRFull (top <=> f) f
       (Cut top (AndR []) $ iffMP f top)
       (iffRFull top f (Ax f) (AndR []))
 
 iffSimp (Or []) f (Not g) = do 
-  guardMsg (f == g) "iff-simp"
+  guardMsg "iff-simp" $ f == g
   return $
     iffRFull (bot <=> f) (Not f) 
       (NotR f $ Cut bot (iffMPR bot f) (OrL []))
       (iffRFull bot f (OrL []) (NotL f $ Ax f))
 iffSimp f (Or []) (Not g) = do 
-  guardMsg (f == g) "iff-simp"
+  guardMsg "iff-simp" $ f == g
   return $
     iffRFull (f <=> bot) (Not f) 
       (NotR f $ Cut bot (iffMP f bot) (OrL []))
       (iffRFull f bot (NotL f $ Ax f) (OrL []))
 iffSimp f g (Iff f' g') = do
-  guardMsg (f == f') "iff-simp"
-  guardMsg (g == g') "iff-simp"
+  guardMsg "iff-simp" $ f == f'
+  guardMsg "iff-simp" $ g == g'
   return $ iffRefl (f <=> g)
 iffSimp f g h = 
   et $ 
@@ -2227,20 +2223,20 @@ impSimp (Or []) f (And []) =
       (AndR [])
       (ImpRA bot f $ OrL [])
 impSimp f (Or []) (Not g) = do
-  guardMsg (f == g) "imp-simp"
+  guardMsg "imp-simp" $ f == g
   return $
     iffRFull (f ==> bot) (Not f) 
       (NotR f $ ImpL f bot (Ax f) (OrL [])) 
       (NotL f $ ImpRA f bot $ Ax f)
 impSimp (And []) f g = do
-  guardMsg (f == g) "imp-simp"
+  guardMsg "imp-simp" $ f == g
   return $
     iffRFull (top ==> f) f 
       (ImpL top f (AndR []) (Ax f)) 
       (ImpRC top f $ Ax f)
 impSimp f g (Imp f' g') = do
-  guardMsg (f == f') "imp-simp"
-  guardMsg (g == g') "imp-simp"
+  guardMsg "imp-simp" $ f == f'
+  guardMsg "imp-simp" $ g == g'
   return $ iffRefl (f ==> g)
 impSimp f g h = 
   et $ 
@@ -2257,25 +2253,25 @@ pbs k (Not f) h = do
   return $ iffsTrans [(Not f, Cut (f <=> g) pfg $ iffToNotIffNot f g), (Not g, pgh)] h
 pbs k (Or fs) (And []) = do
   let gs = L.map boolSimp fs 
-  guardMsg (top `elem` gs) "top not found"
+  guardMsg "top not found" $ top `elem` gs
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pbs k f_ g_) fs gs
   pfg <- cuts fgps <$> cast (iffsToOrIffOr fs gs)
   return $ iffsTrans [(Or fs, pfg), (Or gs, degenOrIff gs)] top
 pbs k (And fs) (Or []) = do
   let gs = L.map boolSimp fs 
-  guardMsg (bot `elem` gs) "bot not found"
+  guardMsg "bot not found" $ bot `elem` gs
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pbs k f_ g_) fs gs
   pfg <- cuts fgps <$> cast (iffsToAndIffAnd fs gs)
   return $ iffsTrans [(And fs, pfg), (And gs, degenAndIff gs)] bot
 pbs k (Or fs) (Or hs) = do
   let gs = L.map boolSimp fs 
-  guardMsg (L.filter (not . isBot) gs == hs) "top filter mismatch"
+  guardMsg "top filter mismatch" $ L.filter (not . isBot) gs == hs
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pbs k f_ g_) fs gs
   pfg <- cuts fgps <$> cast (iffsToOrIffOr fs gs)
   return $ iffsTrans [(Or fs, pfg), (Or gs, bloatOrIff gs)] (Or hs)
 pbs k (And fs) (And hs) = do
   let gs = L.map boolSimp fs 
-  guardMsg (L.filter (not . isTop) gs == hs) "top filter mismatch"
+  guardMsg "top filter mismatch" $ L.filter (not . isTop) gs == hs
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pbs k f_ g_) fs gs
   pfg <- cuts fgps <$> cast (iffsToAndIffAnd fs gs)
   return $ iffsTrans [(And fs, pfg), (And gs, bloatAndIff gs)] (And hs)
@@ -2326,7 +2322,7 @@ removePure f g = do
   let f3 = uws f2
   let f4 = fltn f3
   let f5 = qmerge f4
-  guardMsg (f5 == g) ("PPR mismatch\nf' : " <> ppForm f5 <> "\ng :  " <> ppForm g <> "\n")
+  guardMsg ("PPR mismatch\nf' : " <> ppForm f5 <> "\ng :  " <> ppForm g <> "\n") (f5 == g)
   p1 <- ppp 0 f f1
   p2 <- pbs 0 f1 f2
   p3 <- puw 0 f2 f3
@@ -2400,7 +2396,7 @@ skolAux _ _ = mzero
 
 skol :: [Form] -> Int -> Form -> Form -> IO Prf
 skol fs k (Fa vs f) (Fa ws g) = do
-  guardMsg (isPerm vs ws) "skol : not permutation"
+  guardMsg "skol : not permutation" $ isPerm vs ws
   let (k', wxs) = varPars k ws 
   vxs <- cast $ mapM (\ v_ -> L.find ((v_ ==) . fst) wxs) vs
   let f' = substForm vxs f
@@ -2422,7 +2418,7 @@ skol fs k f g = do
 
 updr :: Int -> Form -> Form -> IO Prf
 updr k (Fa vs f) (Fa ws g) = do 
-  guardMsg (vs == ws) "UPDR : vars mismatch"
+  guardMsg "UPDR : vars mismatch" $ vs == ws
   let (k', vxs) = varPars k vs 
   let f' = substForm vxs f
   let g' = substForm vxs g

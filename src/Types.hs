@@ -7,10 +7,7 @@ import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Data.Functor ((<&>))
 
-data Term =
-    -- Par Int
-    Var Text
-  | Fun Text [Term]
+data Term = Var Text | Fun Text [Term]
   deriving (Show, Eq, Ord)
 
 data Form =
@@ -164,9 +161,9 @@ data Inf =
   | InfEqR Text
   | InfEqS Text Text
   | InfEqT Text Text Text
-  | InfEqC Text Text Text
-  | InfFunC Text [Text]
-  | InfRelC Text [Text]
+  -- | InfEqC Text Text Text
+  | InfFunC [Text] Text
+  | InfRelC [Text] Text
   | InfNotL Text
   | InfNotR Text
   | InfOrL Text

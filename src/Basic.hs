@@ -316,9 +316,9 @@ cuts :: [(Form, Prf)] -> Prf -> Prf
 cuts [] = id
 cuts ((f, p) : fps) = Cut f p . cuts fps
 
-guardMsg :: (Alternative m, Monad m) => Bool -> Text -> m ()
-guardMsg True _ = return ()
-guardMsg False s = error (unpack s)
+guardMsg :: (Alternative m, Monad m) => Text -> Bool -> m ()
+guardMsg _ True  = return ()
+guardMsg s False = error (unpack s)
 
 claVars :: Form -> IO (Set Text)
 claVars (Fa vs f) = S.union (S.fromList vs) <$> claVars f

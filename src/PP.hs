@@ -137,7 +137,7 @@ ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (
 ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (ImpRA f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (Mrk s p) = ("Mark : " <> s) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FunC _ _ _) = ["Fun-C?"]
+ppPrf k (FunC f xs ys) = ["Fun-C : ", "  f : " <> f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
 ppPrf k (RelC _ _) = ["Rel-C?"]
 ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
 ppPrf k (OrR fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
@@ -205,9 +205,9 @@ ppSide Rgt = "rgt"
 ppInf :: Inf -> Text
 ppInf InfCut = "cut"
 ppInf (InfEqR nm) = ppApp "eqr" [nm]
-ppInf (InfEqS nm0 nm1) = ppApp "eqr" [nm0, nm1]
-ppInf (InfEqT nm0 nm1 nm2) = ppApp "eqr" [nm0, nm1, nm2]
-ppInf (InfEqC nm0 nm1 nm2) = ppApp "eqr" [nm0, nm1, nm2]
+ppInf (InfEqS nm0 nm1) = ppApp "eqs" [nm0, nm1]
+ppInf (InfEqT nm0 nm1 nm2) = ppApp "eqt" [nm0, nm1, nm2]
+-- ppInf (InfEqC nm0 nm1 nm2) = ppApp "eqr" [nm0, nm1, nm2]
 -- ppInf (InfFunC Text [Text]) = _
 -- ppInf (InfRelC Text [Text]) = _
 ppInf (InfNotL nm) = ppApp "notl" [nm]
@@ -227,7 +227,8 @@ ppInf (InfFaR nm k) = ppApp "far" [nm, ppInt k]
 ppInf (InfExL nm k) = ppApp "exl" [nm, ppInt k]
 ppInf (InfExR nm xs) = ppApp "exr" [nm, ppList writeTerm xs]
 ppInf (InfAx n m) = ppApp "ax" [n, m]
-ppInf i = error $ "No printer for inf : " ++ show i
+ppInf (InfFunC ns m) = ppApp "func" [ppList id ns, m]
+ppInf (InfRelC ns m) = ppApp "relc" [ppList id ns, m]
 
 ppDir :: Dir -> Text
 ppDir Obv = "obv"

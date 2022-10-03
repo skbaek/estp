@@ -180,11 +180,16 @@ verify k lft rgt (EqS x y) =
   guard (S.member (Eq x y) lft && S.member (Eq y x) rgt) <|> error "EqS-fail"
 verify k lft rgt (EqT x y z) =
   guard (S.member (Eq x y) lft && S.member (Eq y z) lft && S.member (Eq x z) rgt) <|> error "EqT-fail"
-verify k lft rgt (FunC f egs) = do
-  let xs = L.map (\ (x, _, _) -> x) egs
-  let ys = L.map (\ (_, y, _) -> y) egs
-  guard (S.member (Eq (Fun f xs) (Fun f ys)) rgt) <|> error "FunC-fail"
-  mapM_ (verifyEqGoal k lft rgt) egs
+verify k lft rgt (FunC f xs ys) = do
+  xys <- zipM xs ys 
+  guardMsg "Fun-C : premise missing" $ L.all (\ (x_, y_) -> S.member (x_ === y_) lft) xys
+  guardMsg "Fun-C : conclusion missing" $ S.member (Fun f xs === Fun f ys) rgt
+
+-- verify k lft rgt (FunC f egs) = do
+--   let xs = L.map (\ (x, _, _) -> x) egs
+--   let ys = L.map (\ (_, y, _) -> y) egs
+--   guard (S.member (Eq (Fun f xs) (Fun f ys)) rgt) <|> error "FunC-fail"
+--   mapM_ (verifyEqGoal k lft rgt) egs
 verify k lft rgt (RelC r egs) = do
   let xs = L.map (\ (x, _, _) -> x) egs
   let ys = L.map (\ (_, y, _) -> y) egs
@@ -389,6 +394,12 @@ expp br f sd ep k (EqT x y z) = do
   eph <- cast $ HM.lookup (Eq x z, Neg) br
   return [(f, sd, ep, k, InfEqT epf epg eph)]
 
+expp br f sd ep k (FunC g xs ys) = do
+  xys <- zipM xs ys
+  eps <- cast $ mapM (\ (x_, y_) -> HM.lookup (x_ === y_, Pos) br) xys 
+  epg <- cast $ HM.lookup (Fun g xs === Fun g ys, Neg) br
+  return [(f, sd, ep, k, InfFunC eps epg)]
+
 expp _ f b ep k p = et $ T.intercalate "\n" $ "expansion not implemented" : ppPrf 10 p
 
 expOr :: Branch -> Int -> Text -> Int -> Form -> Pol -> EP -> [Form] -> Prf -> IO [EF]
@@ -533,7 +544,20 @@ gTermToInf (Gfun "exr" [gt, Glist gts]) = do
 gTermToInf (Gfun "notl" [gt]) = InfNotL <$> gTermToText gt 
 gTermToInf (Gfun "notr" [gt]) = InfNotR <$> gTermToText gt 
 gTermToInf (Gfun "eqr" [gt]) = InfEqR <$> gTermToText gt 
-
+gTermToInf (Gfun "eqs" gts) = do
+  [nm0, nm1] <- mapM gTermToText gts
+  return $ InfEqS nm0 nm1 
+gTermToInf (Gfun "eqt" gts) = do
+  [nm0, nm1, nm2] <- mapM gTermToText gts
+  return $ InfEqT nm0 nm1 nm2
+gTermToInf (Gfun "func" [Glist gts, gt]) = do
+  nms <- mapM gTermToText gts 
+  nm <- gTermToText gt
+  return $ InfFunC nms nm
+gTermToInf (Gfun "relc" [Glist gts, gt]) = do
+  nms <- mapM gTermToText gts 
+  nm <- gTermToText gt
+  return $ InfRelC nms nm
 gTermToInf t = et $ "inf reader : " <> pack (show t)
 
 textToDir :: Text -> IO Dir
@@ -590,7 +614,7 @@ checkEF bm fm (_, _, ep, k, InfCut) = do
   let ep1 = epFork 1 ep
   (g0, Pos, k0) <- cast $ HM.lookup ep0 fm
   (g1, Neg, k1) <- cast $ HM.lookup ep1 fm
-  guardMsg (g0 == g1 && k == k0 && k == k1) "cut fail"
+  guardMsg "cut fail" $ g0 == g1 && k == k0 && k == k1
 
 checkEF bm fm (_, _, ep, k, InfOrL nm) = do 
   guard $ onPath ep nm
@@ -675,7 +699,14 @@ checkEF bm fm (_, _, ep, k, InfFaL nm xs) = do
   let f' = substForm vxs f
   guard $ checkDown fm ep 0 [(f', Pos, k)]
 
-checkEF bm fm (_, _, _, _, i) = et $ "unsupported inf : " <> ppInf i
+checkEF bm fm (_, _, ep, k, InfEqT nm0 nm1 nm2) = do 
+  guard $ L.all (onPath ep) [nm0, nm1, nm2]
+  (Eq x y, Pos) <- cast $ HM.lookup nm0 bm 
+  (Eq y' z, Pos) <- cast $ HM.lookup nm1 bm 
+  (Eq x' z', Neg) <- cast $ HM.lookup nm2 bm 
+  guardMsg "Eq-T : mismatch" $ x == x' && y == y' && x == x'
+
+checkEF bm fm (_, _, _, _, i) = et $ "unsupported inference! : " <> ppInf i
 
 breakIff :: Form -> Form -> Dir -> Form
 breakIff f g Obv = f ==> g
