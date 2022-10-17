@@ -273,7 +273,22 @@ connective =
 annotations :: Parser Ant
 annotations =
   do { lit "." ; unit Nothing } <|>
-  do { t <- generalTerm ; lit ")" ; lit "." ; unit $ Just t }
+  -- do { t <- generalTerm ; lit ")" ; lit "." ; unit $ Just t }
+  do { 
+    t <- generalTerm ; 
+    c <- connective ; 
+    annotationsClose t c
+  }
+
+annotationsClose :: Gterm -> Text -> Parser Ant 
+annotationsClose t ")" = do 
+  lit "." 
+  return $ Just (t, Nothing)
+annotationsClose t "," = do 
+  ts <- generalTermList 
+  lit ")."
+  return $ Just (t, Just ts)
+annotationsClose t _ = error "Cannot close annotation"
 
 junction :: Bool -> Parser [Form]
 junction b = do
@@ -365,9 +380,16 @@ terms = commaSepPlus term
 term :: Parser Term
 term = (upperWord >>= unit . Var) <|> do { f <- functor ; ts <- arguments ; unit $ Fun f ts }
 
+generalTermList :: Parser [Gterm]
+generalTermList = do 
+  lit "[" 
+  ts <- commaSepStar generalTerm ;
+  lit "]" 
+  unit ts
+
 generalTerm :: Parser Gterm
 generalTerm =
-  do { lit "[" ; ts <- commaSepStar generalTerm ; lit "]" ; unit (Glist ts) } <|>
+  do { ts <- generalTermList ; unit (Glist ts) } <|>
   do { f <- functor ; ts <- gargs ; unit $ Gfun f ts } <|>
   do { kt <- integer ; cast (readInt kt) >>= (unit . Gnum) } <|>
   do { v <- upperWord ; unit (Gvar v) }
@@ -422,7 +444,7 @@ cnf = do
   f <- univClose <$> gform
   a <- annotations
   ign
-  unit (Cnf n (conjecturize r f) a)
+  unit (Cnf n r (conjecturize r f) a)
 
 fof :: Parser Input
 fof = do
@@ -434,7 +456,7 @@ fof = do
   f <- gform
   a <- annotations
   ign
-  unit (Fof n (conjecturize r f) a)
+  unit (Fof n r (conjecturize r f) a)
 
 input :: Parser Input
 input = cnf <|> fof <|> inc
@@ -480,15 +502,15 @@ formBvs (Iff f g) = mergeVars (formBvs f) (formBvs g)
 formBvs (Fa vs f) = vs ++ (formBvs f \\ vs)
 formBvs (Ex vs f) = vs ++ (formBvs f \\ vs)
 
-parseInput :: Input -> IO [AnForm]
+parseInput :: Input -> IO [AF]
 parseInput (Inc s) = do
   tptp <- getEnv "TPTP"
   s' <- cast $ unquote s
   parseName $ tptp ++ "/" ++ unpack s'
-parseInput (Cnf n f t) = return [Af n f t]
-parseInput (Fof n f t) = return [Af n f t]
+parseInput (Cnf n r f t) = return [(n, r, f, t)]
+parseInput (Fof n r f t) = return [(n, r, f, t)]
 
-parseText :: Text -> IO [AnForm]
+parseText :: Text -> IO [AF]
 parseText t =
   case parse input t of
     Just (i,s) -> do
@@ -500,7 +522,7 @@ parseText t =
         return (pfx ++ sfx)
     _ -> et ("Failed to parse input : " <> t)
 
-parseName :: String -> IO [AnForm]
+parseName :: String -> IO [AF]
 parseName n = do
   t <- TIO.readFile n
   case parse ign t of

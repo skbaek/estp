@@ -1,0 +1,132 @@
+
+
+
+
+basics of TPTP
+
+basics of TSTP
+
+- The TESC format
+  - machine checkable
+  - covers all steps 
+  - >99.8% elaboration success rate
+
+
+- why tableaux? 
+  - satisfiability-preserving rules
+
+- Table [] shows the inference rules of \lestp. 
+
+basics of ESTP
+- Improvements over TESC?
+  - readability
+    - suppose there is a bug... TESC vs. ESTP debugging scenario
+  - backward compatible
+  - fine grained failures
+    - "ESTP-0" proofs as a starting point
+
+  - Each component of <fof_elaborated> is a more restrictive subset than its counterpart in 
+    <fof_annotated>. The main differences are as follows: 
+    - Instead of <name>, which can be any arbitrarily chosen identifier (with some minimal 
+      syntactic restrictions) for a formula, elaborated formulas are identified with <path> 
+      which indicates the position of a formula in a proof tree (read [semantics section] 
+      for more details).  Note that <path> is enclosed in single quotes to ensure it is 
+      also a well-formed <name>. <path> is defined as:
+      - <branching> = <decimal>:<decimal>.
+      - <path> = <branching>*<decimal>
+    - Annotated formulas can have a variety of logical statuses indicated by <formula_role>, 
+      including values like axiom, definition, conjecture, etc. Elaborated formulas, 
+      on the other hand, have only two possible logical statuses (signs):
+      - <sign> = tr | fs
+      to avoid confusion 
+
+    - The role of the 'inference' part is similar to that in TSTP files (showing the inference
+      that pertain to the formula), but unlike in TSTP, it comes with a complete specification 
+      of all legal inference rules:
+      - <rule> = 
+            ax(<name>,<name>) | func(<names>,<name>) | relc(<names>,<name>,<name>)
+          | eqr(<name>) | eqs(<name>,<name>) | eqt(<name>,<name>,<name>) | not(<sign>,<name>) 
+          | or(<sign>,<name>) | and(<sign>,<name>) | imp(<sign>,<name>) | iff(<sign>,<name>)
+          | fat(<name>,<terms>) | faf(<name>,<decimal>) | ext(<name>,<decimal>) | exf(<name>,<terms>)
+          | cut | reld | aoc(<terms>) | close
+      - Note that there is also a <decimal> argument (an integer) for every inference, 
+        which is important for proof validity and verification.
+    - As in TPTP/TSTP, <annotation> field is optional and usually omitted, but 
+      they can be very helpful for development and debugging.
+
+
+
+  - Paths
+    An ESTP proof is essentially a tableaux proof tree collapsed into linear form; 
+    Since linearization removes positional information from the formulas in a proof,
+    we need a different way to keep track of how the formulas hang together.
+    Each annotated formla in an ESTP proof is identified by a _path_, which may be 
+    understood as coordinates on a proof tree.
+
+    
+    - Asymmetric coordinates
+      Paths are defined in an asymmetric way such that appending to the 'canonical' branch 
+      (the {0} branch) is a simple incrementation instead of adding annother 
+
+    
+    - k{0} = k+1
+    - ts.k{0} = ts.(k+1)
+    - k{m+1} = k:m.0
+    - ts.k{m+1} = ts.k:m.0
+
+
+      - 'close' indicates a gap in the proof tree, i.e. closing off a branch 
+        without providing the corresponding subproof. The rule is used to 
+        construct partially elaborated ESTP proofs. 
+          One possible alternative to formulas annotated with 'close' would be
+        omitting the said formulas altogether, such that any missing formulas 
+        encountered during verification are implicitly assumed to be closed. 
+        But this makes it impossible to distinguish actual errors in elaboration 
+        from controlled failures (e.g., timeout after a user-specified time limit),
+        so we use the close rule to explicitly indicate the latter.
+
+      - Note that it is not strictly necessary, as we do in our proof calculus, 
+        to have a separate rule for every
+      
+      One may argue that many of the rule names are redundunt... for instace, 
+        every rule that has a one name as argument (e.g., 'orp', 'orn', 'andp' ...)  
+        rolled into a single rule, and the checker could simply look up the formula 
+        designated be <name> to figure out which rule to apply. But in practice it 
+        is better to keep the different rule names for redundancy and debugging.
+
+
+- Verification
+
+
+- The Semantics
+  - Let S be the set of all formulas that precede \phi.
+    Let \phi_0 ... \phi_m be the new formulas obtained by
+    applying inference X. Then if 
+    - For any 0 =< n =< m, S \union {\phi, \phi_n} is unsat,
+    then S \union {\phi} is unsat.
+  - The initial 'true' formula
+    - Makes sense given the semantics above!
+
+
+
+    
+  - Why forward looking inference?
+    - Saves space 
+    - better semantics: with forward-looking rules the meaning of each line 
+      can be understood (roughly) as "if _these_ branches are all unsat, then 
+      so is the current one." With backward-looking rules there is no easy 
+      way to express "these branches"
+
+
+
+
+test results :
+- the elaborator 
+  - strictly experimental (unlike the TESC elaborator)
+  - no excessive emphasis on elaboration rates
+  - ESTP is easier to handle, ATPs are expected to produce it natively
+
+
+- output issues 
+
+

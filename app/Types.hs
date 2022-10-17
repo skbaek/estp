@@ -32,43 +32,46 @@ data Form =
 (===) = Eq
 
 data Prf =
-    Ax Form
-  | EqR Term
-  | EqS Term Term
-  | EqT Term Term Term
-  | FunC Text [Term] [Term]
-  | RelC Text [Term] [Term]
-  | NotL Form Prf
-  | NotR Form Prf
-  | OrL [(Form, Prf)]
-  | OrR [Form] [Form] Prf
-  | AndL [Form] [Form] Prf
-  | AndR [(Form, Prf)]
-  | ImpL Form Form Prf Prf
-  | ImpRA Form Form Prf
-  | ImpRC Form Form Prf
-  | IffLO Form Form Prf
-  | IffLR Form Form Prf
-  | IffR Form Form Prf Prf
-  | FaL [(Text, Term)] Form Prf
-  | FaR [Text] Int Form Prf
-  | ExL [Text] Int Form Prf
-  | ExR [(Text, Term)] Form Prf
-  | Cut Form Prf Prf
+    Id' Form
+  | EqR' Term
+  | EqS' Term Term
+  | EqT' Term Term Term
+  | FunC' Text [Term] [Term]
+  | RelC' Text [Term] [Term]
+  | NotT' Form Prf
+  | NotF' Form Prf
+  | OrT' [(Form, Prf)]
+  | OrF' [Form] [Form] Prf
+  | AndT' [Form] [Form] Prf
+  | AndF' [(Form, Prf)]
+  | ImpT' Form Form Prf Prf
+  | ImpFA' Form Form Prf
+  | ImpFC' Form Form Prf
+  | IffTO' Form Form Prf
+  | IffTR' Form Form Prf
+  | IffF' Form Form Prf Prf
+  | FaT' [(Text, Term)] Form Prf
+  | FaF' [Text] Int Form Prf
+  | ExT' [Text] Int Form Prf
+  | ExF' [(Text, Term)] Form Prf
+  | Cut' Form Prf Prf
   | Mrk Text Prf 
   | Asm
   deriving (Show)
 
 data Elab =
     Plab Form Prf Text
-  | Rdef Text Form Form Prf Text
-  | AOC [Term] Form Form Prf Text
+  | RelD' Text Form Form Prf Text
+  | AoC' [Term] Form Form Prf Text
   deriving (Show)
+
+-- | RelD'' Form Form Prf Text
+-- | AoC'' Int Form Form Prf Text
 -- | ElabFail Form Text
 
 data Input =
-    Cnf Text Form (Maybe Gterm)
-  | Fof Text Form (Maybe Gterm)
+    Cnf Text Text Form Ant
+  | Fof Text Text Form Ant
   | Inc Text
   deriving Show
 
@@ -79,9 +82,9 @@ data Gterm =
   | Gvar Text
   deriving (Show)
 
-type Ant = Maybe Gterm
+type Ant = Maybe (Gterm, Maybe [Gterm])
 
-data AnForm = Af Text Form (Maybe Gterm)
+type AF = (Text, Text, Form, Ant)
 
 type Prob = [Input]
 
@@ -89,13 +92,13 @@ data Dir =
   Obv | Rev
   deriving (Show, Eq, Ord)
 
-data Side = 
-  Lft | Rgt
-  deriving (Show, Eq, Ord)
-
-data Pol = 
-  Pos | Neg
-  deriving (Show, Eq, Ord)
+-- data Side = 
+--   Lft | Rgt
+--   deriving (Show, Eq, Ord)
+-- 
+-- data Pol = 
+--   bt | Neg
+--   deriving (Show, Eq, Ord)
 
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
@@ -152,32 +155,18 @@ type MTI = HM.Map Text Int
 type USOL = [Term]
 
 type EP = (Int, [(Int, Int)])
-type EF = (Form, Pol, EP, Int, Inf, Text)
+type EF = (EP, Bool, Form, Int, Inf, Maybe Text)
 
 data Inf =
-    InfAx Text Text
-  | InfEqR Text
-  | InfEqS Text Text
-  | InfEqT Text Text Text
-  -- | InfEqC Text Text Text
-  | InfFunC [Text] Text
-  | InfRelC [Text] Text Text
-  | InfNotL Text
-  | InfNotR Text
-  | InfOrL Text
-  | InfOrR Text 
-  | InfAndL Text
-  | InfAndR Text
-  | InfImpL Text
-  | InfImpR Text Side
-  | InfIffL Text Dir
-  | InfIffR Text
-  | InfFaL Text [Term]
-  | InfFaR Text Int 
-  | InfExL Text Int 
-  | InfExR Text [Term]
-  | InfCut
-  | InfRdef
-  | InfAoC [Term]
-  | Close
+    Id Text Text 
+  | Cut
+  | FunC [Text] Text | RelC [Text] Text Text
+  | EqR Text | EqS Text Text |EqT Text Text Text
+  | NotT Text | NotF Text 
+  | OrT Text | OrF Text | AndT Text | AndF Text
+  | ImpT Text | ImpFA Text | ImpFC Text 
+  | IffTO Text | IffTR Text | IffF Text
+  | FaT Text [Term] | FaF Text Int 
+  | ExT Text Int | ExF Text [Term]
+  | RelD | AoC [Term] | Open
   deriving (Show)

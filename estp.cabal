@@ -21,11 +21,12 @@ extra-source-files: CHANGELOG.md
 
 executable estp
   main-is:          Main.hs
---   ghc-options:
---     -O2
---     -threaded
---     -fprof-auto
---     "-with-rtsopts=-N -p -s -h -i0.1"
+  ghc-options:
+    -O2
+    -- -threaded
+    -- -fprof-auto
+    -- -prof
+    -- "-with-rtsopts=-N -p -s -h -i0.1"
   other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove
   -- other-extensions:
   build-depends:    

@@ -192,26 +192,39 @@ breakSingleton _ = Nothing
 zt :: Term
 zt = Fun "c" []
 
+isPos :: Form -> Bool
+isPos = not . isNeg
+
 isNeg :: Form -> Bool
 isNeg (Not _) = True
 isNeg _ = False
 
-isPos :: Form -> Bool
-isPos = not . isNeg
+isbt :: Form -> Bool
+isbt = not . isNeg
 
-isGndTerm :: Term -> Bool
-isGndTerm (Var _) = False
-isGndTerm (Fun f xs) = L.all isGndTerm xs
--- isGndTerm x = True
+isGndTerm :: [Text] -> Term -> Bool
+isGndTerm vs (Var v) = v `elem` vs
+isGndTerm vs (Fun f xs) = L.all (isGndTerm vs) xs
 
 isGndAtom :: Form -> Bool
-isGndAtom (Eq x y) = isGndTerm x && isGndTerm y
-isGndAtom (Rel _ xs) = L.all isGndTerm xs
+isGndAtom (Eq x y) = isGndTerm [] x && isGndTerm [] y
+isGndAtom (Rel _ xs) = L.all (isGndTerm []) xs
 isGndAtom _ = False
 
 isGndLit :: Form -> Bool
 isGndLit (Not f) = isGndAtom f
 isGndLit f = isGndAtom f
+
+isGndForm :: [Text] -> Form -> Bool
+isGndForm vs (Rel _ xs) = L.all (isGndTerm vs) xs
+isGndForm vs (Eq x y) = isGndTerm vs x && isGndTerm vs y
+isGndForm vs (Not f) = isGndForm vs f
+isGndForm vs (Or fs) = L.all (isGndForm vs) fs
+isGndForm vs (And fs) = L.all (isGndForm vs) fs
+isGndForm vs (Imp f g) = isGndForm vs f && isGndForm vs g
+isGndForm vs (Iff f g) = isGndForm vs f && isGndForm vs g
+isGndForm vs (Fa ws f) = isGndForm (vs ++ ws) f 
+isGndForm vs (Ex ws f) = isGndForm (vs ++ ws) f 
 
 mapM2 :: (Monad m, Alternative m) => (a -> b -> m c) -> [a] -> [b] -> m [c]
 mapM2 f xs ys = zipM xs ys >>= mapM (uncurry f)
@@ -325,7 +338,7 @@ ffuns (Ex _ f) = ffuns f
 
 cuts :: [(Form, Prf)] -> Prf -> Prf
 cuts [] = id
-cuts ((f, p) : fps) = Cut f p . cuts fps
+cuts ((f, p) : fps) = Cut' f p . cuts fps
 
 guardMsg :: (Alternative m, Monad m) => Text -> Bool -> m ()
 guardMsg _ True  = return ()
@@ -523,6 +536,11 @@ formSJ (Ex _ f) = formSJ f
 formSJ _ = False
 
 elabSingleJunct :: EF -> Bool
-elabSingleJunct (f, _, _, _, _, _) = formSJ f
+elabSingleJunct (_, _, f, _, _, _) = formSJ f
 
+bt :: Bool
+bt = True
+
+bf :: Bool
+bf = False
 {- write -}

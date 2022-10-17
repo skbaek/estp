@@ -25,34 +25,34 @@ import System.Timeout (timeout)
 import Debug.Trace (trace)
 
 andRs :: [(Form, Prf)] -> Form -> IO Prf
-andRs fps (And fs) = AndR <$> mapM (\ f_ -> (f_,) <$> andRs fps f_) fs
+andRs fps (And fs) = AndF' <$> mapM (\ f_ -> (f_,) <$> andRs fps f_) fs
 andRs fps f = cast $ snd <$> L.find ((f ==) . fst) fps
 
 orLs :: [(Form, Prf)] -> Form -> IO Prf
-orLs fps (Or fs) = OrL <$> mapM (\ f_ -> (f_,) <$> orLs fps f_) fs
+orLs fps (Or fs) = OrT' <$> mapM (\ f_ -> (f_,) <$> orLs fps f_) fs
 orLs fps f = cast $ snd <$> L.find ((f ==) . fst) fps
 
 orRs :: Form -> Prf -> Prf
-orRs (Or fs) p = OrR fs fs $ L.foldl (flip orRs) p fs
+orRs (Or fs) p = OrF' fs fs $ L.foldl (flip orRs) p fs
 orRs _ p = p
 
 andLs :: Form -> Prf -> Prf
-andLs (And fs) p = AndL fs fs $ L.foldl (flip andLs) p fs
+andLs (And fs) p = AndT' fs fs $ L.foldl (flip andLs) p fs
 andLs _ p = p
 
 orIffFlatOr :: [Form] -> [Form] -> IO Prf
 orIffFlatOr fs gs = do
   guardMsg "flatten result mismatch" $ flatOr fs == gs
-  let gps = L.map (\ g_ -> (g_, Ax g_)) gs
+  let gps = L.map (\ g_ -> (g_, Id' g_)) gs
   p <- orLs gps (Or fs)
-  return $ iffRFull (Or fs) (Or gs) (OrR gs gs p) (orRs (Or fs) $ OrL gps)
+  return $ iffRFull (Or fs) (Or gs) (OrF' gs gs p) (orRs (Or fs) $ OrT' gps)
 
 andIffFlatAnd :: [Form] -> [Form] -> IO Prf
 andIffFlatAnd fs gs = do
   guardMsg "flatten result mismatch" $ flatAnd fs == gs
-  let gps = L.map (\ g_ -> (g_, Ax g_)) gs
+  let gps = L.map (\ g_ -> (g_, Id' g_)) gs
   p <- andRs gps (And fs)
-  return $ iffRFull (And fs) (And gs) (andLs (And fs) $ AndR gps) (AndL gs gs p) --(OrR gs gs p0) (orRs (Or fs) $ OrL gps)
+  return $ iffRFull (And fs) (And gs) (andLs (And fs) $ AndF' gps) (AndT' gs gs p) --(OrF' gs gs p0) (orRs (Or fs) $ OrT' gps)
 
 pdne :: Int -> Form -> Form -> IO Prf
 pdne k f g 
@@ -61,7 +61,7 @@ pdne k f g
     case (f, g) of
      (Not f, Not g) -> do
        p <- pdne k f g
-       return $ Cut (f <=> g) p $ iffToNotIffNot f g
+       return $ Cut' (f <=> g) p $ iffToNotIffNot f g
      (Not (Not f), g) -> do
        p <- pdne k f g -- p : |- f <=> g
        return $ cuts [(Not (Not f) <=> f, notNotIff f), (f <=> g, p)] $ iffTrans (Not (Not f)) f g
@@ -74,31 +74,31 @@ pdne k f g
      (Imp e f, Imp g h) -> do
        pl <- pdne k e g -- pl : |- fl <=> gl 
        pr <- pdne k f h -- pl : |- fr <=> gr
-       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+       return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
      (Iff e f, Iff g h) -> do
        pl <- pdne k e g -- pl : |- fl <=> gl 
        pr <- pdne k f h -- pl : |- fr <=> gr
-       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+       return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
      (Fa vs f, Fa ws g) -> do
        guard (vs == ws)
        let (k', vxs) = varPars k vs
        let f' = substForm vxs f
        let g' = substForm vxs g
        p <- pdne k' f' g'
-       return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+       return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
      (Ex vs f, Ex ws g) -> do
        guard (vs == ws)
        let (k', vxs) = varPars k vs
        let f' = substForm vxs f
        let g' = substForm vxs g
        p <- pdne k' f' g'
-       return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+       return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
      _ -> et "prove-DNE"
 
 prn :: Int -> Form -> Form -> IO Prf
 prn k (Not f) (Not g) = do
   p <- prn k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 prn k (Or fs) (Or gs) = do
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> prn k f_ g_) fs gs
   cuts fgps <$> cast (iffsToOrIffOr fs gs)
@@ -108,11 +108,11 @@ prn k (And fs) (And gs) = do
 prn k (Imp e f) (Imp g h) = do
   pl <- prn k e g -- pl : |- fl <=> gl 
   pr <- prn k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 prn k (Iff e f) (Iff g h) = do
   pl <- prn k e g -- pl : |- fl <=> gl 
   pr <- prn k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 prn k (Fa vs f) (Fa ws g) = do
   let (k', xs) = listPars k ws
   vxs <- zipM vs xs
@@ -123,7 +123,7 @@ prn k (Fa vs f) (Fa ws g) = do
   let g' = substForm wxs g
   guard (substForm wxs f'' == f') 
   p <- prn k' f' g'
-  Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
+  Cut' (Fa ws $ f'' <=> g) (FaF' ws k (f'' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
 prn k (Ex vs f) (Ex ws g) = do
   let (k', xs) = listPars k ws
   vxs <- zipM vs xs
@@ -134,7 +134,7 @@ prn k (Ex vs f) (Ex ws g) = do
   let g' = substForm wxs g
   guard (substForm wxs f'' == f') 
   p <- prn k' f' g'
-  Cut (Fa ws $ f'' <=> g) (FaR ws k (f'' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
+  Cut' (Fa ws $ f'' <=> g) (FaF' ws k (f'' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
 prn _ f g
   | f == g = return $ iffRefl f
   | otherwise = et "prove-rename"
@@ -195,32 +195,32 @@ putt :: Term -> Term -> Form -> IO Prf
 putt x y f@(Fa vs (Eq a b)) =
   ( do vm <- cast $ specs HM.empty [(a, x), (b, y)]
        vxs <- cast $ vmToVxs vm vs
-       return $ FaL vxs (a === b) $ Ax (x === y) ) <|>
+       return $ FaT' vxs (a === b) $ Id' (x === y) ) <|>
   ( do vm <- cast $ specs HM.empty [(a, y), (b, x)]
        vxs <- cast $ vmToVxs vm vs
-       return $ FaL vxs (a === b) $ EqS y x )
+       return $ FaT' vxs (a === b) $ EqS' y x )
 putt x y (Eq a b)
-  | x == a && y == b = return $ Ax (x === y)
-  | x == b && y == a = return $ EqS y x
+  | x == a && y == b = return $ Id' (x === y)
+  | x == b && y == a = return $ EqS' y x
   | otherwise = mzero
 
 putt x y _ = et "putt : not an equation"
 put :: [Form] -> Term -> Term -> IO Prf
 put es x@(Fun f xs) y@(Fun g ys)
-  | x == y = return $ EqR x
+  | x == y = return $ EqR' x
   | otherwise =
     first (putt x y) es <|> do
       guard $ f == g
       xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> put es x_ y_) xs ys
-      return $ cuts xyps $ FunC f xs ys
+      return $ cuts xyps $ FunC' f xs ys
 put es x y
-  | x == y = return $ EqR x
+  | x == y = return $ EqR' x
   | otherwise = first (putt x y) es
 
 puf :: Int -> [Form] -> Form -> Form -> IO Prf
 puf k es (Not f) (Not g) = do
   p <- puf k es f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 puf k es (Or fs) (Or gs) = do
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> puf k es f_ g_) fs gs
   cuts fgps <$> cast (iffsToOrIffOr fs gs)
@@ -230,25 +230,25 @@ puf k es (And fs) (And gs) = do
 puf k es (Imp e f) (Imp g h) = do
   pl <- puf k es e g -- pl : |- fl <=> gl 
   pr <- puf k es f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 puf k es (Iff e f) (Iff g h) = do
   pl <- puf k es e g -- pl : |- fl <=> gl 
   pr <- puf k es f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 puf k es (Fa vs f) (Fa ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- puf k' es f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 puf k es (Ex vs f) (Ex ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- puf k' es f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 puf _ es (Rel r xs) (Rel s ys) = do
   xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> put es x_ y_) xs ys
   --  p <- relCong r xs ys
@@ -261,15 +261,15 @@ puf _ es (Eq a b) (Eq x y) = do
   return $ 
     cuts [(a === x, pax), (b === y, pby)] $ 
       iffRFull (a === b) (x === y) 
-        (Cut (x === a) (EqS a x) $ eqTrans2 x a b y) 
-        (Cut (y === b) (EqS b y) $ eqTrans2 a x y b)
+        (Cut' (x === a) (EqS' a x) $ eqTrans2 x a b y) 
+        (Cut' (y === b) (EqS' b y) $ eqTrans2 a x y b)
 puf _ _ f g =
   eb $ "prove-unfold\n f : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
 pfl :: Int -> Form -> Form -> IO Prf
 pfl k (Not f) (Not g) = do
   p <- pfl k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 pfl k (Or fs) (Or hs) = do
   let gs = L.map fltn fs
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pfl k f_ g_) fs gs
@@ -285,25 +285,25 @@ pfl k (And fs) (And hs) = do
 pfl k (Imp e f) (Imp g h) = do
   pl <- pfl k e g -- pl : |- fl <=> gl 
   pr <- pfl k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 pfl k (Iff e f) (Iff g h) = do
   pl <- pfl k e g -- pl : |- fl <=> gl 
   pr <- pfl k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 pfl k (Fa vs f) (Fa ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- pfl k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 pfl k (Ex vs f) (Ex ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- pfl k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 pfl _ f g
   | f == g = return $ iffRefl f
   | otherwise = et "prove-flatten"
@@ -311,7 +311,7 @@ pfl _ f g
 pnm :: Int -> Form -> Form -> IO Prf
 pnm k (Not f) (Not g) = do
   p <- pnm k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 pnm k (Or fs) (Or gs) = do
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pnm k f_ g_) fs gs
   cuts fgps <$> cast (iffsToOrIffOr fs gs)
@@ -321,11 +321,11 @@ pnm k (And fs) (And gs) = do
 pnm k (Imp e f) (Imp g h) = do
   pl <- pnm k e g -- pl : |- fl <=> gl 
   pr <- pnm k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 pnm k (Iff e f) (Iff g h) = do
   pl <- pnm k e g -- pl : |- fl <=> gl 
   pr <- pnm k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 pnm k (Fa vs f) _g
   | L.any (`varInf` f) vs = do
     (ws, g) <- cast $ breakFa _g
@@ -337,7 +337,7 @@ pnm k (Fa vs f) _g
     return $
       cuts
         [ (Fa vs f <=> Fa ws f, bloatFaIffFa k vs ws f),
-          (Fa ws (f <=> g), FaR ws k (f <=> g) p),
+          (Fa ws (f <=> g), FaF' ws k (f <=> g) p),
           (Fa ws f <=> Fa ws g, faIffToFaIffFa ws k f g) ] $
         iffTrans (Fa vs f) (Fa ws f) (Fa ws g)
   | otherwise = do
@@ -355,7 +355,7 @@ pnm k (Ex vs f) _g
     return $
       cuts
         [ (Ex vs f <=> Ex ws f, bloatExIffEx k vs ws f),
-          (Fa ws (f <=> g), FaR ws k (f <=> g) p),
+          (Fa ws (f <=> g), FaF' ws k (f <=> g) p),
           (Ex ws f <=> Ex ws g, faIffToExIffEx ws k f g) ] $
         iffTrans (Ex vs f) (Ex ws f) (Ex ws g)
   | otherwise = do
@@ -377,10 +377,10 @@ useConc k (Fa vs f) = do
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   (k'', fs, pf) <- useConc k' f'
-  return (k'', fs, FaR vs k f . pf)
+  return (k'', fs, FaF' vs k f . pf)
 useConc k (Or fs) = do
   (k', fs', pp) <- useConcs k fs
-  return (k', fs', OrR fs fs . pp)
+  return (k', fs', OrF' fs fs . pp)
 useConc k g =
   if isLit g
   then return (k, [g], id)
@@ -388,11 +388,11 @@ useConc k g =
 
 expandLit :: Int -> Form -> Form -> IO (Int, [Form], Prf -> Prf)
 expandLit k (Not g) (Iff g' h)
-  | g == g' = return (k, [Not h], \ p_ -> Cut (Not h) p_ (notLR h g $ iffMP g h))
+  | g == g' = return (k, [Not h], \ p_ -> Cut' (Not h) p_ (notTF h g $ iffMP g h))
 expandLit k g (Iff g' h)
   | g == g' = do
     (k', hs, ph) <- useConc k h
-    return (k', hs, \ p_ -> Cut h (ph p_) (iffMPR g h) )
+    return (k', hs, \ p_ -> Cut' h (ph p_) (iffMPR g h) )
 expandLit _ _ _ = mzero
 
 expandLits :: [Form] -> Int -> [Form] -> IO (Int, [Form], Prf -> Prf)
@@ -414,18 +414,18 @@ proveCnfTrans :: VM -> Form -> [Form] -> IO Prf
 proveCnfTrans vm (Fa vs f) gs = do
   let vxs = L.map (\ v_ -> (v_, agvmt vm (Var v_))) vs
   let f' = substForm vxs f
-  FaL vxs f <$> proveCnfTrans vm f' gs
+  FaT' vxs f <$> proveCnfTrans vm f' gs
 proveCnfTrans vm (And fs) gs =
-  first (\ f_ -> AndL fs [f_] <$> proveCnfTrans vm f_ gs) fs
+  first (\ f_ -> AndT' fs [f_] <$> proveCnfTrans vm f_ gs) fs
 proveCnfTrans vm (Or fs) gs = do
   fps <- mapM (\ f_ -> (f_,) <$> proveCnfTrans vm f_ gs) fs
-  return $ OrL fps
+  return $ OrT' fps
 proveCnfTrans _ (Not (Eq x y)) gs
-  | Not (Eq y x) `elem` gs = return $ notLR (x === y) (y === x) $ EqS y x
+  | Not (Eq y x) `elem` gs = return $ notTF (x === y) (y === x) $ EqS' y x
 proveCnfTrans _ (Eq x y) gs
-  | Eq y x `elem` gs = return $ EqS x y
+  | Eq y x `elem` gs = return $ EqS' x y
 proveCnfTrans _ f gs
-  | f `elem` gs = return $ Ax f
+  | f `elem` gs = return $ Id' f
   | otherwise = mzero
 
 forkCnf :: VM -> [Form] -> (Form, [Form]) -> [(VM, [Form])]
@@ -537,23 +537,23 @@ usePrem :: (Form -> IO Prf) -> VM -> Form -> IO Prf
 usePrem  pf vm (Fa vs f) = do
   let vxs = L.map (\ v_ -> (v_, agvmt vm (Var v_))) vs
   let f' = substForm vxs f
-  FaL vxs f <$> usePrem pf vm f'
+  FaT' vxs f <$> usePrem pf vm f'
 usePrem pf vm (Or fs) = do
   fps <- mapM (\ f_ -> (f_ ,) <$> usePrem pf vm f_) fs
-  return $ OrL fps
+  return $ OrT' fps
 usePrem  pf _ f = pf f
 
 mapPremLit :: [Form] -> Form -> IO Prf
-mapPremLit hs f@(Not (Rel _ _)) = guard (f `elem` hs) >> return (Ax f)
-mapPremLit hs f@(Rel _ _) = guard (f `elem` hs) >> return (Ax f)
+mapPremLit hs f@(Not (Rel _ _)) = guard (f `elem` hs) >> return (Id' f)
+mapPremLit hs f@(Rel _ _) = guard (f `elem` hs) >> return (Id' f)
 mapPremLit hs (Eq x y)
-  | Eq x y `elem` hs = return $ Ax (Eq x y)
-  | Eq y x `elem` hs = return $ EqS x y
+  | Eq x y `elem` hs = return $ Id' (Eq x y)
+  | Eq y x `elem` hs = return $ EqS' x y
   | otherwise = error "use-prem : eq"
 mapPremLit hs f@(Not (Eq x y))
-  | f `elem` hs = return $ Ax f
-  | x == y = return $ NotL (x === x) $ EqR x
-  | Not (Eq y x) `elem` hs = return $ NotL (x === y) $ NotR (y === x) $ EqS y x
+  | f `elem` hs = return $ Id' f
+  | x == y = return $ NotT' (x === x) $ EqR' x
+  | Not (Eq y x) `elem` hs = return $ NotT' (x === y) $ NotF' (y === x) $ EqS' y x
   | otherwise = eb $ "use-prem-neq : " <> ppForm f
 mapPremLit _ f = eb $ "map-prem-lit-exception : " <> ppForm f <> "\n"
 
@@ -658,7 +658,7 @@ unspecs :: [Form] -> [Form] -> [(Form, [Form])]
 unspecs fls hls = L.filter (\ (f_, _) -> not (L.any (lspec f_) hls)) (plucks fls)
 
 cutIff :: Form -> Form -> Prf -> Prf -> Prf
-cutIff f g pfg p = Cut (f <=> g) pfg $ Cut g (iffMP f g) p
+cutIff f g pfg p = Cut' (f <=> g) pfg $ Cut' g (iffMP f g) p
 
 
 nubIndexForm :: Form -> Int
@@ -702,11 +702,11 @@ resolve f g h = do
     Obv -> do
       pf <- usePrem (mapPremLit (pvt : hls)) vm f'
       pg <- usePrem (mapPremLit (Not pvt : hls)) vm g'
-      return $ cutIff f f' prff' $ cutIff g g' prfg' $ ph $ Cut pvt pf $ Cut (Not pvt) pg (NotL pvt $ Ax pvt)
+      return $ cutIff f f' prff' $ cutIff g g' prfg' $ ph $ Cut' pvt pf $ Cut' (Not pvt) pg (NotT' pvt $ Id' pvt)
     Rev -> do
       pf <- usePrem (mapPremLit (Not pvt : hls)) vm f'
       pg <- usePrem (mapPremLit (pvt : hls)) vm g'
-      return $ cutIff f f' prff' $ cutIff g g' prfg' $ ph $ Cut pvt pg $ Cut (Not pvt) pf (NotL pvt $ Ax pvt)
+      return $ cutIff f f' prff' $ cutIff g g' prfg' $ ph $ Cut' pvt pg $ Cut' (Not pvt) pf (NotT' pvt $ Id' pvt)
 
 eqfInit :: (Form, [Form]) -> [(Term, Term, [Form])]
 eqfInit (Not (Eq x y), fs) = [(x, y, fs), (y, x, fs)]
@@ -722,8 +722,8 @@ eqfactor f g = do
 
   pf <- usePrem (\f_ -> first (rwf x y f_) gs) vm f
   let eqpf
-        | Not (x === y) `elem` ggs = NotR (x === y) pf
-        | Not (y === x) `elem` ggs = NotR (y === x) $ Cut (x === y) (EqS y x) pf
+        | Not (x === y) `elem` ggs = NotF' (x === y) pf
+        | Not (y === x) `elem` ggs = NotF' (y === x) $ Cut' (x === y) (EqS' y x) pf
         | otherwise = error "eqf : nonexistent eqn"
   return $ pg eqpf
 
@@ -754,37 +754,37 @@ superpose f g h = do
 
 rwt :: Term -> Term -> Term -> Term -> IO Prf
 rwt x y a@(Fun f xs) b@(Fun g ys)
-  | a == b = return $ EqR a
-  | x == a && y == b = return $ Ax (x === y)
+  | a == b = return $ EqR' a
+  | x == a && y == b = return $ Id' (x === y)
   | otherwise = do
     guard $ f == g
     xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> rwt x y x_ y_) xs ys
-    return $ cuts xyps $ FunC f xs ys
+    return $ cuts xyps $ FunC' f xs ys
 rwt x y a b
-  | a == b = return $ EqR a
-  | x == a && y == b = return $ Ax (x === y)
+  | a == b = return $ EqR' a
+  | x == a && y == b = return $ Id' (x === y)
   | otherwise = mzero
 rwf :: Term -> Term -> Form -> Form -> IO Prf
 rwf x y (Not f) (Not g) = do
    p <- rwf y x g f
-   return $ Cut (y === x) (EqS x y) $ notLR f g p
+   return $ Cut' (y === x) (EqS' x y) $ notTF f g p
 rwf x y (Rel r xs) (Rel s ys) = do
   guard $ r == s
   xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> rwt x y x_ y_) xs ys
-  return $ cuts xyps $ RelC r xs ys
+  return $ cuts xyps $ RelC' r xs ys
 rwf x y (Eq a b) (Eq c d) =
   ( do pac <- rwt x y a c
        pbd <- rwt x y b d
-       return $ cuts [(a === c, pac), (b === d, pbd), (c === a, EqS a c)] $ eqTrans2 c a b d) <|>
+       return $ cuts [(a === c, pac), (b === d, pbd), (c === a, EqS' a c)] $ eqTrans2 c a b d) <|>
   ( do pad <- rwt x y a d
        pbc <- rwt x y b c
-       return $ cuts [(a === d, pad), (b === c, pbc), (b === a, EqS a b), (c === b, EqS b c)] $ eqTrans2 c b a d)
+       return $ cuts [(a === d, pad), (b === c, pbc), (b === a, EqS' a b), (c === b, EqS' b c)] $ eqTrans2 c b a d)
 rwf _ _ _ _ = mzero
 
 useEqPremLit :: Term -> Term -> Prf -> Form -> [Form] -> IO Prf
 useEqPremLit x y p f@(Eq a b) hs
   | (x == a) && (y == b) = return p
-  | (x == b) && (y == a) = return $ Cut (x === y) (EqS a b) p
+  | (x == b) && (y == a) = return $ Cut' (x === y) (EqS' a b) p
   | otherwise = mapPremLit hs f
 useEqPremLit x y p f hs = mapPremLit hs f
 
@@ -1169,14 +1169,14 @@ conTerm vm x y = do
 
 orig :: Form -> Form -> IO Prf
 orig f g 
-  | f == g = return $ Ax f
+  | f == g = return $ Id' f
   | otherwise = do
     p <- failAsm 60000000 (porig 0 f g)
-    return $ Cut (f <=> g) p $ iffMP f g
+    return $ Cut' (f <=> g) p $ iffMP f g
 
 -- orig :: Form -> Form -> IO Prf
 -- orig f g 
---   | f == g = return $ Ax f
+--   | f == g = return $ Id' f
 --   | otherwise = do
 --     (f', g', pf) <- origPrep f g
 --     cvc <- makeVC f' g'
@@ -1184,7 +1184,7 @@ orig f g
 --     let vr = vcToVr vc
 --     p <- porg vr 0 f' g'
 --     let vr = vcToVr vc
---     return $ Cut (f <=> g) (pf p) $ iffMP f g
+--     return $ Cut' (f <=> g) (pf p) $ iffMP f g
 
 -- failAsm :: IO Prf -> IO Prf
 -- failAsm pf = pf <|> return Asm
@@ -1389,10 +1389,10 @@ porig k f g
     case (f, g) of
      (Eq x y, Eq y' x') -> do 
        guard $ x == x' && y == y'
-       return $ iffRFull (x === y) (y === x) (EqS x y) (EqS y x)
+       return $ iffRFull (x === y) (y === x) (EqS' x y) (EqS' y x)
      (Not f, Not g) -> do
        p <- porig k f g
-       return $ Cut (f <=> g) p $ iffToNotIffNot f g
+       return $ Cut' (f <=> g) p $ iffToNotIffNot f g
      (Or fs, Or gs) -> do
        fgps <- porigAux k fs gs
        let fgs = L.map (\ (f_, g_, _) -> (f_, g_)) fgps
@@ -1406,11 +1406,11 @@ porig k f g
      (Imp e f, Imp g h) -> do
        pl <- porig k e g -- pl : |- fl <=> gl 
        pr <- porig k f h -- pl : |- fr <=> gr
-       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+       return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
      (Iff e f, Iff g h) -> do
        pl <- porig k e g -- pl : |- fl <=> gl 
        pr <- porig k f h -- pl : |- fr <=> gr
-       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+       return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
      (Fa vs f, Fa ws g) -> do
        let (k', xs) = listPars k ws
        wxs <- zipM ws xs
@@ -1419,7 +1419,7 @@ porig k f g
        let f' = substForm vws f
        let f'' = substForm wxs f'
        p <- porig k' f'' g'
-       Cut (Fa ws $ f' <=> g) (FaR ws k (f' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
+       Cut' (Fa ws $ f' <=> g) (FaF' ws k (f' <=> g) p) <$> faIffToFaIffFa'' k vs f ws g
      (Ex vs f, Ex ws g) -> do
        let (k', xs) = listPars k ws
        wxs <- zipM ws xs
@@ -1428,7 +1428,7 @@ porig k f g
        let f' = substForm vws f
        let f'' = substForm wxs f'
        p <- porig k' f'' g'
-       Cut (Fa ws $ f' <=> g) (FaR ws k (f' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
+       Cut' (Fa ws $ f' <=> g) (FaF' ws k (f' <=> g) p) <$> faIffToExIffEx'' k vs f ws g
      (f, g) -> mzero 
 
 porg :: VR -> Int -> Form -> Form -> IO Prf
@@ -1438,10 +1438,10 @@ porg vm k f g
     case (f, g) of
      (Eq x y, Eq y' x') -> do 
        guardMsg "Not eq-sym" $ x == x' && y == y'
-       return $ iffRFull (x === y) (y === x) (EqS x y) (EqS y x)
+       return $ iffRFull (x === y) (y === x) (EqS' x y) (EqS' y x)
      (Not f, Not g) -> do
        p <- porg vm k f g
-       return $ Cut (f <=> g) p $ iffToNotIffNot f g
+       return $ Cut' (f <=> g) p $ iffToNotIffNot f g
      (Or fs, Or gs) -> do
        fgps <- porgAux vm k fs gs
        let fgs = L.map (\ (f_, g_, _) -> (f_, g_)) fgps
@@ -1455,11 +1455,11 @@ porg vm k f g
      (Imp e f, Imp g h) -> do
        pl <- porg vm k e g -- pl : |- fl <=> gl 
        pr <- porg vm k f h -- pl : |- fr <=> gr
-       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+       return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
      (Iff e f, Iff g h) -> do
        pl <- porg vm k e g -- pl : |- fl <=> gl 
        pr <- porg vm k f h -- pl : |- fr <=> gr
-       return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+       return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
      (Fa vs f, Fa ws g) -> do
        let (k', xs) = listPars k ws
        wxs <- zipM ws xs
@@ -1468,7 +1468,7 @@ porg vm k f g
        let fp = substForm vws f
        let fp' = substForm wxs fp
        p <- porg vm k' fp' g'
-       Cut (Fa ws $ fp <=> g) (FaR ws k (fp <=> g) p) <$> genFaIffToFaIffFa vm k vs f ws g
+       Cut' (Fa ws $ fp <=> g) (FaF' ws k (fp <=> g) p) <$> genFaIffToFaIffFa vm k vs f ws g
      (Ex vs f, Ex ws g) -> do
        let (k', xs) = listPars k ws
        wxs <- zipM ws xs
@@ -1478,13 +1478,13 @@ porg vm k f g
        let fp = substForm vws f
        let fp' = substForm wxs fp
        p <- porg vm k' fp' g'
-       Cut (Fa ws $ fp <=> g) (FaR ws k (fp <=> g) p) <$> genFaIffToExIffEx vm k vs f ws g
+       Cut' (Fa ws $ fp <=> g) (FaF' ws k (fp <=> g) p) <$> genFaIffToExIffEx vm k vs f ws g
      (f, g) -> mzero 
 
 uvm :: Int -> VR -> Form -> Form -> IO Prf
 uvm k vr f g =
   if f == g
-  then return $ Ax f
+  then return $ Id' f
   else uvmr k vr f g
 
 uvmr :: Int -> VR -> Form -> Form -> IO Prf
@@ -1504,36 +1504,36 @@ uvmr k vm (And fs) (And gs) = do
 
 uvmr _ _ f@(Rel _ _) g@(Rel _ _) = do
   guard (f == g)
-  return $ Ax f
+  return $ Id' f
 
 uvmr _ _ f@(Eq x y) (Eq z w)
-  | x == z && y == w = return $ Ax f
-  | x == w && y == z = return $ EqS x y
+  | x == z && y == w = return $ Id' f
+  | x == w && y == z = return $ EqS' x y
   | otherwise = mzero
 
 uvmr k vm (Not f) (Not g) = do
   p <- uvm k (swap vm) g f
-  return $ notLR f g p
+  return $ notTF f g p
 uvmr k vm (Not (Not f)) g = do
   p <- uvm k vm f g
-  return $ NotL (Not f) $ NotR f p
+  return $ NotT' (Not f) $ NotF' f p
 uvmr k vm f (Not (Not g)) = do
   p <- uvm k vm f g
-  return $ NotR (Not g) $ NotL g p
+  return $ NotF' (Not g) $ NotT' g p
 
 uvmr k vm (Imp fl fr) (Imp gl gr) = do
   pl <- uvm k (swap vm) gl fl
   pr <- uvm k vm fr gr
-  return $ ImpL fl fr (ImpRA gl gr pl) (ImpRC gl gr pr)
+  return $ ImpT' fl fr (ImpFA' gl gr pl) (ImpFC' gl gr pr)
 
 uvmr k vm f@(Iff fl fr) g@(Iff gl gr) = do
   pol <- uvm k (swap vm) gl fl -- pol : gl |- fl
   por <- uvm k vm fr gr         -- por : fr |- gr
   prr <- uvm k (swap vm) gr fr -- prr : gr |- fr
   prl <- uvm k vm fl gl         -- prl : fl |- gl
-  let po = IffLO fl fr $ ImpL fl fr pol por -- po : gl |- gr
-  let pr = IffLR fl fr $ ImpL fr fl prr prl -- pr : gr |- gl
-  return $ IffR gl gr (impRAC gl gr po) (impRAC gr gl pr)
+  let po = IffTO' fl fr $ ImpT' fl fr pol por -- po : gl |- gr
+  let pr = IffTR' fl fr $ ImpT' fr fl prr prl -- pr : gr |- gl
+  return $ IffF' gl gr (impFAC gl gr po) (impFAC gr gl pr)
 
 uvmr k vm (Fa vs f) (Fa ws g) = do
   let (k', xs) = listPars k ws
@@ -1543,7 +1543,7 @@ uvmr k vm (Fa vs f) (Fa ws g) = do
   let f' = substForm vys f
   let g' = substForm wxs g
   p <- uvm k' vm f' g'
-  return $ FaR ws k g $ FaL vys f p
+  return $ FaF' ws k g $ FaT' vys f p
 
 uvmr k vm (Ex vs f) (Ex ws g) = do
   let (k', xs) = listPars k vs
@@ -1553,7 +1553,7 @@ uvmr k vm (Ex vs f) (Ex ws g) = do
   let f' = substForm vxs f
   let g' = substForm wys g
   p <- uvm k' vm f' g'
-  return $ ExL vs k f $ ExR wys g p
+  return $ ExT' vs k f $ ExF' wys g p
 
 uvmr _ _ f g = mzero -- error $ unpack $ "use-VR umimplemented :\n" <> "f = " <> ppForm f <> "\ng = " <> ppForm g <> "\n"
 
@@ -1722,7 +1722,7 @@ dunfold es f h = do
   -- pt $ "f' : " <> ppForm f' <> "\n"
   pl <- ppuf 0 f f'
   pr <- uips (puf 0 es) f' gs h
-  return $ Cut f' (Cut (f <=> f') pl (iffMP f f')) pr
+  return $ Cut' f' (Cut' (f <=> f') pl (iffMP f f')) pr
 
 porigAux :: Int -> [Form] -> [Form] -> IO [(Form, Form, Prf)]
 porigAux _ [] _ = return []
@@ -1748,7 +1748,7 @@ ppufAux k (f : fs) ggs = do
 ppuf :: Int -> Form -> Form -> IO Prf
 ppuf k (Not f) (Not g) = do
   p <- ppuf k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 ppuf k (Or fs) (Or gs) = do
   fgps <- ppufAux k fs gs
   let fgs = L.map (\ (f_, g_, _) -> (f_, g_)) fgps
@@ -1762,31 +1762,31 @@ ppuf k (And fs) (And gs) = do
 ppuf k (Imp e f) (Imp g h) = do
   pl <- ppuf k e g -- pl : |- fl <=> gl 
   pr <- ppuf k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 ppuf k (Iff e f) (Iff g h) = do
   pl <- ppuf k e g -- pl : |- fl <=> gl 
   pr <- ppuf k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 ppuf k (Fa vs f) (Fa ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- ppuf k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 ppuf k (Ex vs f) (Ex ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- ppuf k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 ppuf _ (Rel r xs) (Rel s ys) = do
   guard $ r == s && xs == ys
   return $ iffRefl (Rel r xs)
 ppuf _ (Eq x y) (Eq a b)
   | x == a && y == b = return $ iffRefl (x === y)
-  | x == b && y == a = return $ iffRFull (x === y) (a === b) (EqS x y) (EqS a b)
+  | x == b && y == a = return $ iffRFull (x === y) (a === b) (EqS' x y) (EqS' a b)
   | otherwise = mzero
 ppuf _ f g = mzero
 
@@ -1847,32 +1847,32 @@ definFold es f g = do
 uufs :: Form -> [(Form, Form)] -> Form -> IO Prf
 uufs f [] h = do
   guardMsg "f and g not equal after rewriting" $ f == h
-  return $ Ax f
+  return $ Id' f
 uufs f ((e, g) : egs) h = do
   -- pt $ "f to be rewritten : " <> ppForm f <> "\n"
   -- pt $ "equation e : " <> ppForm e <> "\n"
   -- pt $ "interpolant g : " <> ppForm g <> "\n"
   pl <- uuf 0 f e g -- pgh : |- h <=> g
   pr <- uufs g egs h
-  return $ Cut g (Cut (f <=> g) pl (IffLO f g $ mp f g)) pr
+  return $ Cut' g (Cut' (f <=> g) pl (IffTO' f g $ mp f g)) pr
 
 uips :: (Form -> Form -> IO Prf) -> Form -> [Form] -> Form -> IO Prf
 uips pf f [] h = do
   guardMsg "f and g not equal after rewriting" $ f == h
-  return $ Ax f
+  return $ Id' f
 uips pf f (g : gs) h = do
   pl <- pf f g
   pr <- uips pf g gs h  -- pgh : |- h <=> g
-  return $ Cut g (Cut (f <=> g) pl (IffLO f g $ mp f g)) pr
+  return $ Cut' g (Cut' (f <=> g) pl (IffTO' f g $ mp f g)) pr
 
 uegs :: Form -> [(Form, Form)] -> Form -> IO Prf
 uegs f [] h = do
   guardMsg "f and g not equal after rewriting" $ f == h
-  return $ Ax f
+  return $ Id' f
 uegs f ((e, g) : egs) h = do
   pl <- uegs f egs g
   phg <- ueg 0 HM.empty h e g -- pgh : |- h <=> g
-  return $ Cut g pl $ Cut (h <=> g) phg (IffLR h g $ mp g h)
+  return $ Cut' g pl $ Cut' (h <=> g) phg (IffTR' h g $ mp g h)
 
 ueg :: Int -> VM -> Form -> Form -> Form -> IO Prf
 ueg k gm f e g =
@@ -1883,30 +1883,30 @@ ueg k gm f e g =
 uut :: Term -> Form -> Term -> IO Prf
 uut x e y =
   if x == y
-  then return $ EqR x
+  then return $ EqR' x
   else uutt x e y <|> uutr x e y
 
 uutr :: Term -> Form -> Term -> IO Prf
 uutr (Fun f xs) e (Fun g ys) = do
   guard $ f == g
   xyps <- mapM2 (\ x_ y_ -> (x_ === y_,) <$> uut x_ e y_) xs ys
-  return $ cuts xyps $ FunC f xs ys
+  return $ cuts xyps $ FunC' f xs ys
 uutr _ _ _ = et "uutr cannot recurse"
 
 uutt :: Term -> Form -> Term -> IO Prf
 uutt x (Eq a b) y =
   case (x == a, y == b, x == b, y == a) of
-    (True, True, _, _) -> return $ Ax (x === y)
-    (_, _, True, True) -> return $ EqS a b
+    (True, True, _, _) -> return $ Id' (x === y)
+    (_, _, True, True) -> return $ EqS' a b
     _ -> mzero
 uutt x (Fa vs (Eq a b)) y =
   case (specs HM.empty [(a, x), (b, y)], specs HM.empty [(a, y), (b, x)] ) of
     (Just vm, _) -> do
       vxs <- mapM (\ v_ -> (v_ ,) <$> cast (HM.lookup v_ vm)) vs
-      return $ FaL vxs (a === b) $ Ax (x === y)
+      return $ FaT' vxs (a === b) $ Id' (x === y)
     (_, Just vm) -> do
       vxs <- mapM (\ v_ -> (v_ ,) <$> cast (HM.lookup v_ vm)) vs
-      return $ FaL vxs (a === b) $ EqS y x
+      return $ FaT' vxs (a === b) $ EqS' y x
     _ -> mzero
 uutt _ f _ = et "not an equation"
 
@@ -1921,10 +1921,10 @@ uuf k (Fa vs f) e (Fa ws g) = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- uuf k' f' e g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 uuf k (Not f) e (Not g) = do
   p <- uuf k f e g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 uuf _ f _ g = eb $ "uuf unimplmented case,\nf : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
 
 vxsToVm :: [(Text, Term)] -> VM
@@ -1933,7 +1933,7 @@ vxsToVm = L.foldl (\ vm_ (v_, x_) -> HM.insert v_ x_ vm_) HM.empty
 uegr :: Int -> VM -> Form -> Form -> Form -> IO Prf
 uegr k gm (Not f) e (Not g) = do
   p <- ueg k gm f e g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 uegr k gm (Or fs) e (Or gs) = do
   ps <- mapM2 (\ f_ g_ -> ueg k gm f_ e g_) fs gs
   fgs <- mapM2 (\ f_ g_ -> return $ Iff f_ g_) fs gs
@@ -1947,11 +1947,11 @@ uegr k gm (And fs) e (And gs) = do
 uegr k gm (Imp fl fr) e (Imp gl gr) = do
   pl <- ueg k gm fl e gl -- pl : |- fl <=> gl 
   pr <- ueg k gm fr e gr -- pl : |- fr <=> gr
-  return $ Cut (fl <=> gl) pl $ Cut (fr <=> gr) pr $ impCong fl fr gl gr
+  return $ Cut' (fl <=> gl) pl $ Cut' (fr <=> gr) pr $ impCong fl fr gl gr
 uegr k gm (Iff fl fr) e (Iff gl gr) = do
   pl <- ueg k gm fl e gl -- pl : |- fl <=> gl 
   pr <- ueg k gm fr e gr -- pl : |- fr <=> gr
-  return $ Cut (fl <=> gl) pl $ Cut (fr <=> gr) pr $ iffCong fl fr gl gr
+  return $ Cut' (fl <=> gl) pl $ Cut' (fr <=> gr) pr $ iffCong fl fr gl gr
 uegr k gm (Fa vs f) e (Fa ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
@@ -1959,7 +1959,7 @@ uegr k gm (Fa vs f) e (Fa ws g) = do
   let g' = substForm vxs g
   gm' <- foldM (\ gm_ (v_, x_) -> cast $ addVM v_ x_ gm_) gm vxs
   p <- ueg k' gm' f' e g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 uegr k gm (Ex vs f) e (Ex ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
@@ -1967,7 +1967,7 @@ uegr k gm (Ex vs f) e (Ex ws g) = do
   let g' = substForm vxs g
   gm' <- foldM (\ gm_ (v_, x_) -> cast $ addVM v_ x_ gm_) gm vxs
   p <- ueg k' gm' f' e g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 uegr _ _ f e g =
   eb $ "UEGR failed:\n f : " <> ppForm f <> "\ne : " <> ppForm e <> "\ng : " <> ppForm g <> "\n"
 
@@ -1975,14 +1975,14 @@ uegt :: VM -> Form -> Form -> Form -> IO Prf
 uegt gm f (Iff l r) g = do
   guard $ l == f
   guard $ r == g
-  return $ Ax (f <=> g)
+  return $ Id' (f <=> g)
 uegt gm f (Fa vs (Iff l r)) g = do
   vxs <- cast $ mapM (\ v_ -> (v_ ,) <$> HM.lookup v_ gm) vs
   let l' = substForm vxs l
   let r' = substForm vxs r
   guard $ l' == f
   guard $ r' == g
-  return $ FaL vxs (l <=> r) $ Ax (f <=> g)
+  return $ FaT' vxs (l <=> r) $ Id' (f <=> g)
 uegt _ _ e _ = eb $ "Not a definition : " <> ppForm e
 
 revDir :: Dir -> Dir
@@ -1996,43 +1996,43 @@ iffsTrans :: [(Form, Prf)] -> Form -> Prf
 iffsTrans [] g = iffRefl g
 iffsTrans [(f, p)] g = p
 iffsTrans ((f, pf) : (g, pg) : l) h = 
-  Cut (f <=> g) pf $ Cut (g <=> h) (iffsTrans ((g, pg) : l) h) $ iffTrans f g h
+  Cut' (f <=> g) pf $ Cut' (g <=> h) (iffsTrans ((g, pg) : l) h) $ iffTrans f g h
 
 ppp :: Int -> Form -> Form -> IO Prf
-ppp k (Or []) _ = return $ OrL []
-ppp k _ (And []) = return $ AndR []
-ppp k (Not f) (Not g) = notLR f g <$> ppp k g f
+ppp k (Or []) _ = return $ OrT' []
+ppp k _ (And []) = return $ AndF' []
+ppp k (Not f) (Not g) = notTF f g <$> ppp k g f
 ppp k (Or fs) (Or gs) = do
   fps <- mapM2 (\ f_ g_ -> (f_,) <$> ppp k f_ g_) fs gs
-  return $ OrR gs gs $ OrL fps
+  return $ OrF' gs gs $ OrT' fps
 ppp k (And fs) (And gs) = do
   gps <- mapM2 (\ f_ g_ -> (g_,) <$> ppp k f_ g_) fs gs
-  return $ AndL fs fs $ AndR gps
+  return $ AndT' fs fs $ AndF' gps
 ppp k (Imp e f) (Imp g h) = do 
   pge <- ppp k g e 
   pfh <- ppp k f h
-  return $ impRAC g h $ ImpL e f pge pfh
+  return $ impFAC g h $ ImpT' e f pge pfh
 ppp k (Fa vs f) (Fa ws g) = do 
   guard $ vs == ws 
   let (k', vxs) = varPars k vs 
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- ppp k' f' g'
-  return $ FaR vs k g $ FaL vxs f  p
+  return $ FaF' vs k g $ FaT' vxs f  p
 ppp k (Ex vs f) (Ex ws g) = do 
   guard $ vs == ws 
   let (k', vxs) = varPars k vs 
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- ppp k' f' g'
-  return $ ExL vs k f $ ExR vxs g p
-ppp k f g = guard (f == g) >> return (Ax f)
+  return $ ExT' vs k f $ ExF' vxs g p
+ppp k f g = guard (f == g) >> return (Id' f)
 
 avatarComp :: Form -> Form -> IO Prf -- Ctx
 avatarComp f@(Iff l r) g =
   avatarCompCore f g <|>
   ( do p <- avatarCompCore (Iff r l) g
-       return $ Cut (r <=> l) (iffSym l r) p )
+       return $ Cut' (r <=> l) (iffSym l r) p )
 avatarComp _ _ = et "avatar-comp : not iff"
 
 avatarCompCore :: Form -> Form -> IO Prf -- Ctx
@@ -2043,7 +2043,7 @@ avatarCompCore (Iff s f) g = do
   fs <- cast $ premLits f
   vm <- mapSearch HM.empty fs gs
   pf <- usePrem (mapPremLit gs) vm f
-  return $ pp $ NotR s $ Cut f (iffMP s f) pf
+  return $ pp $ NotF' s $ Cut' f (iffMP s f) pf
 avatarCompCore _ _ = et "avatar-comp-core : not iff"
 
 aoct :: [Term] -> [Text] -> VM -> Term -> Term -> IO VM
@@ -2076,63 +2076,63 @@ aocf zs us vm (Ex vs f) (Ex ws g) = do
   aocf zs (ws L.\\ vs) vm f g
 aocf zs ws vm f g = et "aocf : todo"
 
-normalizeAOC :: Form -> IO ([Term], Form)
-normalizeAOC (Fa vs (Imp (Ex ws f) g)) = do
+normalizeAoC :: Form -> IO ([Term], Form)
+normalizeAoC (Fa vs (Imp (Ex ws f) g)) = do
   vm <- aocf (L.map Var vs) ws HM.empty  f g
   -- pt $ "VM =\n" <> ppVM vm 
   xs <- cast $ mapM (`HM.lookup` vm) ws
   return (xs, Fa vs (Imp (Ex ws f) (subf vm f)))
-normalizeAOC (Imp (Ex ws f) g) = do
+normalizeAoC (Imp (Ex ws f) g) = do
   vm <- aocf [] ws HM.empty f g
   xs <- cast $ mapM (`HM.lookup` vm) ws
   return (xs, Imp (Ex ws f) (subf vm f))
-normalizeAOC _ = mzero
+normalizeAoC _ = mzero
 
-mkRdef :: Text -> Form -> Maybe Form
-mkRdef r (Fa vs g) = do
-  f <- mkRdef r g
+mkRelD' :: Text -> Form -> Maybe Form
+mkRelD' r (Fa vs g) = do
+  f <- mkRelD' r g
   return (Fa vs f)
-mkRdef r (Iff (Rel s xs) f) = guard (r == s) >> return (Iff (Rel s xs) f)
-mkRdef r (Iff f (Rel s xs)) = guard (r == s) >> return (Iff (Rel s xs) f)
-mkRdef r (Or [f, Not (Rel s xs)]) = guard (r == s) >> return (Iff (Rel s xs) f)
-mkRdef r (Or fs) = do
+mkRelD' r (Iff (Rel s xs) f) = guard (r == s) >> return (Iff (Rel s xs) f)
+mkRelD' r (Iff f (Rel s xs)) = guard (r == s) >> return (Iff (Rel s xs) f)
+mkRelD' r (Or [f, Not (Rel s xs)]) = guard (r == s) >> return (Iff (Rel s xs) f)
+mkRelD' r (Or fs) = do
   (fs', Not (Rel s xs)) <- desnoc fs
   guard (r == s)
   return (Iff (Rel s xs) (Or fs'))
-mkRdef _ f = eb $ "Cannot make rdef :\n" <> ppFormNl f
+mkRelD' _ f = eb $ "Cannot make rdef :\n" <> ppFormNl f
 
-proveRdef :: Form -> Form -> IO Prf
-proveRdef (Fa vs f) (Fa ws g) = do
+proveRelD' :: Form -> Form -> IO Prf
+proveRelD' (Fa vs f) (Fa ws g) = do
   guard (vs == ws)
   let (_, xs) = listPars 0 vs
   vxs <- zipM vs xs
-  p <- proveRdef' (substForm vxs f) (substForm vxs g)
-  return $ FaR ws 0 g $ FaL vxs f p
-proveRdef f g = proveRdef' f g
+  p <- proveRelD'' (substForm vxs f) (substForm vxs g)
+  return $ FaF' ws 0 g $ FaT' vxs f p
+proveRelD' f g = proveRelD'' f g
 
-proveRdef' :: Form -> Form -> IO Prf
-proveRdef' f@(Iff fl fr) g@(Iff gl gr) =
-  (guard (f == g) >> return (Ax f)) <|>
+proveRelD'' :: Form -> Form -> IO Prf
+proveRelD'' f@(Iff fl fr) g@(Iff gl gr) =
+  (guard (f == g) >> return (Id' f)) <|>
   (guard (fl == gr && fr == gl) >> return (iffSym fl fr))
-proveRdef' (Iff r b) (Or [b', Not r'])  = do
+proveRelD'' (Iff r b) (Or [b', Not r'])  = do
   guard (r == r' && b == b')
   return $ rDefLemma0 r b
-proveRdef' (Iff r (Or fs)) (Or fsnr)  = do
+proveRelD'' (Iff r (Or fs)) (Or fsnr)  = do
   (fs', Not r') <- cast $ desnoc fsnr
   guard (r == r' && fs == fs')
   return $ rDefLemma1 r fs fsnr
-proveRdef' f g = eb $ "Anomaly! : " <> ppForm f <> " |- " <> ppForm g <> "\n"
+proveRelD'' f g = eb $ "Anomaly! : " <> ppForm f <> " |- " <> ppForm g <> "\n"
 
 relDef :: Text -> Text -> Form -> IO Elab
 relDef n r g = do
-  f <- cast $ mkRdef r g
-  p <- proveRdef f g
-  return $ Rdef r f g p n
+  f <- cast $ mkRelD' r g
+  p <- proveRelD' f g
+  return $ RelD' r f g p n
 
 pqm :: Int -> Form -> Form -> IO Prf
 pqm k (Not f) (Not g) = do
   p <- pqm k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 pqm k (Or fs) (Or gs) = do
   fgps <- mapM2 (\ f_ g_ -> (f_ <=> g_,) <$> pqm k f_ g_) fs gs
   cuts fgps <$> cast (iffsToOrIffOr fs gs)
@@ -2142,11 +2142,11 @@ pqm k (And fs) (And gs) = do
 pqm k (Imp e f) (Imp g h) = do
   pl <- pqm k e g -- pl : |- fl <=> gl 
   pr <- pqm k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 pqm k (Iff e f) (Iff g h) = do
   pl <- pqm k e g -- pl : |- fl <=> gl 
   pr <- pqm k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 pqm k (Fa us (Fa vs f)) (Fa ws g) = do
   guard (us ++ vs == ws)
   let (k', wxs) = varPars k ws
@@ -2156,7 +2156,7 @@ pqm k (Fa us (Fa vs f)) (Fa ws g) = do
   return $ 
     iffsTrans 
       [ (Fa us (Fa vs f), faFaIff k us vs f), 
-        (Fa ws f, Cut (Fa ws $ f <=> g) (FaR ws k (f <=> g) p) $ faIffToFaIffFa ws k f g)] 
+        (Fa ws f, Cut' (Fa ws $ f <=> g) (FaF' ws k (f <=> g) p) $ faIffToFaIffFa ws k f g)] 
       (Fa ws g)
 pqm k (Ex us (Ex vs f)) (Ex ws g) = do
   guard (us ++ vs == ws)
@@ -2167,7 +2167,7 @@ pqm k (Ex us (Ex vs f)) (Ex ws g) = do
   return $ 
     iffsTrans 
       [ (Ex us (Ex vs f), exExIff k us vs f), 
-        (Ex ws f, Cut (Fa ws $ f <=> g) (FaR ws k (f <=> g) p) $ faIffToExIffEx ws k f g)] 
+        (Ex ws f, Cut' (Fa ws $ f <=> g) (FaF' ws k (f <=> g) p) $ faIffToExIffEx ws k f g)] 
       (Ex ws g)
 pqm k (Fa vs f) (Fa ws g) = do
   guard (vs == ws)
@@ -2175,14 +2175,14 @@ pqm k (Fa vs f) (Fa ws g) = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- pqm k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 pqm k (Ex vs f) (Ex ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- pqm k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 pqm _ f g
   | f == g = return $ iffRefl f
   | otherwise = et "prove-quant-merge"
@@ -2195,7 +2195,7 @@ flattening f g = do
   p0 <- pfl 0 f f'
   p1 <- pdne 0 f' f''
   p2 <- pqm 0 f'' g
-  return $ cutIff f g (iffsTrans [(f, p0), (f', p1), (f'', p2)] g) $ Ax g
+  return $ cutIff f g (iffsTrans [(f, p0), (f', p1), (f'', p2)] g) $ Id' g
 
 exSimp :: Int -> [Text] -> Form -> Form -> IO Prf
 exSimp k vs (And []) (And []) = return $ exTopIff vs
@@ -2214,8 +2214,8 @@ faSimp k vs f (Fa ws g) = do
 faSimp _ _ _ _ = et "fa-simp"
 
 notSimp :: Form -> Form -> IO Prf
-notSimp (And []) (Or []) = return $ iffRFull (Not top) bot (NotL top $ AndR []) (OrL []) 
-notSimp (Or []) (And []) = return $ iffRFull (Not bot) top (AndR []) (NotR bot $ OrL []) 
+notSimp (And []) (Or []) = return $ iffRFull (Not top) bot (NotT' top $ AndF' []) (OrT' []) 
+notSimp (Or []) (And []) = return $ iffRFull (Not bot) top (AndF' []) (NotF' bot $ OrT' []) 
 notSimp f (Not g) = guard (f == g) >> return (iffRefl (Not f))
 notSimp _ _ = et "not-simp"
 
@@ -2224,27 +2224,27 @@ iffSimp f (And []) g = do
   guardMsg "iff-simp" $ f == g
   return $
     iffRFull (f <=> top) f
-      (Cut top (AndR []) $ iffMPR f top)
-      (iffRFull f top (AndR []) (Ax f))
+      (Cut' top (AndF' []) $ iffMPR f top)
+      (iffRFull f top (AndF' []) (Id' f))
 iffSimp (And []) f g = do
   guardMsg "iff-simp" $ f == g
   return $
     iffRFull (top <=> f) f
-      (Cut top (AndR []) $ iffMP f top)
-      (iffRFull top f (Ax f) (AndR []))
+      (Cut' top (AndF' []) $ iffMP f top)
+      (iffRFull top f (Id' f) (AndF' []))
 
 iffSimp (Or []) f (Not g) = do 
   guardMsg "iff-simp" $ f == g
   return $
     iffRFull (bot <=> f) (Not f) 
-      (NotR f $ Cut bot (iffMPR bot f) (OrL []))
-      (iffRFull bot f (OrL []) (NotL f $ Ax f))
+      (NotF' f $ Cut' bot (iffMPR bot f) (OrT' []))
+      (iffRFull bot f (OrT' []) (NotT' f $ Id' f))
 iffSimp f (Or []) (Not g) = do 
   guardMsg "iff-simp" $ f == g
   return $
     iffRFull (f <=> bot) (Not f) 
-      (NotR f $ Cut bot (iffMP f bot) (OrL []))
-      (iffRFull f bot (NotL f $ Ax f) (OrL []))
+      (NotF' f $ Cut' bot (iffMP f bot) (OrT' []))
+      (iffRFull f bot (NotT' f $ Id' f) (OrT' []))
 iffSimp f g (Iff f' g') = do
   guardMsg "iff-simp" $ f == f'
   guardMsg "iff-simp" $ g == g'
@@ -2260,25 +2260,25 @@ impSimp :: Form -> Form -> Form -> IO Prf
 impSimp f (And []) (And []) = 
   return $
     iffRFull (f ==> top) top 
-      (AndR [])
-      (ImpRC top f $ AndR [])
+      (AndF' [])
+      (ImpFC' top f $ AndF' [])
 impSimp (Or []) f (And []) = 
   return $
     iffRFull (bot ==> f) top 
-      (AndR [])
-      (ImpRA bot f $ OrL [])
+      (AndF' [])
+      (ImpFA' bot f $ OrT' [])
 impSimp f (Or []) (Not g) = do
   guardMsg "imp-simp" $ f == g
   return $
     iffRFull (f ==> bot) (Not f) 
-      (NotR f $ ImpL f bot (Ax f) (OrL [])) 
-      (NotL f $ ImpRA f bot $ Ax f)
+      (NotF' f $ ImpT' f bot (Id' f) (OrT' [])) 
+      (NotT' f $ ImpFA' f bot $ Id' f)
 impSimp (And []) f g = do
   guardMsg "imp-simp" $ f == g
   return $
     iffRFull (top ==> f) f 
-      (ImpL top f (AndR []) (Ax f)) 
-      (ImpRC top f $ Ax f)
+      (ImpT' top f (AndF' []) (Id' f)) 
+      (ImpFC' top f $ Id' f)
 impSimp f g (Imp f' g') = do
   guardMsg "imp-simp" $ f == f'
   guardMsg "imp-simp" $ g == g'
@@ -2295,7 +2295,7 @@ pbs k (Not f) h = do
   let g = boolSimp f 
   pfg <- pbs k f g
   pgh <- notSimp g h
-  return $ iffsTrans [(Not f, Cut (f <=> g) pfg $ iffToNotIffNot f g), (Not g, pgh)] h
+  return $ iffsTrans [(Not f, Cut' (f <=> g) pfg $ iffToNotIffNot f g), (Not g, pgh)] h
 pbs k (Or fs) (And []) = do
   let gs = L.map boolSimp fs 
   guardMsg "top not found" $ top `elem` gs
@@ -2343,7 +2343,7 @@ pbs k (Imp f g) h = do
   let g' = boolSimp g
   pf <- pbs k f f' -- pl : |- fl <=> gl 
   pg <- pbs k g g' -- pl : |- fr <=> gr
-  let pn = Cut (f <=> f') pf $ Cut (g <=> g') pg $ impCong f g f' g'
+  let pn = Cut' (f <=> f') pf $ Cut' (g <=> g') pg $ impCong f g f' g'
   ph <- impSimp f' g' h
   return $ iffsTrans [(Imp f g, pn), (Imp f' g', ph)] h
 
@@ -2352,7 +2352,7 @@ pbs k (Iff f g) h = do
   let g' = boolSimp g
   pf <- pbs k f f' -- pl : |- fl <=> gl 
   pg <- pbs k g g' -- pl : |- fr <=> gr
-  let pn = Cut (f <=> f') pf $ Cut (g <=> g') pg $ iffCong f g f' g'
+  let pn = Cut' (f <=> f') pf $ Cut' (g <=> g') pg $ iffCong f g f' g'
   ph <- iffSimp f' g' h
   return $ iffsTrans [(Iff f g, pn), (Iff f' g', ph)] h
 pbs k (Fa vs f) h = do
@@ -2361,7 +2361,7 @@ pbs k (Fa vs f) h = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   pfg <- pbs k' f' g'
-  let pfg' = Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) pfg) (faIffToFaIffFa vs k f g)
+  let pfg' = Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) pfg) (faIffToFaIffFa vs k f g)
   pgh <- faSimp k vs g h
   return $ iffsTrans [(Fa vs f, pfg'), (Fa vs g, pgh)] h
 pbs k (Ex vs f) h = do
@@ -2370,7 +2370,7 @@ pbs k (Ex vs f) h = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   pfg <- pbs k' f' g'
-  let pfg' = Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) pfg) (faIffToExIffEx vs k f g)
+  let pfg' = Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) pfg) (faIffToExIffEx vs k f g)
   pgh <- exSimp k vs g h
   return $ iffsTrans [(Ex vs f, pfg'), (Ex vs g, pgh)] h
 pbs _ f g
@@ -2392,12 +2392,12 @@ removePure f g = do
   p4 <- pfl 0 f3 f4
   p5 <- pqm 0 f4 f5
   let p = iffsTrans [(f1, p2), (f2, p3), (f3, p4), (f4, p5)] f5
-  return $ Cut f1 p1 $ Cut (f1 <=> f5) p $ iffMP f1 f5
+  return $ Cut' f1 p1 $ Cut' (f1 <=> f5) p $ iffMP f1 f5
 
 puw :: Int -> Form -> Form -> IO Prf
 puw k (Not f) (Not g) = do
   p <- puw k f g
-  return $ Cut (f <=> g) p $ iffToNotIffNot f g
+  return $ Cut' (f <=> g) p $ iffToNotIffNot f g
 puw k (Or [f]) g = do 
   p <- puw k f g
   return $ iffsTrans [(Or [f], singleOrIff f), (f, p)] g
@@ -2413,37 +2413,37 @@ puw k (And fs) (And gs) = do
 puw k (Imp e f) (Imp g h) = do
   pl <- puw k e g -- pl : |- fl <=> gl 
   pr <- puw k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ impCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ impCong e f g h
 puw k (Iff e f) (Iff g h) = do
   pl <- puw k e g -- pl : |- fl <=> gl 
   pr <- puw k f h -- pl : |- fr <=> gr
-  return $ Cut (e <=> g) pl $ Cut (f <=> h) pr $ iffCong e f g h
+  return $ Cut' (e <=> g) pl $ Cut' (f <=> h) pr $ iffCong e f g h
 puw k (Fa vs f) (Fa ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- puw k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 puw k (Ex vs f) (Ex ws g) = do
   guard (vs == ws)
   let (k', vxs) = varPars k vs
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- puw k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 puw _ f g
   | f == g = return $ iffRefl f
   | otherwise = et "prove-DNE"
 
 skolemize :: [Form] -> Int -> Form -> Form -> IO Prf
 skolemize fs k f g 
-  | f == g = return $ Ax f 
+  | f == g = return $ Id' f 
   | otherwise =
     case first (skolAux f) fs of 
       Just (f', p0) -> do 
         p1 <- skolemize fs k f' g
-        return $ Cut f' p0 p1
+        return $ Cut' f' p0 p1
       _ -> skol fs k f g
 
 skolAux :: Form -> Form -> Maybe (Form, Prf)
@@ -2454,7 +2454,7 @@ skolAux f (Fa vs (Imp g h)) = do
   vxs <- mapM (\ v_ -> (v_,) <$> HM.lookup v_ vm) vs 
   let g' = substForm vxs g
   let h' = substForm vxs h 
-  return (h', FaL vxs (Imp g h) $ mp g' h')
+  return (h', FaT' vxs (Imp g h) $ mp g' h')
 skolAux _ _ = mzero
 
 skol :: [Form] -> Int -> Form -> Form -> IO Prf
@@ -2465,13 +2465,13 @@ skol fs k (Fa vs f) (Fa ws g) = do
   let f' = substForm vxs f
   let g' = substForm wxs g
   p <- skolemize fs k' f' g'
-  return $ FaR ws k g $ FaL vxs f p
+  return $ FaF' ws k g $ FaT' vxs f p
 skol ds k (And fs) (And gs) = do
   gps <- mapM2 (\ f_ g_ -> (g_,) <$> skolemize ds k f_ g_) fs gs
-  return $ AndL fs fs $ AndR gps
+  return $ AndT' fs fs $ AndF' gps
 skol ds k (Or fs) (Or gs) = do
   fps <- mapM2 (\ f_ g_ -> (f_,) <$> skolemize ds k f_ g_) fs gs
-  return $ OrR gs gs $ OrL fps
+  return $ OrF' gs gs $ OrT' fps
 skol fs k f g = do
   eb $ "skol\n" <>
        "fs :\n" <>
@@ -2486,10 +2486,10 @@ updr k (Fa vs f) (Fa ws g) = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- updr k' f' g'
-  return $ FaR vs k g $ FaL vxs f p
+  return $ FaF' vs k g $ FaT' vxs f p
 updr k (Iff e f) (Imp g h) 
-  | e == g && f == h = return $ IffLO e f $ Ax (e ==> f)  
-  | e == h && f == g = return $ IffLR e f $ Ax (f ==> e)
+  | e == g && f == h = return $ IffTO' e f $ Id' (e ==> f)  
+  | e == h && f == g = return $ IffTR' e f $ Id' (f ==> e)
   | otherwise = et "not an iff component"
 updr k f g = eb $
   "UPDR\n" <>
@@ -2499,7 +2499,7 @@ updr k f g = eb $
 nnfTrans :: Bool -> Form -> Form -> IO Prf
 nnfTrans b f g = do 
   p <- pnnf b 0 f g 
-  return $ Cut (f <=> g) p $ iffMP f g
+  return $ Cut' (f <=> g) p $ iffMP f g
 
 trueFalseElim :: Form -> Form -> IO Prf
 trueFalseElim f g = do 
@@ -2508,7 +2508,7 @@ trueFalseElim f g = do
   guard $ f'' == g
   p0 <- pbs 0 f f'
   p1 <- puw 0 f' f''
-  return $ cutIff f f' p0 $ cutIff f' f'' p1 $ Ax g
+  return $ cutIff f f' p0 $ cutIff f' f'' p1 $ Id' g
 
 pnnf :: Bool -> Int -> Form -> Form -> IO Prf
 pnnf b k (Not (Not f)) g = do 
@@ -2529,18 +2529,18 @@ pnnf b k (Not (Imp f g)) h = do
   return $ iffsTrans [(Not (Imp f g), notImpIffNotAnd f g), (And [Not g, f], p)] h
 pnnf True k (Not (Iff f g)) (Not fg) = do
   p <- pnnf True k (f <=> g) fg
-  return $ Cut ((f <=> g) <=> fg) p $ iffToNotIffNot (f <=> g) fg
+  return $ Cut' ((f <=> g) <=> fg) p $ iffToNotIffNot (f <=> g) fg
 pnnf False k (Not (Iff f g)) (And [Or [ng', nf'], Or [g', f']]) = do 
   png <- pnnf False k (Not g) ng'
   pnf <- pnnf False k (Not f) nf'
   pf <- pnnf False k f f'
   pg <- pnnf False k g g'
   _px <- cast $ iffsToOrIffOr [Not g, Not f] [ng', nf']
-  let px = Cut (Not g <=> ng') png $ Cut (Not f <=> nf') pnf _px -- px |- Or [Not g, Not f] <=> Or [ng', nf']
+  let px = Cut' (Not g <=> ng') png $ Cut' (Not f <=> nf') pnf _px -- px |- Or [Not g, Not f] <=> Or [ng', nf']
   _py <- cast $ iffsToOrIffOr [g, f] [g', f']
-  let py = Cut (g <=> g') pg $ Cut (f <=> f') pf _py -- py |- Or [g, f] <=> Or [g', f']
+  let py = Cut' (g <=> g') pg $ Cut' (f <=> f') pf _py -- py |- Or [g, f] <=> Or [g', f']
   _pz <- cast $ iffsToAndIffAnd [Or [Not g, Not f], Or [g, f]] [Or [ng', nf'], Or [g', f']]
-  let pz = Cut (Or [Not g, Not f] <=> Or [ng', nf']) px $ Cut (Or [g, f] <=> Or [g', f']) py _pz -- pz : |- (And [Or [Not g, Not f], Or [g, f]], pz) <=> (And [Or [ng', nf'], Or [g', f']]) 
+  let pz = Cut' (Or [Not g, Not f] <=> Or [ng', nf']) px $ Cut' (Or [g, f] <=> Or [g', f']) py _pz -- pz : |- (And [Or [Not g, Not f], Or [g, f]], pz) <=> (And [Or [ng', nf'], Or [g', f']]) 
   return $ 
     iffsTrans 
       [ (Not (Iff f g), notIffIffAnd f g), 
@@ -2553,7 +2553,7 @@ pnnf b k (Not (Fa vs f)) (Ex ws nf) = do
   let f' = substForm vxs f
   let nf' = substForm vxs nf
   pnf <- pnnf b k' (Not f') nf'
-  let p = Cut (Fa vs $ Not f <=> nf) (FaR vs k (Not f <=> nf) pnf) $ faIffToExIffEx vs k (Not f) nf
+  let p = Cut' (Fa vs $ Not f <=> nf) (FaF' vs k (Not f <=> nf) pnf) $ faIffToExIffEx vs k (Not f) nf
   return $ iffsTrans [(Not (Fa vs f), notFaIffExNot k vs f), (Ex vs (Not f), p)] (Ex ws nf)
 
 pnnf b k (Not (Ex vs f)) (Fa ws nf) = do 
@@ -2562,7 +2562,7 @@ pnnf b k (Not (Ex vs f)) (Fa ws nf) = do
   let f' = substForm vxs f
   let nf' = substForm vxs nf
   pnf <- pnnf b k' (Not f') nf'
-  let p = Cut (Fa vs $ Not f <=> nf) (FaR vs k (Not f <=> nf) pnf) $ faIffToFaIffFa vs k (Not f) nf
+  let p = Cut' (Fa vs $ Not f <=> nf) (FaF' vs k (Not f <=> nf) pnf) $ faIffToFaIffFa vs k (Not f) nf
   return $ iffsTrans [(Not (Ex vs f), notExIffFaNot k vs f), (Fa vs (Not f), p)] (Fa ws nf)
 
 pnnf b k (Fa vs f) (Fa ws g) = do 
@@ -2571,7 +2571,7 @@ pnnf b k (Fa vs f) (Fa ws g) = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- pnnf b k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToFaIffFa vs k f g
 
 pnnf b k (Ex vs f) (Ex ws g) = do 
   guard $ vs == ws
@@ -2579,7 +2579,7 @@ pnnf b k (Ex vs f) (Ex ws g) = do
   let f' = substForm vxs f
   let g' = substForm vxs g
   p <- pnnf b k' f' g'
-  return $ Cut (Fa vs $ f <=> g) (FaR vs k (f <=> g) p) $ faIffToExIffEx vs k f g
+  return $ Cut' (Fa vs $ f <=> g) (FaF' vs k (f <=> g) p) $ faIffToExIffEx vs k f g
 
 pnnf b k (Imp f g) (Or [g', nf']) = do 
   pf <- pnnf b k (Not f) nf'
@@ -2597,18 +2597,18 @@ pnnf b k (Or fs) (Or gs) = do
 pnnf True k (Iff f g) (Iff f' g') = do
   pf <- pnnf True k f f'
   pg <- pnnf True k g g'
-  return $ Cut (f <=> f') pf $ Cut (g <=> g') pg $ iffCong f g f' g' 
+  return $ Cut' (f <=> f') pf $ Cut' (g <=> g') pg $ iffCong f g f' g' 
 pnnf False k (Iff f g) (And [Or [f', ng'], Or [g', nf']]) = do 
   png <- pnnf False k (Not g) ng'
   pnf <- pnnf False k (Not f) nf'
   pf <- pnnf False k f f'
   pg <- pnnf False k g g'
   _px <- cast $ iffsToOrIffOr [f, Not g] [f', ng']
-  let px = Cut (f <=> f') pf $ Cut (Not g <=> ng') png _px -- px |- Or [f, Not g] <=> Or [f', ng']
+  let px = Cut' (f <=> f') pf $ Cut' (Not g <=> ng') png _px -- px |- Or [f, Not g] <=> Or [f', ng']
   _py <- cast $ iffsToOrIffOr [g, Not f] [g', nf']
-  let py = Cut (g <=> g') pg $ Cut (Not f <=> nf') pnf _py -- py |- Or [g, Not f] <=> Or [g', nf']
+  let py = Cut' (g <=> g') pg $ Cut' (Not f <=> nf') pnf _py -- py |- Or [g, Not f] <=> Or [g', nf']
   _pz <- cast $ iffsToAndIffAnd [Or [f, Not g], Or [g, Not f]] [Or [f', ng'], Or [g', nf']]
-  let pz = Cut (Or [f, Not g] <=> Or [f', ng']) px $ Cut (Or [g, Not f] <=> Or [g', nf']) py _pz 
+  let pz = Cut' (Or [f, Not g] <=> Or [f', ng']) px $ Cut' (Or [g, Not f] <=> Or [g', nf']) py _pz 
   return $ 
     iffsTrans 
       [ (Iff f g, iffIffAnd f g), 

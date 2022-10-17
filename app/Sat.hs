@@ -78,12 +78,12 @@ textsToLrat as (t : ts) = do
 textsToLrat _ _ = Nothing
 
 useRgtLit :: Form -> Prf
-useRgtLit (Not f) = NotR f $ Ax f
-useRgtLit f = NotR f $ Ax f
+useRgtLit (Not f) = NotF' f $ Id' f
+useRgtLit f = NotF' f $ Id' f
 
 useLftLit :: Form -> Prf
-useLftLit (Not f) = NotL f $ Ax f
-useLftLit f = NotL f $ Ax f
+useLftLit (Not f) = NotT' f $ Id' f
+useLftLit f = NotT' f $ Id' f
 
 lratPrf :: Map Int Form -> [Form] -> [Int] -> IO Prf
 lratPrf fs ls hs = do 
@@ -91,18 +91,18 @@ lratPrf fs ls hs = do
   let nlps = L.map (\ l_ -> (negLit l_, useRgtLit l_)) ls 
   let fxs = S.fromList nls
   p <- lratPrfCore fs fxs hs
-  return $ Cut (And nls) (OrR ls ls $ AndR nlps) (AndL nls nls p)
+  return $ Cut' (And nls) (OrF' ls ls $ AndF' nlps) (AndT' nls nls p)
 
 lratsPrf :: Map Int Form -> [Lrat] -> IO Prf
 lratsPrf _ [] = et "Empty LRAT proof"
 lratsPrf fs [Add _ [] hs] = do 
   p <- lratPrf fs [] hs 
-  return $ Cut bot p (OrL [])
+  return $ Cut' bot p (OrT' [])
 lratsPrf fs (Add k ls hs : lrs) = do 
   p0 <- lratPrf fs ls hs 
   let fs' = HM.insert k (Or ls) fs
   p1 <- lratsPrf fs' lrs 
-  return $ Cut (Or ls) p0 p1
+  return $ Cut' (Or ls) p0 p1
 lratsPrf fs (_ : lrs) = lratsPrf fs lrs
 
 lratCtx :: Int -> [Form] -> Map Int Form
@@ -119,7 +119,7 @@ negated fs f = Not f `elem` fs
 
 useLastCla :: Seq -> Form -> IO Prf -- todo : remove checks
 useLastCla fxs (Or fs)  
-  | L.all (negated fxs) fs = return $ OrL $ L.map (\ f_ -> (f_, useLftLit f_)) fs
+  | L.all (negated fxs) fs = return $ OrT' $ L.map (\ f_ -> (f_, useLftLit f_)) fs
 useLastCla fxs f  
   | negated fxs f = return $ useLftLit f
 useLastCla _ _ = et "use last claus"
@@ -137,16 +137,16 @@ lratPrfCore fs fxs (h : hs) = do
   let fxs1 = S.insert l fxs
   p0 <- useCla fxs0 f 
   p1 <- lratPrfCore fs fxs1 hs 
-  return $ Cut l (movLitLft l p0) p1
+  return $ Cut' l (movLitLft l p0) p1
 
 movLitLft :: Form -> Prf -> Prf
-movLitLft (Not f) p = NotR f p
-movLitLft f p = Cut (Not f) (NotR f $ Ax f) p
+movLitLft (Not f) p = NotF' f p
+movLitLft f p = Cut' (Not f) (NotF' f $ Id' f) p
 
 useCla :: Seq -> Form -> IO Prf
 useCla fxs (Or fs) = do
   guardMsg "not all negated" $ L.all (negated fxs) fs
-  return $ OrL $ L.map (\ f_ -> (f_, useLftLit f_)) fs
+  return $ OrT' $ L.map (\ f_ -> (f_, useLftLit f_)) fs
 useCla fxs f = do
   guardMsg "not all negated" $ negated fxs f
   return $ useLftLit f

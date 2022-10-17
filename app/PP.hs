@@ -119,12 +119,12 @@ ppGterm (Glist ts) = ppList id $ L.map ppGterm ts
 ppGterm (Gnum k) = ppInt k
 ppGterm (Gvar v) = ft v
 
-ppAnt :: Ant -> Builder
-ppAnt Nothing  = ""
-ppAnt (Just t) = ppGterm t
+-- ppAnt :: Ant -> Builder
+-- ppAnt Nothing = ""
+-- ppAnt (Just t) = ppGterm t
 
-ppAnForm :: AnForm -> String
-ppAnForm (Af n f a) = printf "%s :: %s :: %s" n (tlt $ ppForm f) (tlt $ ppAnt a)
+-- ppAF :: AF -> String
+-- ppAF (n, r, f, a) = printf "%s :: %s :: %s :: %s" n r (tlt $ ppForm f) "" -- (tlt $ ppAnt a)
 
 ppEq :: (Term, Term) -> Builder
 ppEq (x, y) = ppForm (Eq x y)
@@ -137,35 +137,35 @@ ppProof k p = ppInter "\n" $ ppPrf k p
 
 ppPrf :: Int -> Prf -> [Builder]
 ppPrf 0 _ = ["..."]
-ppPrf k (Ax f) = ["Ax : " <> ppForm f]
-ppPrf k (NotL f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (NotR f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (Cut f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
-ppPrf k (IffR f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
-ppPrf k (IffLO f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (IffLR f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ImpL f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
-ppPrf k (ImpRC f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ImpRA f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (Id' f) = ["Id' : " <> ppForm f]
+ppPrf k (NotT' f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (NotF' f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (Cut' f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
+ppPrf k (IffF' f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
+ppPrf k (IffTO' f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (IffTR' f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (ImpT' f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
+ppPrf k (ImpFC' f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (ImpFA' f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
 ppPrf k (Mrk s p) = ("Mark : " <> ft s) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FunC f xs ys) = ["Fun-C : ", "  f : " <> ft f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrf k (RelC r xs ys) = ["Rel-C : ", "  r : " <> ft r, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrf k (OrL fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
-ppPrf k (OrR fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (AndL fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (AndR fps) = "And-R" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
-ppPrf k (EqS x y) = ["Eq-S?"]
-ppPrf k (EqR x) = ["Eq-R : " <> ppTerm x]
-ppPrf k (EqT x y z) = ["Eq-T?"]
-ppPrf k (FaL vxs f p) =
+ppPrf k (FunC' f xs ys) = ["Fun-C : ", "  f : " <> ft f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
+ppPrf k (RelC' r xs ys) = ["Rel-C : ", "  r : " <> ft r, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
+ppPrf k (OrT' fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
+ppPrf k (OrF' fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (AndT' fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k - 1) p)
+ppPrf k (AndF' fps) = "And-R" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
+ppPrf k (EqS' x y) = ["Eq-S?"]
+ppPrf k (EqR' x) = ["Eq-R : " <> ppTerm x]
+ppPrf k (EqT' x y z) = ["Eq-T?"]
+ppPrf k (FaT' vxs f p) =
   let (vs, xs) = unzip vxs in
   ("Fa-L : " <> ppForm (Fa vs f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ExR vxs f p) =
+ppPrf k (ExF' vxs f p) =
   let (vs, xs) = unzip vxs in
   ("Ex-R : " <> ppForm (Ex vs f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FaR vs m f p) = 
+ppPrf k (FaF' vs m f p) = 
   "Fa-R : " <> ppForm (Fa vs f) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ExL vs m f p) = 
+ppPrf k (ExT' vs m f p) = 
   "Ex-L : " <> ppForm (Ex vs f) : L.map pad (ppPrf (k - 1) p)
 ppPrf k Asm = ["Asm!"]
 
@@ -201,55 +201,59 @@ writeForm (Fa vs f) = "! " <> ppList ft vs <> " : " <> writeForm f
 writeForm (Ex vs f) = "? " <> ppList ft vs <> " : " <> writeForm f
 
 writeEF :: EF -> Builder
-writeEF (f, sd, ep, k, i, cmt) = ppApp "fof" [ppEP ep, "plain", writeForm f, ppApp "tab" [ppPol sd, ppInt k, ppInf i, ft cmt]] <> "."
+writeEF (ep, sgn, f, k, i, Nothing) = ppApp "fof" [ppEP ep, ppSign sgn, writeForm f, ppApp "inference" [ppInt k, ppInf i]] <> "."
+writeEF (ep, sgn, f, k, i, Just cmt) = ppApp "fof" [ppEP ep, ppSign sgn, writeForm f, ppApp "inference" [ppInt k, ppInf i], ppList ft [cmt]] <> "."
+
+fmtAF :: AF -> Builder
+fmtAF _ = error ""
 
 ppEP :: EP -> Builder
--- ppEP (k, []) = ppSQ $ ppInt k
---ppEP (k, l) = ppSQ $ ppInter ":" (L.map (\ (m_, n_) -> ppInt n_ <> "." <> ppInt m_) (L.reverse l)) <> ":" <> ppInt k
 ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
 
-ppSide :: Side -> Builder
-ppSide Lft = "lft"
-ppSide Rgt = "rgt"
+-- ppSide :: Side -> Builder
+-- ppSide Lft = "lft"
+-- ppSide Rgt = "rgt"
 
 ppInf :: Inf -> Builder
-ppInf InfCut = "cut"
-ppInf (InfEqR nm) = ppApp "eqr" [ft nm]
-ppInf (InfEqS nm0 nm1) = ppApp "eqs" [ft nm0, ft nm1]
-ppInf (InfEqT nm0 nm1 nm2) = ppApp "eqt" [ft nm0, ft nm1, ft nm2]
-ppInf (InfNotL nm) = ppApp "notl" [ft nm]
-ppInf (InfNotR nm) = ppApp "notr" [ft nm]
-ppInf (InfImpR n sd) = ppApp "impr" [ft n, ppSide sd]
-ppInf (InfIffL n dr) = ppApp "iffl" [ft n, ppDir dr]
-ppInf (InfIffR n) = ppApp "iffr" [ft n]
-ppInf (InfImpL n) = ppApp "impl" [ft n]
-ppInf (InfOrR n) = ppApp "orr" [ft n]
-ppInf (InfAndL n) = ppApp "andl" [ft n]
-ppInf (InfOrL n) = ppApp "orl" [ft n]
-ppInf (InfAndR n) = ppApp "andr" [ft n]
-ppInf (InfFaL nm xs) = ppApp "fal" [ft nm, ppList writeTerm xs]
-ppInf (InfFaR nm k) = ppApp "far" [ft nm, ppInt k]
-ppInf (InfExL nm k) = ppApp "exl" [ft nm, ppInt k]
-ppInf (InfExR nm xs) = ppApp "exr" [ft nm, ppList writeTerm xs]
-ppInf (InfAx n m) = ppApp "ax" [ft n, ft m]
-ppInf (InfFunC ns m) = ppApp "func" [ppList ft ns, ft m]
-ppInf (InfRelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]
-ppInf InfRdef = "rdef" 
-ppInf (InfAoC xs) = ppApp "aoc" [ppList writeTerm xs]
-ppInf Close = "close"
+ppInf Cut = "cut"
+ppInf (Id n m) = ppApp "id" [ft n, ft m]
+ppInf (FunC ns m) = ppApp "func" [ppList ft ns, ft m]
+ppInf (RelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]
+ppInf (EqR nm) = ppApp "eqr" [ft nm]
+ppInf (EqS nm0 nm1) = ppApp "eqs" [ft nm0, ft nm1]
+ppInf (EqT nm0 nm1 nm2) = ppApp "eqt" [ft nm0, ft nm1, ft nm2]
+ppInf (NotT nm) = ppApp "nott" [ft nm]
+ppInf (NotF nm) = ppApp "notf" [ft nm]
+ppInf (ImpFA nm) = ppApp "impfa" [ft nm]
+ppInf (ImpFC nm) = ppApp "impfc" [ft nm]
+ppInf (IffTR nm) = ppApp "ifftr" [ft nm]
+ppInf (IffTO nm) = ppApp "iffto" [ft nm]
+ppInf (IffF n) = ppApp "ifff" [ft n]
+ppInf (ImpT n) = ppApp "impt" [ft n]
+ppInf (OrF n) = ppApp "orf" [ft n]
+ppInf (AndT n) = ppApp "andt" [ft n]
+ppInf (OrT n) = ppApp "ort" [ft n]
+ppInf (AndF n) = ppApp "andf" [ft n]
+ppInf (FaT nm xs) = ppApp "fat" [ft nm, ppList writeTerm xs]
+ppInf (FaF nm k) = ppApp "faf" [ft nm, ppInt k]
+ppInf (ExT nm k) = ppApp "ext" [ft nm, ppInt k]
+ppInf (ExF nm xs) = ppApp "exf" [ft nm, ppList writeTerm xs]
+ppInf RelD = "reld" 
+ppInf (AoC xs) = ppApp "aoc" $ L.map ppTerm xs
+ppInf Open = "open"
 
 ppDir :: Dir -> Builder
 ppDir Obv = "obv"
 ppDir Rev = "rev"
 
-ppPol :: Pol -> Builder
-ppPol Pos = "pos"
-ppPol Neg = "neg"
+ppSign :: Bool -> Builder
+ppSign True = "true"
+ppSign False = "false"
 
 ppElab :: Elab -> Builder
 ppElab (Plab f p t) = ppInter "\n" $ ["Plab", "f :" <> ppForm f, "prf :"] ++ ppPrf 20 p ++ ["Notes : " <> ft t]
-ppElab (Rdef r f g _ t) = "rdef : " <> ft r <> " : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
-ppElab (AOC xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
+ppElab (RelD' r f g _ t) = "rdef : " <> ft r <> " : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
+ppElab (AoC' xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
 
 ppSQ :: Builder -> Builder
 ppSQ t = "'" <> t <> "'"
@@ -270,6 +274,6 @@ ppNat k = ppNat (k `div` 10) <> ppNat (k `rem` 10)
 ppInt :: Int -> Builder
 ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k
 
-ppPolForm :: (Form, Pol) -> Builder
-ppPolForm (f, Pos) = ppForm f <> " |-"
-ppPolForm (f, Neg) = "|- " <> ppForm f
+ppSignForm :: (Form, Bool) -> Builder
+ppSignForm (f, True) = ppForm f <> " |-"
+ppSignForm (f, False) = "|- " <> ppForm f
