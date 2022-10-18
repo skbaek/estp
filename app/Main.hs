@@ -822,11 +822,12 @@ isVar _ = False
 --   bar xs
 -- foo _ = return ()
 
--- dev :: [String] -> IO ()
--- dev (tstp : _) = do
---   afs <- parseName tstp
---   mapM_ foo afs 
--- dev _ = et "invalid args"
+dev :: [String] -> IO ()
+dev (tstp : _) = do
+  afs <- parseName tstp
+  mapM_ putAF afs
+  pt "Done!\n"
+dev _ = et "invalid args"
 
 check :: [String] -> IO ()
 check (tptp : estp : flags) = do
@@ -1072,5 +1073,5 @@ main = do
   case cmd of
     "elab" -> elaborate args
     "check" -> check args
-    -- "dev" -> dev args
+    "dev" -> dev args
     _ -> et "undefined command"

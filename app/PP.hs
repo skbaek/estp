@@ -205,7 +205,9 @@ writeEF (ep, sgn, f, k, i, Nothing) = ppApp "fof" [ppEP ep, ppSign sgn, writeFor
 writeEF (ep, sgn, f, k, i, Just cmt) = ppApp "fof" [ppEP ep, ppSign sgn, writeForm f, ppApp "inference" [ppInt k, ppInf i], ppList ft [cmt]] <> "."
 
 fmtAF :: AF -> Builder
-fmtAF _ = error ""
+fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
+fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
+fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]
 
 ppEP :: EP -> Builder
 ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l

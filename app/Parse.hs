@@ -104,6 +104,12 @@ char c = satisfy (c ==)
 notChar :: Char -> Parser Char
 notChar c = satisfy (c /=)
 
+peak :: Text -> Parser ()
+peak s = Parser $ \ t ->
+  if T.isPrefixOf s t
+    then Just ((), t)
+    else Nothing
+
 string :: Text -> Parser Text
 string s = Parser $ \ t ->
   if T.isPrefixOf s t
@@ -257,10 +263,13 @@ distinctObject = do
 delimiter :: Parser ()
 delimiter = lit ")" <|> lit ","
 
+peakDelimiter :: Parser ()
+peakDelimiter = peak ")" <|> peak ","
+
 connective :: Parser Text
 connective =
-  litRet "," <|>
-  litRet ")" <|>
+  -- litRet "," <|>
+  -- litRet ")" <|>
   litRet "&" <|>
   litRet "|" <|>
   litRet "<=>" <|>
@@ -270,58 +279,59 @@ connective =
   litRet "=" <|>
   litRet "!="
 
+usefulInfo :: Parser (Maybe [Gterm])
+usefulInfo = 
+  (peak ")" >> unit Nothing) 
+    <|> ( do lit "," 
+             ts <- generalTermList
+             unit $ Just ts )
+
 annotations :: Parser Ant
 annotations =
-  do { lit "." ; unit Nothing } <|>
-  -- do { t <- generalTerm ; lit ")" ; lit "." ; unit $ Just t }
+  do { peak ")" ; unit Nothing } <|>
   do { 
+    lit "," ;
     t <- generalTerm ; 
-    c <- connective ; 
-    annotationsClose t c
+    u <- usefulInfo ; 
+    unit $ Just (t, u)
   }
 
-annotationsClose :: Gterm -> Text -> Parser Ant 
-annotationsClose t ")" = do 
-  lit "." 
-  return $ Just (t, Nothing)
-annotationsClose t "," = do 
-  ts <- generalTermList 
-  lit ")."
-  return $ Just (t, Just ts)
-annotationsClose t _ = error "Cannot close annotation"
+conjunction :: Parser [Form]
+conjunction = do
+  f <- formLazy
+  (peakDelimiter >> unit [f]) 
+    <|> (do lit "&" 
+            fs <- conjunction 
+            unit (f : fs) )
 
-junction :: Bool -> Parser [Form]
-junction b = do
-  f <- lform
-  c <- connective
-  case (b , c) of
-    (_, ",") -> unit [f]
-    (_, ")") -> unit [f]
-    (True,  "&") -> do { fs <- junction b ; unit $ f : fs }
-    (False, "|") -> do { fs <- junction b ; unit $ f : fs }
-    _   -> failure
+disjunction :: Parser [Form]
+disjunction = do
+  f <- formLazy
+  (peakDelimiter >> unit [f]) 
+    <|> (do lit "|" 
+            fs <- disjunction 
+            unit (f : fs) )
 
-gformClose :: Form -> Text -> Parser Form
-gformClose f "," = unit f
-gformClose f ")" = unit f
-gformClose f "|" = do { fs <- junction False ; unit (Or $ f : fs) }
-gformClose f "&" = do { fs <- junction True ; unit (And $ f : fs) }
-gformClose f "=>"  = do { g <- lform ; delimiter ; unit $ Imp f g }
-gformClose f "<="  = do { g <- lform ; delimiter ; unit $ Imp g f }
-gformClose f "<=>" = do { g <- lform ; delimiter ; unit $ Iff f g }
-gformClose f "<~>" = do { g <- lform ; delimiter ; unit $ Not $ Iff f g }
-gformClose _ _ = failure
+formClose :: Form -> Text -> Parser Form
+formClose f "|" = do { fs <- disjunction ; unit (Or $ f : fs) }
+formClose f "&" = do { fs <- conjunction ; unit (And $ f : fs) }
+formClose f "=>"  = do { g <- formLazy ; unit $ Imp f g }
+formClose f "<="  = do { g <- formLazy ; unit $ Imp g f }
+formClose f "<=>" = do { g <- formLazy ; unit $ Iff f g }
+formClose f "<~>" = do { g <- formLazy ; unit $ Not $ Iff f g }
+formClose _ _ = failure
 
-parenLform :: Parser Form
-parenLform = do
+parenFormLazy :: Parser Form
+parenFormLazy = do
   lit "("
-  f <- gform
+  f <- form
+  lit ")"
   unit f
 
-notLform :: Parser Form
-notLform = do
+notformLazy :: Parser Form
+notformLazy = do
   lit "~"
-  f <- lform
+  f <- formLazy
   unit $ Not f
 
 var :: Parser Text
@@ -346,20 +356,20 @@ vars = do
   lit "]"
   unit vs
 
-faLform :: Parser Form
-faLform = do
+faformLazy :: Parser Form
+faformLazy = do
   lit "!"
   vs <- vars
   lit ":"
-  f <- lform
+  f <- formLazy
   unit $ Fa vs f
 
-exLform :: Parser Form
-exLform = do
+exformLazy :: Parser Form
+exformLazy = do
   lit "?"
   vs <- vars
   lit ":"
-  f <- lform
+  f <- formLazy
   unit $ Ex vs f
 
 infixOp :: Parser Text
@@ -394,21 +404,21 @@ generalTerm =
   do { kt <- integer ; cast (readInt kt) >>= (unit . Gnum) } <|>
   do { v <- upperWord ; unit (Gvar v) }
 
-termInfixOpLform :: Term -> Text -> Parser Form
-termInfixOpLform t "=" = do
+termInfixOpformLazy :: Term -> Text -> Parser Form
+termInfixOpformLazy t "=" = do
   s <- term
   unit $ Eq t s
-termInfixOpLform t "!=" = do
+termInfixOpformLazy t "!=" = do
   s <- term
   unit $ Not $ Eq t s
-termInfixOpLform _ _ = failure
+termInfixOpformLazy _ _ = failure
 
 termToAtom :: Term -> Parser Form
 termToAtom (Fun r ts) = unit $ Rel r ts
 termToAtom _ = failure
 
-termLform :: Term -> Parser Form
-termLform t = cutParse infixOp (termInfixOpLform t) (termToAtom t)
+termformLazy :: Term -> Parser Form
+termformLazy t = cutParse infixOp (termInfixOpformLazy t) (termToAtom t)
 
 verum :: Parser Form
 verum = lit "$true" >> unit (And [])
@@ -416,14 +426,13 @@ verum = lit "$true" >> unit (And [])
 falsum :: Parser Form
 falsum = lit "$false" >> unit (Or [])
 
-lform :: Parser Form
-lform = verum <|> falsum <|> parenLform <|> notLform <|> faLform <|> exLform <|> (term >>= termLform)
+formLazy :: Parser Form
+formLazy = verum <|> falsum <|> parenFormLazy <|> notformLazy <|> faformLazy <|> exformLazy <|> (term >>= termformLazy)
 
-gform :: Parser Form
-gform = do
-  f <- lform
-  c <- connective
-  gformClose f c
+form :: Parser Form
+form = do
+  f <- formLazy
+  (peakDelimiter >> return f) <|> (connective >>= formClose f) 
 
 inc :: Parser Input
 inc = do
@@ -441,8 +450,10 @@ cnf = do
   lit ","
   r <- lowerWord
   lit ","
-  f <- univClose <$> gform
+  f <- univClose <$> form
   a <- annotations
+  lit ")"
+  lit "."
   ign
   unit (Cnf n r (conjecturize r f) a)
 
@@ -453,8 +464,10 @@ fof = do
   lit ","
   r <- lowerWord
   lit ","
-  f <- gform
+  f <- form
   a <- annotations
+  lit ")"
+  lit "."
   ign
   unit (Fof n r (conjecturize r f) a)
 

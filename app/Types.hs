@@ -84,6 +84,7 @@ data Gterm =
 
 type Ant = Maybe (Gterm, Maybe [Gterm])
 
+type PreAF = (Text, Text, Text, Ant)
 type AF = (Text, Text, Form, Ant)
 
 type Prob = [Input]
