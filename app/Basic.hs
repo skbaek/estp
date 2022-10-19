@@ -544,3 +544,5 @@ bt = True
 bf :: Bool
 bf = False
 {- write -}
+
+type Bag a = HM.Map a ()

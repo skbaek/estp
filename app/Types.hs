@@ -69,6 +69,12 @@ data Elab =
 -- | AoC'' Int Form Form Prf Text
 -- | ElabFail Form Text
 
+data PreInput =
+    PreCnf Text Text Text
+  | PreFof Text Text Text
+  | PreInc Text
+  deriving Show
+
 data Input =
     Cnf Text Text Form Ant
   | Fof Text Text Form Ant
@@ -84,7 +90,7 @@ data Gterm =
 
 type Ant = Maybe (Gterm, Maybe [Gterm])
 
-type PreAF = (Text, Text, Text, Ant)
+type PreAF = (Text, Text, Text)
 type AF = (Text, Text, Form, Ant)
 
 type Prob = [Input]

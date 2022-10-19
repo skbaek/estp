@@ -6,7 +6,7 @@ import Types
 import Basic ( et, cast, readInt, unquote )
 
 import Data.Text.Lazy as T
-    ( cons, drop, isPrefixOf, length, null, pack, uncons, Text, unpack )
+    ( cons, drop, isPrefixOf, length, null, pack, uncons, Text, unpack, take, splitAt )
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
 import Data.List (elem, foldl, map, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
@@ -434,6 +434,15 @@ form = do
   f <- formLazy
   (peakDelimiter >> return f) <|> (connective >>= formClose f) 
 
+preInc :: Parser PreInput
+preInc = do
+  lit "include("
+  w <- singleQuoted
+  lit ")"
+  lit "."
+  ign
+  unit (PreInc w)
+
 inc :: Parser Input
 inc = do
   lit "include("
@@ -442,6 +451,55 @@ inc = do
   lit "."
   ign
   unit (Inc w)
+
+preFof :: Parser PreInput
+preFof = do
+  lit "fof("
+  n <- name
+  lit ","
+  r <- lowerWord
+  lit ","
+  ft <- formText 
+  lit ")"
+  lit "."
+  ign
+  unit (PreFof n r ft)
+
+
+formLength :: Int -> Text -> Maybe Int
+formLength 0 tx = 
+  case uncons tx of
+    Just (')', tx') -> Just 0
+    Just ('(', tx') -> succ <$> formLength 1 tx'
+    Just (_, tx') -> succ <$> formLength 0 tx'
+    _ -> Nothing
+formLength k tx = 
+  case uncons tx of
+    Just (')', tx') -> succ <$> formLength (k - 1) tx'
+    Just ('(', tx') -> succ <$> formLength (k + 1) tx'
+    Just (_, tx') ->   succ <$> formLength k tx'
+    _ -> Nothing
+
+formTextCore :: Text -> Maybe (Text, Text)
+formTextCore tx = do
+  k <- formLength 0 tx 
+  return $ T.splitAt (fromIntegral k) tx
+
+formText :: Parser Text
+formText = Parser formTextCore
+
+preCnf :: Parser PreInput
+preCnf = do
+  lit "cnf("
+  n <- name
+  lit ","
+  r <- lowerWord
+  lit ","
+  ft <- formText 
+  lit ")"
+  lit "."
+  ign
+  unit (PreCnf n r ft)
 
 cnf :: Parser Input
 cnf = do
@@ -473,6 +531,9 @@ fof = do
 
 input :: Parser Input
 input = cnf <|> fof <|> inc
+
+preInput :: Parser PreInput
+preInput = preCnf <|> preFof <|> preInc
 
 prob :: Parser Prob
 prob = star input
@@ -515,6 +576,14 @@ formBvs (Iff f g) = mergeVars (formBvs f) (formBvs g)
 formBvs (Fa vs f) = vs ++ (formBvs f \\ vs)
 formBvs (Ex vs f) = vs ++ (formBvs f \\ vs)
 
+parsePreInput :: PreInput -> IO [PreAF]
+parsePreInput (PreInc s) = do
+  tptp <- getEnv "TPTP"
+  s' <- cast $ unquote s
+  parsePreName $ tptp ++ "/" ++ unpack s'
+parsePreInput (PreCnf n r f) = return [(n, r, f)]
+parsePreInput (PreFof n r f) = return [(n, r, f)]
+
 parseInput :: Input -> IO [AF]
 parseInput (Inc s) = do
   tptp <- getEnv "TPTP"
@@ -522,6 +591,18 @@ parseInput (Inc s) = do
   parseName $ tptp ++ "/" ++ unpack s'
 parseInput (Cnf n r f t) = return [(n, r, f, t)]
 parseInput (Fof n r f t) = return [(n, r, f, t)]
+
+parsePreText :: Text -> IO [PreAF]
+parsePreText t =
+  case parse preInput t of
+    Just (i,s) -> do
+      pfx <- parsePreInput i
+      if T.null s
+      then return pfx
+      else do
+        sfx <- parsePreText s
+        return (pfx ++ sfx)
+    _ -> et ("Failed to parse input : " <> t)
 
 parseText :: Text -> IO [AF]
 parseText t =
@@ -534,6 +615,13 @@ parseText t =
         sfx <- parseText s
         return (pfx ++ sfx)
     _ -> et ("Failed to parse input : " <> t)
+
+parsePreName :: String -> IO [PreAF]
+parsePreName n = do
+  t <- TIO.readFile n
+  case parse ign t of
+    Just (i,s) -> parsePreText s
+    _ -> ioError $ userError "Read filename, but failed to parse content"
 
 parseName :: String -> IO [AF]
 parseName n = do

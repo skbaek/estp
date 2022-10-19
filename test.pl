@@ -49,6 +49,13 @@ check(FLAGS, NUM, (NAME, TPTP, _)) :-
   format(string(CHK_CMD), "cabal run :all -- check ~w ~w ~w", [TPTP, ESTP, FLAGS_STR]), 
   shell(CHK_CMD, 0), nl.
 
+dev(FLAGS, NUM, (NAME, TPTP, _)) :- 
+  write("---------------------------------------------------------------------------"), 
+  atomics_to_string(FLAGS, " ", FLAGS_STR),
+  format("Problem ~w : ~w", [NUM, NAME]), nl, nl,
+  format(string(CHK_CMD), "cabal run :all -- dev ~w ~w", [TPTP, FLAGS_STR]), 
+  shell(CHK_CMD, 0), nl.
+
 parse_drop_take(DROP_ARG, TAKE_ARG, DROP, TUPS) :- 
   inclist(INC),
   atom_number(DROP_ARG, DROP),
@@ -63,3 +70,7 @@ main(['elab', DROP_ARG, TAKE_ARG | FLAGS]) :-
 main(['check', DROP_ARG, TAKE_ARG | FLAGS]) :-
   parse_drop_take(DROP_ARG, TAKE_ARG, DROP, TUPS), 
   imap(check(FLAGS), DROP, TUPS).
+
+main(['dev', DROP_ARG, TAKE_ARG | FLAGS]) :-
+  parse_drop_take(DROP_ARG, TAKE_ARG, DROP, TUPS), 
+  imap(dev(FLAGS), DROP, TUPS).

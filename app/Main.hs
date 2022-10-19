@@ -12,7 +12,7 @@ module Main where
 import Types
 import Basic
 import PP
-import Parse ( parseName, decimal )
+import Parse ( parseName, parsePreName, decimal )
 import Sat ( sat )
 import Lem
 import Norm
@@ -112,6 +112,7 @@ gFunFunctor :: Gterm -> Maybe Text
 gFunFunctor (Gfun t []) = return t
 gFunFunctor _ = Nothing
 
+
 infer :: Text -> [Form] -> Form -> IO Prf
 infer "superposition" [f, g] h         = superpose f g h
 infer "forward_demodulation" [f, g] h  = superpose f g h
@@ -140,7 +141,6 @@ infer "avatar_contradiction_clause" [f] g = efactor (Just True) f g
 infer "skolemisation" (f : fs) g = skolemize fs 0 f g
 infer r fs g = et $ "No inference : " <> r
 
-
 elab :: NSeq -> AF -> IO Elab
 elab s (n, _, h, Just (Gfun "file" [_, Gfun m []], _)) = do
   f <- getHyp m s
@@ -150,7 +150,6 @@ elab _ (n, _, g, Just (Gfun "introduced" [Gfun "predicate_definition_introductio
 elab _ (n, _, g, Just (Gfun "introduced" [Gfun "avatar_definition" [], Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) = relDef n r g
 elab s (n, _, g, Just (Gfun "introduced" [Gfun "choice_axiom" [], Glist []], _)) = do
   (xs, f) <- normalizeAoC g
-  -- guardMsg ("nonground skolem : " <> ppList ppTerm xs) (L.all isGndTerm xs)
   p <- orig f g
   return $ AoC' xs f g p n
 elab s (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
@@ -164,6 +163,10 @@ elab s (n, _, g, Just (Gfun "inference" [Gfun r [], _, Glist l], _)) = do
 elab _ (_, _, _, a) = error $ "No elaborator for inference : " ++ show a
 
 
+type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)
+
+afToStep :: AF -> IO Step
+afToStep (n, _, h, Just (Gfun "file" [_, Gfun m []], _)) = return (n, "file", [m], h)
 
 {- Verification -}
 
@@ -572,6 +575,7 @@ efEP :: EF -> EP
 efEP (ep, _, _, _, _, _) = ep
 
 
+
 getElabHypsAFs :: Bool -> String -> String -> IO (Hyps, [AF])
 getElabHypsAFs verbose tptp tstp = do
   tptp_afs <- parseName tptp
@@ -823,10 +827,15 @@ isVar _ = False
 -- foo _ = return ()
 
 dev :: [String] -> IO ()
-dev (tstp : _) = do
-  afs <- parseName tstp
-  mapM_ putAF afs
-  pt "Done!\n"
+dev (tptp : flags) 
+  | "quick" `elem` flags = do
+     afs <- parsePreName tptp
+     let k = L.length afs
+     pb $ ppInt k <> " annotated pre-formulas parsed.\n"
+  | otherwise = do 
+     afs <- parseName tptp
+     let k = L.length afs
+     pb $ ppInt k <> " annotated formulas parsed.\n"
 dev _ = et "invalid args"
 
 check :: [String] -> IO ()
