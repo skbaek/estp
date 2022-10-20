@@ -14,7 +14,8 @@ import Data.Maybe (fromMaybe)
 import Data.Text.Lazy as T (Text, uncons, unsnoc, unpack, null)
 import Data.Text.Lazy.Builder (Builder)
 import Data.List as L
-import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete, findWithDefault )
+import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
+  fromListWithKey, delete, findWithDefault, singleton )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
 import Control.Monad as M (MonadPlus, mzero, foldM, guard)
 import Control.Monad.Fail as MF (MonadFail, fail)
@@ -545,4 +546,8 @@ bf :: Bool
 bf = False
 {- write -}
 
-type Bag a = HM.Map a ()
+-- singleBag :: a -> Bag a 
+-- singleBag x = HM.singleton x ()
+-- 
+-- insertBag :: (Ord a) => a -> Bag a -> Bag a 
+-- insertBag x b = HM.insert x () b

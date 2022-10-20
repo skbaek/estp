@@ -12,7 +12,7 @@ module Main where
 import Types
 import Basic
 import PP
-import Parse ( parseName, parsePreName, decimal )
+import Parse ( parseName, parsePreName, decimal, parseForm, univClose, conjecturize )
 import Sat ( sat )
 import Lem
 import Norm
@@ -25,8 +25,8 @@ import System.Environment ( getArgs )
 import Data.List as L ( map, foldl, all, sortBy, concat, reverse, length, any, filter, delete )
 import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
 import Data.Text.Lazy.Builder (Builder)
-import Data.Set as S ( empty, insert, member, singleton, toList )
-import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey )
+import Data.Set as S ( empty, insert, member, singleton, toList, Set )
+import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey, size )
 import Data.Text.Lazy.IO as TIO ( hPutStrLn, hPutStr, writeFile )
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode) )
@@ -37,14 +37,34 @@ putAF af = pb $ fmtAF af <> "\n"
 addHyp :: Hyps -> AF -> Hyps
 addHyp (nsq, sq) (n, _, f, _) = (HM.insert n f nsq, S.insert f sq)
 
+pafName :: PreAF -> Text
+pafName (CnfAF n _ _) = n
+pafName (FofAF n _ _) = n
+
+pafBlob :: PreAF -> Text
+pafBlob (CnfAF _ _ tx) = tx
+pafBlob (FofAF _ _ tx) = tx
+
+addToHyps :: Set Text -> Hyps -> PreAF -> Hyps
+addToHyps ahns hyp@(nsq, sq) (CnfAF n r tx)  
+  | S.member n ahns =
+      let f = (conjecturize r $ univClose $ parseForm tx) in
+      (HM.insert n f nsq, S.insert f sq)
+  | otherwise = hyp
+addToHyps ahns hyp@(nsq, sq) (FofAF n r tx) 
+  | S.member n ahns =
+      let f = (conjecturize r $ parseForm tx) in
+      (HM.insert n f nsq, S.insert f sq)
+  | otherwise = hyp
+
 sortAfs :: [AF] -> [AF]
 sortAfs = sortBy compareAfs
 
 compareAfs :: AF -> AF -> Ordering
 compareAfs (m :> ms, _, _, _) (n :> ns, _, _, _) =
   case compare m n of
-    EQ -> 
-      case (readInt ms, readInt ns) of 
+    EQ ->
+      case (readInt ms, readInt ns) of
         (Just i, Just j) -> compare i j
         _ -> et "Cannot compare step names"
     other -> other
@@ -60,22 +80,22 @@ getHyp n c =
     Just f -> return f
     _ -> MF.fail $ "Hypothesis does not exist : " ++ show n
 
-isRelD' :: Text -> Form -> Bool
-isRelD' r (Fa vs (Iff (Rel s xs) f)) = r == s && L.map Var vs == xs && isGndForm vs f
-isRelD' r (Iff (Rel s []) f) = isGndForm [] f
-isRelD' _ _ = False
+isRelD' :: Form -> Bool
+isRelD' (Fa vs (Iff (Rel s xs) f)) = L.map Var vs == xs && isGndForm vs f
+isRelD' (Iff (Rel s []) f) = isGndForm [] f
+isRelD' _ = False
 
 checkElab :: Seq -> Form -> Elab -> IO ()
 checkElab sq g (Plab g' p _) = do
   guard (g == g')
   verify 0 sq (S.singleton g) p
-checkElab sq g (RelD' r f g' p _) = do
+checkElab sq g (RelD' f g' p _) = do
   guard (g == g')
-  guard $ isRelD' r f
+  guard $ isRelD' f
   verify 0 (S.singleton f) (S.singleton g) p
-checkElab sq g (AoC' xs f g' p _) = do 
+checkElab sq g (AoC' xs f g' p _) = do
   guard $ g == g'
-  isAoC' xs f 
+  isAoC' xs f
   verify 0 (S.singleton f) (S.singleton g) p
 
 isSkolemTerm :: [Text] -> Term -> Bool
@@ -99,8 +119,8 @@ isAoC' xs (Imp (Ex ws f) g) = do
   guard $ substForm wxs f == g
 isAoC' _ _ = mzero
 
-elabIO :: Bool -> Hyps -> AF -> IO (Hyps, Elab) -- todo : eliminate checking during elab-IO
-elabIO vb (nsq, sq) af@(n, _, f, a) = do
+elabIO :: Bool -> Hyps -> Step -> IO (Hyps, Elab) -- todo : eliminate checking during elab-IO
+elabIO vb (nsq, sq) af@(n, _, _, f) = do
   when vb $ print $ "Elaborating step = " <> n
   e <- elab nsq af
   checkElab sq f e <|> et ("precheck fail : " <> n)
@@ -141,32 +161,45 @@ infer "avatar_contradiction_clause" [f] g = efactor (Just True) f g
 infer "skolemisation" (f : fs) g = skolemize fs 0 f g
 infer r fs g = et $ "No inference : " <> r
 
-elab :: NSeq -> AF -> IO Elab
-elab s (n, _, h, Just (Gfun "file" [_, Gfun m []], _)) = do
+elab :: NSeq -> Step -> IO Elab
+elab s (n, "file", [m], g) = do
   f <- getHyp m s
-  p <- orig f h
-  return $ Plab h p n
-elab _ (n, _, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) = relDef n r g
-elab _ (n, _, g, Just (Gfun "introduced" [Gfun "avatar_definition" [], Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) = relDef n r g
-elab s (n, _, g, Just (Gfun "introduced" [Gfun "choice_axiom" [], Glist []], _)) = do
+  p <- orig f g
+  return $ Plab g p n
+elab _ (n, "predicate_definition_introduction", [], g) = relDef n g
+elab _ (n, "avatar_definition", [], g) = relDef n g
+elab s (n, "choice_axiom", [], g) = do
   (xs, f) <- normalizeAoC g
   p <- orig f g
   return $ AoC' xs f g p n
-elab s (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
-  fs <- cast (mapM gFunFunctor l) >>= mapM (`lookupM` s)
+elab s (n, "avatar_sat_refutation", ns, g) = do
+  fs <- mapM (`lookupM` s) ns
   p <- sat fs
   return $ Plab g p n
-elab s (n, _, g, Just (Gfun "inference" [Gfun r [], _, Glist l], _)) = do
-  fs <- cast (mapM gFunFunctor l) >>= mapM (`lookupM` s)
+elab s (n, r, ns, g) = do
+  fs <- mapM (`lookupM` s) ns
   p <- infer r fs g
   return $ Plab g p n
-elab _ (_, _, _, a) = error $ "No elaborator for inference : " ++ show a
 
 
-type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)
 
 afToStep :: AF -> IO Step
-afToStep (n, _, h, Just (Gfun "file" [_, Gfun m []], _)) = return (n, "file", [m], h)
+afToStep (n, _, g, Just (Gfun "file" [_, Gfun m []], _)) = return (n, "file", [m], g)
+afToStep (n, _, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],
+  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) =
+    return (n, "predicate_definition_introduction", [], g)
+afToStep (n, _, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
+  Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) =
+    return (n, "avatar_definition", [], g)
+afToStep (n, _, g, Just (Gfun "introduced" [Gfun "choice_axiom" [], Glist []], _)) =
+  return (n, "choice_axiom", [], g)
+afToStep (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
+  txs <- cast (mapM gFunFunctor l)
+  return (n, "avatar_sat_refutation", txs, g)
+afToStep (n, _, g, Just (Gfun "inference" [Gfun r [], _, Glist l], _)) = do
+  txs <- cast (mapM gFunFunctor l)
+  return (n, r, txs, g)
+afToStep _ = error "AF-to-step failure"
 
 {- Verification -}
 
@@ -199,7 +232,7 @@ verify k lft rgt (EqS' x y) =
 verify k lft rgt (EqT' x y z) =
   guard (S.member (Eq x y) lft && S.member (Eq y z) lft && S.member (Eq x z) rgt) <|> error "EqT'-fail"
 verify k lft rgt (FunC' f xs ys) = do
-  xys <- zipM xs ys 
+  xys <- zipM xs ys
   guardMsg "Fun-C : premise missing" $ L.all (\ (x_, y_) -> S.member (x_ === y_) lft) xys
   guardMsg "Fun-C : conclusion missing" $ S.member (Fun f xs === Fun f ys) rgt
 
@@ -213,7 +246,7 @@ verify k lft rgt (RelC' r xs ys) = do
   -- let ys = L.map (\ (_, y, _) -> y) egs
   -- guard (S.member (Rel r xs) lft && S.member (Rel r ys) rgt) <|> error "RelC'-fail"
   -- mapM_ (verifyEqGoal k lft rgt) egs
-  xys <- zipM xs ys 
+  xys <- zipM xs ys
   guardMsg "Fun-C : eq-premise missing" $ L.all (\ (x_, y_) -> S.member (x_ === y_) lft) xys
   guardMsg "Fun-C : premise missing" $ S.member (Rel r xs) lft
   guardMsg "Fun-C : conclusion missing" $ S.member (Rel r ys) rgt
@@ -391,7 +424,7 @@ expp br f sd ep k (FaT' vxs g p) = do
 expp br f pl ep k (OrF' gs gs' p) = do
   epg <- cast $ HM.lookup (Or gs, bf) br
   expOr br k epg f pl ep gs' p
-  
+
 expp br f pl ep k (AndT' gs gs' p) = do
   epg <- cast $ HM.lookup (And gs, bt) br
   expAnd br k epg f pl ep gs' p
@@ -432,13 +465,13 @@ expp br f sd ep k (EqT' x y z) = do
 
 expp br f sd ep k (FunC' g xs ys) = do
   xys <- zipM xs ys
-  eps <- cast $ mapM (\ (x_, y_) -> HM.lookup (x_ === y_, bt) br) xys 
+  eps <- cast $ mapM (\ (x_, y_) -> HM.lookup (x_ === y_, bt) br) xys
   epg <- cast $ HM.lookup (Fun g xs === Fun g ys, bf) br
   return [(ep, sd, f, k, FunC eps epg, nt)]
 
 expp br f sd ep k (RelC' r xs ys) = do
   xys <- zipM xs ys
-  eps <- cast $ mapM (\ (x_, y_) -> HM.lookup (x_ === y_, bt) br) xys 
+  eps <- cast $ mapM (\ (x_, y_) -> HM.lookup (x_ === y_, bt) br) xys
   epf <- cast $ HM.lookup (Rel r xs, bt) br
   epg <- cast $ HM.lookup (Rel r ys, bf) br
   return [(ep, sd, f, k, RelC eps epf epg, nt)]
@@ -450,16 +483,16 @@ expp _ f b ep k p = eb $ ppInter "\n" $ "expansion not implemented" : ppPrf 10 p
 expOr :: Branch -> Int -> Text ->  Form -> Bool -> EP -> [Form] -> Prf -> IO [EF]
 expOr br k epg f pl ep [] p = expp br f pl ep k p
 expOr br k epg f pl ep (g : gs) p = do
-  let ep' = epIncr ep 
-  let br' = HM.insert (g, bf) (tlt $ ppEP ep') br 
+  let ep' = epIncr ep
+  let br' = HM.insert (g, bf) (tlt $ ppEP ep') br
   efs <- expOr br' k epg g bf ep' gs p
   return $ (ep, pl, f, k, OrF epg, nt) : efs
 
 expAnd :: Branch -> Int -> Text -> Form -> Bool -> EP -> [Form] -> Prf -> IO [EF]
 expAnd br k epg f pl ep [] p = expp br f pl ep k p
 expAnd br k epg f pl ep (g : gs) p = do
-  let ep' = epIncr ep 
-  let br' = HM.insert (g, bt) (tlt $ ppEP ep') br 
+  let ep' = epIncr ep
+  let br' = HM.insert (g, bt) (tlt $ ppEP ep') br
   efs <- expAnd br' k epg g bt ep' gs p
   return $ (ep, pl, f, k, AndT epg, nt) : efs
 
@@ -467,15 +500,15 @@ type Branch = HM.Map (Form, Bool) Text
 
 elabNote :: Elab -> Text
 elabNote (Plab _ _ n) = n
-elabNote (RelD' _ _ _ _ n) = n
+elabNote (RelD' _ _ _ n) = n
 elabNote (AoC' _ _ _ _ n) = n
 -- elabNote (ElabFail _ n) = n
 
 expand' :: Branch -> Form -> EP -> [Elab] -> IO [EF]
-expand' br f ep [] = expand br f ep [] 
-expand' br f ep (el : els) = do 
+expand' br f ep [] = expand br f ep []
+expand' br f ep (el : els) = do
   -- ptnl $ "Expanding : " <> elabNote el
-  expand br f ep (el : els) 
+  expand br f ep (el : els)
 
 expand :: Branch -> Form -> EP -> [Elab] -> IO [EF]
 expand _ (Or []) ep [] = return [(ep, bt, Or [], 0, OrT (tlt $ ppEP ep), Just "'EOP'")]
@@ -485,7 +518,7 @@ expand br f ep (Plab g p tx : els) = do
   efs0 <- expand' br' g (epFork 0 ep) els
   efs1 <- addExp br' g bf (epFork 1 ep) 0 p
   return $ (ep, bt, f, 0, Cut, Just tx) : efs0 ++ efs1
-expand br f ep (RelD' r g h p tx : els) = do 
+expand br f ep (RelD' g h p tx : els) = do
   let br' = HM.insert (f, bt) (tlt $ ppEP ep) br
   let ep' = epIncr ep
   let br'' = HM.insert (g, bt) (tlt $ ppEP ep') br'
@@ -493,7 +526,7 @@ expand br f ep (RelD' r g h p tx : els) = do
   efs0 <- addExp br'' h bf (epFork 1 ep') 0 p
   efs1 <- expand' br'' h ep'' els
   return $ (ep, bt, f, 0, RelD, Just tx) : (ep', bt, g, 0, Cut, Just "'rel-def-cut'") : efs0 ++ efs1
-expand br f ep (AoC' xs g h p tx : els) = do 
+expand br f ep (AoC' xs g h p tx : els) = do
   let br' = HM.insert (f, bt) (tlt $ppEP ep) br
   let ep' = epIncr ep
   let br'' = HM.insert (g, bt) (tlt $ ppEP ep') br'
@@ -532,7 +565,7 @@ prfHasAsm Asm = True
 
 elabHasAsm :: Elab -> Bool
 elabHasAsm (Plab _ p _) = prfHasAsm p
-elabHasAsm (RelD' _ _ _ p _) = prfHasAsm p
+elabHasAsm (RelD' _ _ p _) = prfHasAsm p
 elabHasAsm (AoC' _ _ _ p _) = prfHasAsm p
 
 -- elabHasSjt :: Elab -> Bool
@@ -574,24 +607,28 @@ efForm (_, _, f, _, _, _) = f
 efEP :: EF -> EP
 efEP (ep, _, _, _, _, _) = ep
 
+stepHyps :: Step -> [Text]
+stepHyps (_, _, ns, _) = ns
 
-
-getElabHypsAFs :: Bool -> String -> String -> IO (Hyps, [AF])
-getElabHypsAFs verbose tptp tstp = do
-  tptp_afs <- parseName tptp
-  tstp_afs <- sortAfs <$> parseName tstp
-  let hs = L.foldl addHyp (HM.empty, S.empty) tptp_afs
+hypsSteps :: Bool -> String -> String -> IO (Hyps, [Step])
+hypsSteps verbose tptp tstp = do
+  pafs <- parsePreName tptp
+  pb $ "Total hyps count =  " <> ppInt (L.length pafs) <> "\n"
+  stps <- parseName tstp >>= mapM afToStep . sortAfs
+  let ahns = L.foldl (\ ns_ -> foldl (flip S.insert) ns_ . stepHyps) S.empty stps
+  let hs = L.foldl (addToHyps ahns) (HM.empty, S.empty) pafs
+  pb $ "Active hyps count = " <> ppInt (HM.size $ fst hs) <> "\n"
   Prelude.putStr $ tptp ++ "\n"
-  when verbose $ mapM_ putAF tptp_afs
+  when verbose $ mapM_ (\ (nm_, f_) -> pb (ft nm_ <> " :: " <> ppForm f_ <> "\n")) (HM.toList $ fst hs)
   Prelude.putStr $ tstp ++ "\n"
-  when verbose $ mapM_ putAF tstp_afs
-  return (hs, tstp_afs)
+  when verbose $ mapM_ (pb . ppStep) stps
+  return (hs, stps)
 
 elaborate :: [String] -> IO ()
 elaborate (tptp : tstp : estp : flags) = do
   let verbose = "silent" `notElem` flags
-  (hs, afs) <- getElabHypsAFs verbose tptp tstp
-  (_, es) <- mapAccumM (elabIO verbose) hs afs 
+  (hs, stps) <- hypsSteps verbose tptp tstp
+  (_, es) <- mapAccumM (elabIO verbose) hs stps
   -- let allCount = L.length es 
   -- let fullCount = L.length $ L.filter (not . elabHasAsm) es
   -- pb $ "Full elaboration rate = " <> ppInt fullCount <> "/" <> ppInt allCount <> "\n"
@@ -607,13 +644,13 @@ rfsj :: Form -> Form
 rfsj (Not f) = Not $ rfsj f
 rfsj (Imp f g) = Imp (rfsj f) (rfsj g)
 rfsj (Iff f g) = Iff (rfsj f) (rfsj g)
-rfsj (Or fs) = 
-  case L.map rfsj fs of 
-    [f] -> f 
+rfsj (Or fs) =
+  case L.map rfsj fs of
+    [f] -> f
     fs' -> Or fs'
-rfsj (And fs) = 
-  case L.map rfsj fs of 
-    [f] -> f 
+rfsj (And fs) =
+  case L.map rfsj fs of
+    [f] -> f
     fs' -> And fs'
 rfsj (Fa vs f) = Fa vs $ rfsj f
 rfsj (Ex vs f) = Ex vs $ rfsj f
@@ -636,14 +673,14 @@ rpsj (OrT' ps) = OrT' $ L.map (bimap rfsj rpsj) ps
 rpsj (AndF' [(f, p)]) = rpsj p
 rpsj (AndF' ps) = AndF' $ L.map (bimap rfsj rpsj) ps
 
-rpsj (AndT' [f] gs p) = 
-  case gs of 
+rpsj (AndT' [f] gs p) =
+  case gs of
     [g] -> if f == g then rpsj p else et "rpsj-and-lft-0"
     _ -> et "rpsj-and-lft-1"
 rpsj (AndT' fs gs p) = AndT' (L.map rfsj fs) (L.map rfsj gs) (rpsj p)
 
-rpsj (OrF' [f] gs p) = 
-  case gs of 
+rpsj (OrF' [f] gs p) =
+  case gs of
     [g] -> if f == g then rpsj p else et "rpsj-or-rgt-0"
     _ -> et "rpsj-or-rgt-1"
 rpsj (OrF' fs gs p) = OrF' (L.map rfsj fs) (L.map rfsj gs) (rpsj p)
@@ -665,10 +702,10 @@ rpsj Asm = Asm
 resj :: Elab -> Elab
 resj (Plab n p t) = Plab n (rpsj p) t
 resj (AoC' xs f g p t) = AoC' xs (rfsj f) (rfsj g) (rpsj p) t
-resj (RelD' xs f g p t) = RelD' xs (rfsj f) (rfsj g) (rpsj p) t
+resj (RelD' f g p t) = RelD' (rfsj f) (rfsj g) (rpsj p) t
 
 detectSJ :: EF -> IO ()
-detectSJ (ep, _, f, _, _, _) 
+detectSJ (ep, _, f, _, _, _)
   | formSJ f = eb $ "single junct at EP : " <> ppEP ep
   | otherwise = return ()
 
@@ -685,21 +722,21 @@ writeElab nm efs = do
 unsnoc :: [a] -> Maybe ([a], a)
 unsnoc [] = nt
 unsnoc [x] = Just ([], x)
-unsnoc (x : xs) = do 
-  (xs', x') <- Main.unsnoc xs 
+unsnoc (x : xs) = do
+  (xs', x') <- Main.unsnoc xs
   return (x : xs', x')
 
 readEpAux :: Text -> Maybe (Int, Int)
-readEpAux t = 
+readEpAux t =
   case T.splitOn "." t of
-    [t0, t1] -> do 
+    [t0, t1] -> do
       k <- cast $ readInt t0
       m <- cast $ readInt t1
       return (k, m)
     _ -> mzero
 
 unsq :: Text -> Maybe Text
-unsq ('\'' :> t) = do 
+unsq ('\'' :> t) = do
   (t', '\'') <- T.unsnoc t
   return t'
 unsq _ = mzero
@@ -713,68 +750,68 @@ readEp t = do
   return (k, l)
 
 gTermToText :: Gterm -> IO Text
-gTermToText (Gfun t []) = return t 
+gTermToText (Gfun t []) = return t
 gTermToText _ = mzero
 
 gTermToTerm :: Gterm -> IO Term
-gTermToTerm (Gfun f ts) = Fun f <$> mapM gTermToTerm ts 
+gTermToTerm (Gfun f ts) = Fun f <$> mapM gTermToTerm ts
 gTermToTerm (Gvar v) = return $ Var v
 gTermToTerm _ = mzero
 
 gTermToInf :: Gterm -> IO Inf
 gTermToInf (Gfun "cut" []) = return Cut
-gTermToInf (Gfun "id" [gt0, gt1]) = do 
+gTermToInf (Gfun "id" [gt0, gt1]) = do
   m <- gTermToText gt0
-  n <- gTermToText gt1 
+  n <- gTermToText gt1
   return $ Id m n
 
 gTermToInf (Gfun "iffto" [gt]) = IffTO <$> gTermToText gt
 gTermToInf (Gfun "ifftr" [gt]) = IffTR <$> gTermToText gt
-gTermToInf (Gfun "ifff" [gt]) = IffF <$> gTermToText gt 
+gTermToInf (Gfun "ifff" [gt]) = IffF <$> gTermToText gt
 
-gTermToInf (Gfun "impfa" [gt]) = ImpFA <$> gTermToText gt 
-gTermToInf (Gfun "impfc" [gt]) = ImpFC <$> gTermToText gt 
-gTermToInf (Gfun "impt" [gt]) = ImpT <$> gTermToText gt 
+gTermToInf (Gfun "impfa" [gt]) = ImpFA <$> gTermToText gt
+gTermToInf (Gfun "impfc" [gt]) = ImpFC <$> gTermToText gt
+gTermToInf (Gfun "impt" [gt]) = ImpT <$> gTermToText gt
 
-gTermToInf (Gfun "ort" [gt]) = OrT <$> gTermToText gt 
-gTermToInf (Gfun "orf" [gt]) = OrF <$> gTermToText gt 
+gTermToInf (Gfun "ort" [gt]) = OrT <$> gTermToText gt
+gTermToInf (Gfun "orf" [gt]) = OrF <$> gTermToText gt
 
-gTermToInf (Gfun "andt" [gt]) = AndT <$> gTermToText gt 
-gTermToInf (Gfun "andf" [gt]) = AndF <$> gTermToText gt 
+gTermToInf (Gfun "andt" [gt]) = AndT <$> gTermToText gt
+gTermToInf (Gfun "andf" [gt]) = AndF <$> gTermToText gt
 
 gTermToInf (Gfun "faf" [gt, Gnum k]) = (`FaF` k) <$> gTermToText gt
 gTermToInf (Gfun "ext" [gt, Gnum k]) = (`ExT` k) <$> gTermToText gt
 
-gTermToInf (Gfun "fat" [gt, Glist gts]) = do 
+gTermToInf (Gfun "fat" [gt, Glist gts]) = do
   nm <- gTermToText gt
-  xs <- mapM gTermToTerm gts 
+  xs <- mapM gTermToTerm gts
   return $ FaT nm xs
-gTermToInf (Gfun "exf" [gt, Glist gts]) = do 
+gTermToInf (Gfun "exf" [gt, Glist gts]) = do
   nm <- gTermToText gt
-  xs <- mapM gTermToTerm gts 
+  xs <- mapM gTermToTerm gts
   return $ ExF nm xs
 
-gTermToInf (Gfun "nott" [gt]) = NotT <$> gTermToText gt 
-gTermToInf (Gfun "notf" [gt]) = NotF <$> gTermToText gt 
-gTermToInf (Gfun "eqr" [gt]) = EqR <$> gTermToText gt 
+gTermToInf (Gfun "nott" [gt]) = NotT <$> gTermToText gt
+gTermToInf (Gfun "notf" [gt]) = NotF <$> gTermToText gt
+gTermToInf (Gfun "eqr" [gt]) = EqR <$> gTermToText gt
 gTermToInf (Gfun "eqs" gts) = do
   [nm0, nm1] <- mapM gTermToText gts
-  return $ EqS nm0 nm1 
+  return $ EqS nm0 nm1
 gTermToInf (Gfun "eqt" gts) = do
   [nm0, nm1, nm2] <- mapM gTermToText gts
   return $ EqT nm0 nm1 nm2
 gTermToInf (Gfun "func" [Glist gts, gt]) = do
-  nms <- mapM gTermToText gts 
+  nms <- mapM gTermToText gts
   nm <- gTermToText gt
   return $ FunC nms nm
 gTermToInf (Gfun "relc" [Glist gts, gt0, gt1]) = do
-  nms <- mapM gTermToText gts 
+  nms <- mapM gTermToText gts
   m <- gTermToText gt0
   n <- gTermToText gt1
   return $ RelC nms m n
 gTermToInf (Gfun "aoc" gts) =  -- return $ AoC k
   AoC <$> mapM gTermToTerm gts
-gTermToInf (Gfun "reld" []) = return RelD 
+gTermToInf (Gfun "reld" []) = return RelD
 gTermToInf (Gfun "open" []) = return Open
 
 gTermToInf t = et $ "inf reader : " <> pack (show t)
@@ -800,7 +837,7 @@ gTermsToMaybeText (Just [Gfun tx []]) = return $ Just tx
 gTermsToMaybeText _ = et "Cannot extact maybe text"
 
 afToEf :: AF -> IO EF
-afToEf (nm, sgn, f, Just (Gfun "inference" [Gnum k, gt], gts)) = do 
+afToEf (nm, sgn, f, Just (Gfun "inference" [Gnum k, gt], gts)) = do
   pl <- textToBool sgn
   ep <- cast $ readEp nm
   i <- gTermToInf gt
@@ -808,7 +845,7 @@ afToEf (nm, sgn, f, Just (Gfun "inference" [Gnum k, gt], gts)) = do
   return (ep, pl, f, k, i, mtx)
 afToEf af = et $ "cannot read AF into EF : " <> tlt (fmtAF af)
 
-isVar :: Term -> Bool 
+isVar :: Term -> Bool
 isVar (Var _) = True
 isVar _ = False
 -- 
@@ -827,12 +864,12 @@ isVar _ = False
 -- foo _ = return ()
 
 dev :: [String] -> IO ()
-dev (tptp : flags) 
+dev (tptp : flags)
   | "quick" `elem` flags = do
      afs <- parsePreName tptp
      let k = L.length afs
      pb $ ppInt k <> " annotated pre-formulas parsed.\n"
-  | otherwise = do 
+  | otherwise = do
      afs <- parseName tptp
      let k = L.length afs
      pb $ ppInt k <> " annotated formulas parsed.\n"
@@ -841,13 +878,14 @@ dev _ = et "invalid args"
 check :: [String] -> IO ()
 check (tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
-  pt $ "TPTP : " <> pack tptp <> "\n" 
+  pt $ "TPTP : " <> pack tptp <> "\n"
   tptp_afs <- parseName tptp
-  pt $ "ESTP : " <> pack estp <> "\n" 
+  pt $ "ESTP : " <> pack estp <> "\n"
   estp_afs <- parseName estp
   efs <- mapM afToEf estp_afs
   let _bmp = L.foldl (\ mp_ (nm_, _, f_, _) -> HM.insert nm_ (f_, bt) mp_) HM.empty tptp_afs
-  -- pt $ ppListNl writeEF efs
+  -- (_bch, elbs) <- branchElabs vb tptp estp
+
   let bmp = L.foldl (\ mp_ (ep_, pl_, f_, _, _, _) -> HM.insert (tlt $ ppEP ep_) (f_, pl_) mp_) _bmp efs
   let fmp = L.foldl (\ mp_ (ep_, pl_, f_, k_, _, _) -> HM.insert ep_ (f_, pl_, k_) mp_) HM.empty efs
   (top, bt, 0) <- cast $ HM.lookup (0, []) fmp
@@ -857,53 +895,53 @@ check _ = et "invalid args for check"
 checkEF' :: Bool -> HM.Map Text (Form, Bool) -> HM.Map EP (Form, Bool, Int) -> EF -> IO ()
 checkEF' vb bm fm ef = do
   when vb $ pb $ "checking EF : " <> writeEF ef <> "\n"
-  checkEF bm fm ef 
+  checkEF bm fm ef
 
 ppFM :: HM.Map EP (Form, Bool, Int) -> Builder
 ppFM fm = ppListNl (\ (ep_, (f_, pl_, _)) -> ppEP ep_ <> " : " <> ppSignForm (f_, pl_)) $ HM.toList fm
 
-type Branch' = HM.Map Text (Form, Bool) 
+type Branch' = HM.Map Text (Form, Bool)
 
 ppHM :: (a -> Builder) -> (b -> Builder) -> HM.Map a b -> Builder
 ppHM f g m = ppListNl (\ (x_, y_) -> f x_ <> " : " <> g y_) $ HM.toList m
 
 ppBranch' :: Branch' -> Builder
-ppBranch' = ppHM ft ppSignForm 
+ppBranch' = ppHM ft ppSignForm
 
 checkEF :: Branch' -> HM.Map EP (Form, Bool, Int) -> EF -> IO ()
 
-checkEF bm fm (ep, _, _, k, Cut, _) = do 
-  let ep0 = epFork 0 ep 
+checkEF bm fm (ep, _, _, k, Cut, _) = do
+  let ep0 = epFork 0 ep
   let ep1 = epFork 1 ep
   (g0, bt, k0) <- cast $ HM.lookup ep0 fm
   (g1, bf, k1) <- cast $ HM.lookup ep1 fm
   guardMsg "cut fail" $ g0 == g1 && k == k0 && k == k1
 
-checkEF bm fm (ep, _, _, k, OrT nm, _) = do 
+checkEF bm fm (ep, _, _, k, OrT nm, _) = do
   guard $ onPath ep nm
-  pf <- cast $ HM.lookup nm bm 
-  case pf of 
+  pf <- cast $ HM.lookup nm bm
+  case pf of
     (Or fs, bt) -> guard $ checkJunct fm ep k bt 0 fs
     _ -> eb $ "Not a positive disjunction : " <> ppSignForm pf
 
 
-checkEF bm fm (ep, _, _, k, AndF nm, _) = do 
+checkEF bm fm (ep, _, _, k, AndF nm, _) = do
   guard $ onPath ep nm
-  (And fs, bf) <- cast $ HM.lookup nm bm 
+  (And fs, bf) <- cast $ HM.lookup nm bm
   guard $ checkJunct fm ep k bf 0 fs
 
-checkEF bm fm (ep, _, _, k, AndT nm, _) = do 
+checkEF bm fm (ep, _, _, k, AndT nm, _) = do
   guard $ onPath ep nm
-  (And fs, bt) <- cast $ HM.lookup nm bm 
-  (f, bt, k') <- cast $ HM.lookup (epIncr ep) fm  
+  (And fs, bt) <- cast $ HM.lookup nm bm
+  (f, bt, k') <- cast $ HM.lookup (epIncr ep) fm
   guard $ k == k' && f `elem` fs
 
-checkEF bm fm (ep, _, _, k, RelD, _) = do 
-  (f, bt, k') <- cast $ HM.lookup (epIncr ep) fm  
-  guard $ k == k' 
+checkEF bm fm (ep, _, _, k, RelD, _) = do
+  (f, bt, k') <- cast $ HM.lookup (epIncr ep) fm
+  guard $ k == k'
  -- checkRelD k f k' 
 
-checkEF bm fm (ep, _, _, k, AoC xs, _) = do 
+checkEF bm fm (ep, _, _, k, AoC xs, _) = do
   (f, bt, k') <- cast $ HM.lookup (epIncr ep) fm
   isAoC' xs f
   -- guard $ k <= m 
@@ -913,115 +951,115 @@ checkEF bm fm (ep, _, _, k, AoC xs, _) = do
   -- isAoC m f
 
 
-checkEF bm fm (ep, _, _, k, OrF nm, _) = do 
+checkEF bm fm (ep, _, _, k, OrF nm, _) = do
   guard $ onPath ep nm
-  (Or fs, bf) <- cast $ HM.lookup nm bm 
-  (f, bf, k') <- cast $ HM.lookup (epIncr ep) fm  
+  (Or fs, bf) <- cast $ HM.lookup nm bm
+  (f, bf, k') <- cast $ HM.lookup (epIncr ep) fm
   guard $ k == k' && f `elem` fs
 
-checkEF bm fm (ep, _, _, k, ImpFA nm, _) = do 
+checkEF bm fm (ep, _, _, k, ImpFA nm, _) = do
   guard $ onPath ep nm
-  (Imp f g, bf) <- cast $ HM.lookup nm bm 
+  (Imp f g, bf) <- cast $ HM.lookup nm bm
   guard $ checkDown fm ep 0 [(f, bt, k)]
 
-checkEF bm fm (ep, _, _, k, ImpFC nm, _) = do 
+checkEF bm fm (ep, _, _, k, ImpFC nm, _) = do
   guard $ onPath ep nm
-  (Imp f g, bf) <- cast $ HM.lookup nm bm 
+  (Imp f g, bf) <- cast $ HM.lookup nm bm
   guard $ checkDown fm ep 0 [(g, bf, k)]
 
-checkEF bm fm (ep, _, _, k, IffTO nm, _) = do 
+checkEF bm fm (ep, _, _, k, IffTO nm, _) = do
   guard $ onPath ep nm
-  (Iff f g, bt) <- cast $ HM.lookup nm bm 
+  (Iff f g, bt) <- cast $ HM.lookup nm bm
   guard $ checkJunct fm ep k bt 0 [Imp f g]
 
-checkEF bm fm (ep, _, _, k, IffTR nm, _) = do 
+checkEF bm fm (ep, _, _, k, IffTR nm, _) = do
   guard $ onPath ep nm
-  (Iff f g, bt) <- cast $ HM.lookup nm bm 
+  (Iff f g, bt) <- cast $ HM.lookup nm bm
   guard $ checkJunct fm ep k bt 0 [Imp g f]
 
-checkEF bm fm (ep, _, _, k, ImpT nm, _) = do 
+checkEF bm fm (ep, _, _, k, ImpT nm, _) = do
   guard $ onPath ep nm
-  (Imp f g, bt) <- cast $ HM.lookup nm bm 
+  (Imp f g, bt) <- cast $ HM.lookup nm bm
   guard $ checkDown fm ep 0 [(f, bf, k), (g, bt, k)]
 
-checkEF bm fm (ep, _, _, k, IffF nm, _) = do 
+checkEF bm fm (ep, _, _, k, IffF nm, _) = do
   guard $ onPath ep nm
-  (Iff f g, bf) <- cast $ HM.lookup nm bm 
+  (Iff f g, bf) <- cast $ HM.lookup nm bm
   guard $ checkDown fm ep 0 [(f ==> g, bf, k), (g ==> f, bf, k)]
 
-checkEF bm fm (ep, _, _, k, NotF nm, _) = do 
+checkEF bm fm (ep, _, _, k, NotF nm, _) = do
   guard $ onPath ep nm
-  (Not f, bf) <- cast $ HM.lookup nm bm 
+  (Not f, bf) <- cast $ HM.lookup nm bm
   guard $ checkDown fm ep 0 [(f, bt, k)]
 
-checkEF bm fm (ep, _, _, k, NotT nm, _) = do 
+checkEF bm fm (ep, _, _, k, NotT nm, _) = do
   guard $ onPath ep nm
-  (Not f, bt) <- cast $ HM.lookup nm bm 
+  (Not f, bt) <- cast $ HM.lookup nm bm
   guard $ checkDown fm ep 0 [(f, bf, k)]
 
-checkEF bm fm (ep, _, _, k, EqR nm, _) = do 
+checkEF bm fm (ep, _, _, k, EqR nm, _) = do
   guard $ onPath ep nm
-  (Eq x y, bf) <- cast $ HM.lookup nm bm 
+  (Eq x y, bf) <- cast $ HM.lookup nm bm
   guard $ x == y
 
-checkEF bm fm (ep, _, _, k, Id nm0 nm1, _) = do 
+checkEF bm fm (ep, _, _, k, Id nm0 nm1, _) = do
   guard $ onPath ep nm0
   guard $ onPath ep nm1
-  (f, bt) <- cast $ HM.lookup nm0 bm 
-  (g, bf) <- cast $ HM.lookup nm1 bm 
+  (f, bt) <- cast $ HM.lookup nm0 bm
+  (g, bf) <- cast $ HM.lookup nm1 bm
   guard $ f == g
 
-checkEF bm fm (ep, _, _, k, FaF nm m, _) = do 
+checkEF bm fm (ep, _, _, k, FaF nm m, _) = do
   guard $ onPath ep nm && k <= m
-  (Fa vs f, bf) <- cast $ HM.lookup nm bm 
+  (Fa vs f, bf) <- cast $ HM.lookup nm bm
   let (m', vxs) = varPars m vs
   let f' = substForm vxs f
   guard $ checkDown fm ep 0 [(f', bf, m')]
 
-checkEF bm fm (ep, _, _, k, FaT nm xs, _) = do 
+checkEF bm fm (ep, _, _, k, FaT nm xs, _) = do
   guard $ onPath ep nm
-  (Fa vs f, bt) <- cast $ HM.lookup nm bm 
+  (Fa vs f, bt) <- cast $ HM.lookup nm bm
   vxs <- zipM vs xs
   let f' = substForm vxs f
   guard $ checkDown fm ep 0 [(f', bt, k)]
 
-checkEF bm fm (ep, _, _, k, ExT nm m, _) = do 
+checkEF bm fm (ep, _, _, k, ExT nm m, _) = do
   guard $ onPath ep nm && k <= m
-  (Ex vs f, bt) <- cast $ HM.lookup nm bm 
+  (Ex vs f, bt) <- cast $ HM.lookup nm bm
   let (m', vxs) = varPars m vs
   let f' = substForm vxs f
   guard $ checkDown fm ep 0 [(f', bt, m')]
 
-checkEF bm fm (ep, _, _, k, ExF nm xs, _) = do 
+checkEF bm fm (ep, _, _, k, ExF nm xs, _) = do
   guard $ onPath ep nm
-  (Ex vs f, bf) <- cast $ HM.lookup nm bm 
+  (Ex vs f, bf) <- cast $ HM.lookup nm bm
   vxs <- zipM vs xs
   let f' = substForm vxs f
   guard $ checkDown fm ep 0 [(f', bf, k)]
 
-checkEF bm fm (ep, _, _, k, EqS nm0 nm1, _) = do 
+checkEF bm fm (ep, _, _, k, EqS nm0 nm1, _) = do
   guard $ L.all (onPath ep) [nm0, nm1]
-  (Eq x y, bt) <- cast $ HM.lookup nm0 bm 
-  (Eq y' x', bf) <- cast $ HM.lookup nm1 bm 
-  guardMsg "Eq-S : mismatch" $ x == x' && y == y' 
+  (Eq x y, bt) <- cast $ HM.lookup nm0 bm
+  (Eq y' x', bf) <- cast $ HM.lookup nm1 bm
+  guardMsg "Eq-S : mismatch" $ x == x' && y == y'
 
-checkEF bm fm (ep, _, _, k, EqT nm0 nm1 nm2, _) = do 
+checkEF bm fm (ep, _, _, k, EqT nm0 nm1 nm2, _) = do
   guard $ L.all (onPath ep) [nm0, nm1, nm2]
-  (Eq x y, bt) <- cast $ HM.lookup nm0 bm 
-  (Eq y' z, bt) <- cast $ HM.lookup nm1 bm 
-  (Eq x' z', bf) <- cast $ HM.lookup nm2 bm 
+  (Eq x y, bt) <- cast $ HM.lookup nm0 bm
+  (Eq y' z, bt) <- cast $ HM.lookup nm1 bm
+  (Eq x' z', bf) <- cast $ HM.lookup nm2 bm
   guardMsg "Eq-T : mismatch" $ x == x' && y == y' && x == x'
 
-checkEF bm fm (ep, _, _, k, FunC nms nm, _) = do 
+checkEF bm fm (ep, _, _, k, FunC nms nm, _) = do
   guard $ L.all (onPath ep) (nm : nms)
-  (Eq (Fun f xs) (Fun g ys), bf) <- cast $ HM.lookup nm bm 
+  (Eq (Fun f xs) (Fun g ys), bf) <- cast $ HM.lookup nm bm
   nmxys <- zipM xs ys >>= zipM nms
   guardMsg "Fun-C : mismatch" $ L.all (checkEqPrem bm) nmxys
 
-checkEF bm fm (ep, _, _, k, RelC nms nm0 nm1, _) = do 
+checkEF bm fm (ep, _, _, k, RelC nms nm0 nm1, _) = do
   guard $ L.all (onPath ep) (nm0 : nm1 : nms)
-  (Rel r xs, bt) <- cast $ HM.lookup nm0 bm 
-  (Rel s ys, bf) <- cast $ HM.lookup nm1 bm 
+  (Rel r xs, bt) <- cast $ HM.lookup nm0 bm
+  (Rel s ys, bf) <- cast $ HM.lookup nm1 bm
   guard $ r == s
   nmxys <- zipM xs ys >>= zipM nms
   guardMsg "Rel-C : mismatch" $ L.all (checkEqPrem bm) nmxys
@@ -1031,8 +1069,8 @@ checkEF bm fm (ep, _, _, k, Open, _) = return ()
 -- checkEF bm fm (_, _, _, _, i) = et $ "unsupported inference : " <> ppInf i
 
 checkEqPrem :: Map Text (Form, Bool) -> (Text, (Term, Term)) -> Bool
-checkEqPrem bm (nm, (x, y)) = 
-  case HM.lookup nm bm of 
+checkEqPrem bm (nm, (x, y)) =
+  case HM.lookup nm bm of
     Just (Eq x' y', bt) -> x == x' && y == y'
     _ -> False
 
@@ -1043,17 +1081,17 @@ breakIff f g Rev = g ==> f
 checkDown :: HM.Map EP (Form, Bool, Int) -> EP -> Int -> [(Form, Bool, Int)] -> Bool
 checkDown fm ep k [] = True
 checkDown fm ep k ((f, pl, m) : l) = do
-  case HM.lookup (epFork k ep) fm of 
+  case HM.lookup (epFork k ep) fm of
     Just (f', pl', m') -> f == f' && pl == pl' && m == m' && checkDown fm ep (k + 1) l
     _ -> False
 
 checkJunct :: HM.Map EP (Form, Bool, Int) -> EP -> Int -> Bool -> Int -> [Form] -> Bool
 checkJunct fm ep k pl m [] = True
-checkJunct fm ep k pl m (f : fs) = 
-  case HM.lookup (epFork m ep) fm of 
-    Just (f', pl', k') -> f == f' && pl == pl' && k == k' && checkJunct fm ep k pl (m + 1) fs 
+checkJunct fm ep k pl m (f : fs) =
+  case HM.lookup (epFork m ep) fm of
+    Just (f', pl', k') -> f == f' && pl == pl' && k == k' && checkJunct fm ep k pl (m + 1) fs
     _ -> False
-    
+
 subEPRec :: EP -> EP -> Bool
 subEPRec (0, []) _ = False
 subEPRec (0, (_, m) : l) ep = subEP (m, l) ep
@@ -1068,13 +1106,13 @@ subEP ep ep'
 -- subEP 
 
 onPath :: EP -> Text -> Bool
-onPath ep nm = 
-  case readEp nm of 
+onPath ep nm =
+  case readEp nm of
     Just ep' -> subEP ep ep'
     _ -> True
 
 ps :: String -> IO ()
-ps = Prelude.putStr 
+ps = Prelude.putStr
 
 main :: IO ()
 main = do

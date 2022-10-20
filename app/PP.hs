@@ -254,7 +254,7 @@ ppSign False = "false"
 
 ppElab :: Elab -> Builder
 ppElab (Plab f p t) = ppInter "\n" $ ["Plab", "f :" <> ppForm f, "prf :"] ++ ppPrf 20 p ++ ["Notes : " <> ft t]
-ppElab (RelD' r f g _ t) = "rdef : " <> ft r <> " : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
+ppElab (RelD' f g _ t) = "rdef : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
 ppElab (AoC' xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
 
 ppSQ :: Builder -> Builder
@@ -279,3 +279,10 @@ ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k
 ppSignForm :: (Form, Bool) -> Builder
 ppSignForm (f, True) = ppForm f <> " |-"
 ppSignForm (f, False) = "|- " <> ppForm f
+
+ppStep :: Step -> Builder
+ppStep (n, r, ns, f) = 
+  ft n <> " :: " <>
+  ft r <> " :: " <>
+  ppList ft ns <> " :: " <> 
+  ppForm f <> "\n"

@@ -61,7 +61,7 @@ data Prf =
 
 data Elab =
     Plab Form Prf Text
-  | RelD' Text Form Form Prf Text
+  | RelD' Form Form Prf Text
   | AoC' [Term] Form Form Prf Text
   deriving (Show)
 
@@ -90,7 +90,10 @@ data Gterm =
 
 type Ant = Maybe (Gterm, Maybe [Gterm])
 
-type PreAF = (Text, Text, Text)
+data PreAF = 
+    CnfAF Text Text Text
+  | FofAF Text Text Text
+
 type AF = (Text, Text, Form, Ant)
 
 type Prob = [Input]
@@ -110,6 +113,7 @@ data Dir =
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
 
+-- type Bag a = Map a ()
 type NSeq = Map Text Form
 type Seq = Set Form
 type Hyps = (NSeq, Seq)
@@ -151,7 +155,6 @@ data PrePath =
 type Sig = HM.Map [Path] Int
 type Sigs = HM.Map Text Sig
 
-
 type RSTA = (VM, Maybe (Form, Dir), [Form], [Form], [Form])
 type SST = (VM, [Form], [Form], [(Term, Term)])
 type EFS = (VM, Maybe Bool, [Form])
@@ -177,3 +180,5 @@ data Inf =
   | ExT Text Int | ExF Text [Term]
   | RelD | AoC [Term] | Open
   deriving (Show)
+
+type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)

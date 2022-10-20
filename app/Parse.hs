@@ -432,7 +432,7 @@ formLazy = verum <|> falsum <|> parenFormLazy <|> notformLazy <|> faformLazy <|>
 form :: Parser Form
 form = do
   f <- formLazy
-  (peakDelimiter >> return f) <|> (connective >>= formClose f) 
+  (eof >> return f) <|> (peakDelimiter >> return f) <|> (connective >>= formClose f) 
 
 preInc :: Parser PreInput
 preInc = do
@@ -581,8 +581,8 @@ parsePreInput (PreInc s) = do
   tptp <- getEnv "TPTP"
   s' <- cast $ unquote s
   parsePreName $ tptp ++ "/" ++ unpack s'
-parsePreInput (PreCnf n r f) = return [(n, r, f)]
-parsePreInput (PreFof n r f) = return [(n, r, f)]
+parsePreInput (PreCnf n r f) = return [CnfAF n r f]
+parsePreInput (PreFof n r f) = return [FofAF n r f]
 
 parseInput :: Input -> IO [AF]
 parseInput (Inc s) = do
@@ -622,6 +622,12 @@ parsePreName n = do
   case parse ign t of
     Just (i,s) -> parsePreText s
     _ -> ioError $ userError "Read filename, but failed to parse content"
+
+parseForm :: Text -> Form
+parseForm tx = 
+  case parse form tx of 
+    Just (f, tx') -> if T.null tx' then f else et ("parse-form failed, case 1 : " <> tx)
+    _ -> et $ "parse-form failed, case 2 : " <> tx <> "$$$$"
 
 parseName :: String -> IO [AF]
 parseName n = do

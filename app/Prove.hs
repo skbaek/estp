@@ -2088,18 +2088,29 @@ normalizeAoC (Imp (Ex ws f) g) = do
   return (xs, Imp (Ex ws f) (subf vm f))
 normalizeAoC _ = mzero
 
-mkRelD' :: Text -> Form -> Maybe Form
-mkRelD' r (Fa vs g) = do
-  f <- mkRelD' r g
+--mkRelD :: Text -> Form -> Maybe Form
+--mkRelD r (Fa vs g) = do
+--  f <- mkRelD r g
+--  return (Fa vs f)
+--mkRelD r (Iff (Rel s xs) f) = guard (r == s) >> return (Iff (Rel s xs) f)
+--mkRelD r (Iff f (Rel s xs)) = guard (r == s) >> return (Iff (Rel s xs) f)
+--mkRelD r (Or [f, Not (Rel s xs)]) = guard (r == s) >> return (Iff (Rel s xs) f)
+--mkRelD r (Or fs) = do
+--  (fs', Not (Rel s xs)) <- desnoc fs
+--  guard (r == s)
+--  return (Iff (Rel s xs) (Or fs'))
+--mkRelD _ f = eb $ "Cannot make rdef :\n" <> ppFormNl f
+mkRelD :: Form -> Maybe Form
+mkRelD (Fa vs g) = do
+  f <- mkRelD g
   return (Fa vs f)
-mkRelD' r (Iff (Rel s xs) f) = guard (r == s) >> return (Iff (Rel s xs) f)
-mkRelD' r (Iff f (Rel s xs)) = guard (r == s) >> return (Iff (Rel s xs) f)
-mkRelD' r (Or [f, Not (Rel s xs)]) = guard (r == s) >> return (Iff (Rel s xs) f)
-mkRelD' r (Or fs) = do
+mkRelD (Iff (Rel s xs) f) = return (Iff (Rel s xs) f)
+mkRelD (Iff f (Rel s xs)) = return (Iff (Rel s xs) f)
+mkRelD (Or [f, Not (Rel s xs)]) = return (Iff (Rel s xs) f)
+mkRelD (Or fs) = do
   (fs', Not (Rel s xs)) <- desnoc fs
-  guard (r == s)
   return (Iff (Rel s xs) (Or fs'))
-mkRelD' _ f = eb $ "Cannot make rdef :\n" <> ppFormNl f
+mkRelD f = eb $ "Cannot make rdef :\n" <> ppFormNl f
 
 proveRelD' :: Form -> Form -> IO Prf
 proveRelD' (Fa vs f) (Fa ws g) = do
@@ -2123,11 +2134,11 @@ proveRelD'' (Iff r (Or fs)) (Or fsnr)  = do
   return $ rDefLemma1 r fs fsnr
 proveRelD'' f g = eb $ "Anomaly! : " <> ppForm f <> " |- " <> ppForm g <> "\n"
 
-relDef :: Text -> Text -> Form -> IO Elab
-relDef n r g = do
-  f <- cast $ mkRelD' r g
+relDef :: Text -> Form -> IO Elab
+relDef n g = do
+  f <- cast $ mkRelD g
   p <- proveRelD' f g
-  return $ RelD' r f g p n
+  return $ RelD' f g p n
 
 pqm :: Int -> Form -> Form -> IO Prf
 pqm k (Not f) (Not g) = do
