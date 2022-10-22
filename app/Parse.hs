@@ -3,15 +3,16 @@
 module Parse where
 
 import Types
-import Basic ( et, cast, readInt, unquote )
+import Basic -- ( et, cast, readInt, unquote )
 
 import Data.Text.Lazy as T
-    ( cons, drop, isPrefixOf, length, null, pack, uncons, Text, unpack, take, splitAt )
+    ( cons, drop, isPrefixOf, length, null, pack, uncons, unsnoc, Text, unpack, take, splitAt, splitOn )
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
-import Data.List (elem, foldl, map, (\\))
+import Data.List (elem, foldl, map, sortBy, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
 import Data.Text.Lazy.IO as TIO
 import System.Environment (getEnv)
+import Control.Monad as M ( MonadPlus(mzero) )
 
 newtype Parser a = Parser { parse :: Text -> Maybe (a, Text) }
 
@@ -592,6 +593,7 @@ parseInput (Inc s) = do
 parseInput (Cnf n r f t) = return [(n, r, f, t)]
 parseInput (Fof n r f t) = return [(n, r, f, t)]
 
+
 parsePreText :: Text -> IO [PreAF]
 parsePreText t =
   case parse preInput t of
@@ -635,3 +637,154 @@ parseName n = do
   case parse ign t of
     Just (i,s) -> parseText s
     _ -> ioError $ userError "Read filename, but failed to parse content"
+
+afToEf :: AF -> IO EF
+afToEf (nm, sgn, f, Just (Gfun "inference" [Gnum k, gt], gts)) = do
+  pl <- textToBool sgn
+  ep <- cast $ readEp nm
+  i <- gTermToInf gt
+  mtx <- gTermsToMaybeText gts
+  return (ep, pl, f, k, i, mtx)
+afToEf af = et "cannot read AF into EF" -- <> tlt (fmtAF af)
+
+textToBool :: Text -> IO Bool
+textToBool "true" = return bt
+textToBool "false" = return bf
+textToBool _ = et "Cannot read Boolarity"
+
+gTermsToMaybeText :: Maybe [Gterm] -> IO (Maybe Text)
+gTermsToMaybeText Nothing = return nt
+gTermsToMaybeText (Just [Gfun tx []]) = return $ Just tx
+gTermsToMaybeText _ = et "Cannot extact maybe text"
+
+gTermToText :: Gterm -> IO Text
+gTermToText (Gfun t []) = return t
+gTermToText _ = mzero
+
+gTermToTerm :: Gterm -> IO Term
+gTermToTerm (Gfun f ts) = Fun f <$> mapM gTermToTerm ts
+gTermToTerm (Gvar v) = return $ Var v
+gTermToTerm _ = mzero
+
+gTermToInf :: Gterm -> IO Inf
+gTermToInf (Gfun "cut" []) = return Cut
+gTermToInf (Gfun "id" [gt0, gt1]) = do
+  m <- gTermToText gt0
+  n <- gTermToText gt1
+  return $ Id m n
+
+gTermToInf (Gfun "iffto" [gt]) = IffTO <$> gTermToText gt
+gTermToInf (Gfun "ifftr" [gt]) = IffTR <$> gTermToText gt
+gTermToInf (Gfun "ifff" [gt]) = IffF <$> gTermToText gt
+
+gTermToInf (Gfun "impfa" [gt]) = ImpFA <$> gTermToText gt
+gTermToInf (Gfun "impfc" [gt]) = ImpFC <$> gTermToText gt
+gTermToInf (Gfun "impt" [gt]) = ImpT <$> gTermToText gt
+
+gTermToInf (Gfun "ort" [gt]) = OrT <$> gTermToText gt
+gTermToInf (Gfun "orf" [gt]) = OrF <$> gTermToText gt
+
+gTermToInf (Gfun "andt" [gt]) = AndT <$> gTermToText gt
+gTermToInf (Gfun "andf" [gt]) = AndF <$> gTermToText gt
+
+gTermToInf (Gfun "faf" [gt, Gnum k]) = (`FaF` k) <$> gTermToText gt
+gTermToInf (Gfun "ext" [gt, Gnum k]) = (`ExT` k) <$> gTermToText gt
+
+gTermToInf (Gfun "fat" [gt, Glist gts]) = do
+  nm <- gTermToText gt
+  xs <- mapM gTermToTerm gts
+  return $ FaT nm xs
+gTermToInf (Gfun "exf" [gt, Glist gts]) = do
+  nm <- gTermToText gt
+  xs <- mapM gTermToTerm gts
+  return $ ExF nm xs
+
+gTermToInf (Gfun "nott" [gt]) = NotT <$> gTermToText gt
+gTermToInf (Gfun "notf" [gt]) = NotF <$> gTermToText gt
+gTermToInf (Gfun "eqr" [gt]) = EqR <$> gTermToText gt
+gTermToInf (Gfun "eqs" gts) = do
+  [nm0, nm1] <- mapM gTermToText gts
+  return $ EqS nm0 nm1
+gTermToInf (Gfun "eqt" gts) = do
+  [nm0, nm1, nm2] <- mapM gTermToText gts
+  return $ EqT nm0 nm1 nm2
+gTermToInf (Gfun "func" [Glist gts, gt]) = do
+  nms <- mapM gTermToText gts
+  nm <- gTermToText gt
+  return $ FunC nms nm
+gTermToInf (Gfun "relc" [Glist gts, gt0, gt1]) = do
+  nms <- mapM gTermToText gts
+  m <- gTermToText gt0
+  n <- gTermToText gt1
+  return $ RelC nms m n
+gTermToInf (Gfun "aoc" gts) =  -- return $ AoC k
+  AoC <$> mapM gTermToTerm gts
+gTermToInf (Gfun "reld" []) = return RelD
+gTermToInf (Gfun "open" []) = return Open
+gTermToInf t = et $ "inf reader : " <> pack (show t)
+
+readEpAux :: Text -> Maybe (Int, Int)
+readEpAux t =
+  case T.splitOn "." t of
+    [t0, t1] -> do
+      k <- cast $ readInt t0
+      m <- cast $ readInt t1
+      return (k, m)
+    _ -> mzero
+
+unsq :: Text -> Maybe Text
+unsq ('\'' :> t) = do
+  (t', '\'') <- T.unsnoc t
+  return t'
+unsq _ = mzero
+
+readEp :: Text -> Maybe EP
+readEp t = do
+  (t' : ts') <- T.splitOn ":" <$> unsq t
+  -- (ts', t') <- cast $ Main.unsnoc ts
+  k <- cast $ readInt t'
+  l <- mapM readEpAux ts'
+  return (k, l)
+
+estpToElabs :: String -> IO [EF]
+estpToElabs estp = parseName estp >>= mapM afToEf
+
+
+afToStep :: AF -> IO Step
+afToStep (n, _, g, Just (Gfun "file" [_, Gfun m []], _)) = return (n, "file", [m], g)
+afToStep (n, _, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],
+  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) =
+    return (n, "predicate_definition_introduction", [], g)
+afToStep (n, _, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
+  Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) =
+    return (n, "avatar_definition", [], g)
+afToStep (n, _, g, Just (Gfun "introduced" [Gfun "choice_axiom" [], Glist []], _)) =
+  return (n, "choice_axiom", [], g)
+afToStep (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
+  txs <- cast (mapM gFunFunctor l)
+  return (n, "avatar_sat_refutation", txs, g)
+afToStep (n, _, g, Just (Gfun "inference" [Gfun r [], _, Glist l], _)) = do
+  txs <- cast (mapM gFunFunctor l)
+  return (n, r, txs, g)
+afToStep _ = error "AF-to-step failure"
+
+sortAfs :: [AF] -> [AF]
+sortAfs = sortBy compareAfs
+
+compareAfs :: AF -> AF -> Ordering
+compareAfs (m :> ms, _, _, _) (n :> ns, _, _, _) =
+  case compare m n of
+    EQ ->
+      case (readInt ms, readInt ns) of
+        (Just i, Just j) -> compare i j
+        _ -> et "Cannot compare step names"
+    other -> other
+compareAfs _ _ = LT
+
+gFunFunctor :: Gterm -> Maybe Text
+gFunFunctor (Gfun t []) = return t
+gFunFunctor _ = Nothing
+
+tstpToSteps :: String -> IO [Step]
+tstpToSteps tstp = parseName tstp >>= mapM afToStep . sortAfs
+-- parseNameToEFs :: String -> IO [EF]

@@ -2134,7 +2134,7 @@ proveRelD'' (Iff r (Or fs)) (Or fsnr)  = do
   return $ rDefLemma1 r fs fsnr
 proveRelD'' f g = eb $ "Anomaly! : " <> ppForm f <> " |- " <> ppForm g <> "\n"
 
-relDef :: Text -> Form -> IO Elab
+relDef :: Text -> Form -> IO Stelab
 relDef n g = do
   f <- cast $ mkRelD g
   p <- proveRelD' f g

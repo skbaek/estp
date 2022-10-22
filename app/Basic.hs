@@ -8,11 +8,11 @@
 module Basic where
 
 import Types
-import PP
 
 import Data.Maybe (fromMaybe)
 import Data.Text.Lazy as T (Text, uncons, unsnoc, unpack, null)
-import Data.Text.Lazy.Builder (Builder)
+import Data.Text.Lazy.Builder as B (Builder, fromLazyText, toLazyText)
+
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
   fromListWithKey, delete, findWithDefault, singleton )
@@ -551,3 +551,53 @@ bf = False
 -- 
 -- insertBag :: (Ord a) => a -> Bag a -> Bag a 
 -- insertBag x b = HM.insert x () b
+
+epIncr :: EP -> EP
+epIncr (k, l) = (k + 1, l)
+
+epFork :: Int -> EP -> EP
+epFork 0 ep = epIncr ep
+epFork m (k, l) = (0, (m - 1, k) : l)
+
+ft = B.fromLazyText
+tlt = B.toLazyText 
+
+isSkolemTerm :: [Text] -> Term -> Bool
+isSkolemTerm vs (Fun _ xs) =
+  case mapM breakVar xs of
+    Just ws -> isPerm vs ws -- sublist vs ws && sublist ws vs
+    _ -> False
+isSkolemTerm _ _ = False
+
+-- isAoC :: Int -> Form -> IO ()
+-- isAoC k (Fa vs (Imp (Ex ws f) g)) = do
+
+isAoC' :: [Term] -> Form -> IO ()
+isAoC' xs (Fa vs (Imp (Ex ws f) g)) = do
+  guard $ L.all (isSkolemTerm vs) xs
+  wxs <- zipM ws xs
+  guard $ substForm wxs f == g
+isAoC' xs (Imp (Ex ws f) g) = do
+  guard $ L.all isConstant xs
+  wxs <- zipM ws xs
+  guard $ substForm wxs f == g
+isAoC' _ _ = mzero
+
+ppSQ :: Builder -> Builder
+ppSQ t = "'" <> t <> "'"
+
+ppNat :: Int -> Builder
+ppNat 0 = "0"
+ppNat 2 = "2"
+ppNat 1 = "1"
+ppNat 3 = "3"
+ppNat 4 = "4"
+ppNat 5 = "5"
+ppNat 6 = "6"
+ppNat 7 = "7"
+ppNat 8 = "8"
+ppNat 9 = "9"
+ppNat k = ppNat (k `div` 10) <> ppNat (k `rem` 10)
+
+ppInt :: Int -> Builder
+ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k

@@ -2,6 +2,7 @@
 
 module PP where
 
+import Basic
 import Data.List as L
 import Data.Text.Lazy as T ( concat, intercalate, pack, Text, length, take )
 import qualified Data.Text.Lazy as TL (toStrict, intercalate)
@@ -37,8 +38,6 @@ ppLrat (Add k fs ms) = ppInt k  <> ". Add " <> ppInter " " (L.map ppForm fs) <> 
 -- ppVC (vws, wvs) = ppVCAux vws <> "-------------------------------------\n" <> ppVCAux wvs
 
 -- ft :: Data.Text.Internal.Lazy.Text -> Builder
-ft = B.fromLazyText
-tlt = B.toLazyText 
 
 ppInter :: Builder -> [Builder] -> Builder
 ppInter b [] = mempty
@@ -252,29 +251,11 @@ ppSign :: Bool -> Builder
 ppSign True = "true"
 ppSign False = "false"
 
-ppElab :: Elab -> Builder
+ppElab :: Stelab -> Builder
 ppElab (Plab f p t) = ppInter "\n" $ ["Plab", "f :" <> ppForm f, "prf :"] ++ ppPrf 20 p ++ ["Notes : " <> ft t]
 ppElab (RelD' f g _ t) = "rdef : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
 ppElab (AoC' xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
 
-ppSQ :: Builder -> Builder
-ppSQ t = "'" <> t <> "'"
-
-ppNat :: Int -> Builder
-ppNat 0 = "0"
-ppNat 2 = "2"
-ppNat 1 = "1"
-ppNat 3 = "3"
-ppNat 4 = "4"
-ppNat 5 = "5"
-ppNat 6 = "6"
-ppNat 7 = "7"
-ppNat 8 = "8"
-ppNat 9 = "9"
-ppNat k = ppNat (k `div` 10) <> ppNat (k `rem` 10)
-
-ppInt :: Int -> Builder
-ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k
 
 ppSignForm :: (Form, Bool) -> Builder
 ppSignForm (f, True) = ppForm f <> " |-"

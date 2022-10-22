@@ -2,21 +2,10 @@ cabal-version:      3.6
 name:               estp
 version:            0.1.0.0
 
--- A short (one-line) description of the package.
--- synopsis:
-
--- A longer description of the package.
--- description:
-
--- A URL where users can report bugs.
--- bug-reports:
 license:            NONE
 author:             skbaek
 maintainer:         seulkeebaek@gmail.com
 
--- A copyright notice.
--- copyright:
--- category:
 extra-source-files: CHANGELOG.md
 
 executable estp
@@ -27,7 +16,7 @@ executable estp
     -- -fprof-auto
     -- -prof
     -- "-with-rtsopts=-N -p -s -h -i0.1"
-  other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove
+  other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove, Elab, Expand, Check
   -- other-extensions:
   build-depends:    
     base ^>=4.14.3.0,

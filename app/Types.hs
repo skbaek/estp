@@ -59,7 +59,7 @@ data Prf =
   | Asm
   deriving (Show)
 
-data Elab =
+data Stelab =
     Plab Form Prf Text
   | RelD' Form Form Prf Text
   | AoC' [Term] Form Form Prf Text
@@ -102,18 +102,9 @@ data Dir =
   Obv | Rev
   deriving (Show, Eq, Ord)
 
--- data Side = 
---   Lft | Rgt
---   deriving (Show, Eq, Ord)
--- 
--- data Pol = 
---   bt | Neg
---   deriving (Show, Eq, Ord)
-
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
 
--- type Bag a = Map a ()
 type NSeq = Map Text Form
 type Seq = Set Form
 type Hyps = (NSeq, Seq)
@@ -182,3 +173,7 @@ data Inf =
   deriving (Show)
 
 type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)
+
+type Invranch = HM.Map (Form, Bool) Text
+
+type Nodes = HM.Map Text (Form, Bool, Int)
