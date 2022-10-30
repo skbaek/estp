@@ -183,7 +183,7 @@ delVacVars (And fs) = And $ L.map delVacVars fs
 delVacVars f@(Rel _ _) = f
 delVacVars f@(Eq _ _) = f
 
-ppr :: Set Text -> Bool -> Form -> Form
+ppr :: Set Funct -> Bool -> Form -> Form
 ppr rs b (Not f) = Not $ ppr rs (not b) f 
 ppr rs b (Or fs) = Or $ L.map (ppr rs b) fs
 ppr rs b (And fs) = And $ L.map (ppr rs b) fs

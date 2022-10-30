@@ -117,14 +117,14 @@ negated :: Set Form -> Form -> Bool
 negated fs (Not f) = f `elem` fs
 negated fs f = Not f `elem` fs
 
-useLastCla :: Seq -> Form -> IO Prf -- todo : remove checks
+useLastCla :: Set Form -> Form -> IO Prf -- todo : remove checks
 useLastCla fxs (Or fs)  
   | L.all (negated fxs) fs = return $ OrT' $ L.map (\ f_ -> (f_, useLftLit f_)) fs
 useLastCla fxs f  
   | negated fxs f = return $ useLftLit f
 useLastCla _ _ = et "use last claus"
 
-lratPrfCore :: Map Int Form -> Seq -> [Int] -> IO Prf
+lratPrfCore :: Map Int Form -> Set Form -> [Int] -> IO Prf
 lratPrfCore _ _ [] = et "lrat : hints exhausted"
 lratPrfCore fs fxs [h] = do 
   f <- cast $ HM.lookup h fs 
@@ -143,7 +143,7 @@ movLitLft :: Form -> Prf -> Prf
 movLitLft (Not f) p = NotF' f p
 movLitLft f p = Cut' (Not f) (NotF' f $ Id' f) p
 
-useCla :: Seq -> Form -> IO Prf
+useCla :: Set Form -> Form -> IO Prf
 useCla fxs (Or fs) = do
   guardMsg "not all negated" $ L.all (negated fxs) fs
   return $ OrT' $ L.map (\ f_ -> (f_, useLftLit f_)) fs
@@ -151,7 +151,7 @@ useCla fxs f = do
   guardMsg "not all negated" $ negated fxs f
   return $ useLftLit f
 
-findNewLit :: Seq -> Form -> IO Form
+findNewLit :: Set Form -> Form -> IO Form
 findNewLit fxs (Or fs) = cast $ breakSingleton $ nub $ L.filter (not . negated fxs) fs
 findNewLit fxs f 
   | isLit f && not (negated fxs f) = return f 

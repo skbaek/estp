@@ -13,6 +13,7 @@ import Text.Printf
 import Data.Map as HM
 
 import Types
+import Data.Functor.Contravariant (Op(Op))
 
 
 ppLrat :: Lrat -> Builder
@@ -50,14 +51,19 @@ ppList f xs = "[" <> ppInter ", " (L.map f xs) <> "]"
 ppSet :: (a -> Builder) -> Set a -> Builder
 ppSet f s = ppList f (S.toList s)
 
+ppSetNl :: (a -> Builder) -> Set a -> Builder
+ppSetNl f s = ppListNl f (S.toList s)
+
 ppListNl :: (a -> Builder) -> [a] -> Builder
 ppListNl f xs = mconcat (L.map (\ x -> f x <> "\n") xs)
+
+ppHM :: (a -> Builder) -> (b -> Builder) -> HM.Map a b -> Builder
+ppHM f g m = ppListNl (\ (a_, b_) -> f a_ <> " |-> " <> g b_) $ HM.toList m
 
 ppTerm :: Term -> Builder
 -- ppTerm (Par k) = "#" <> ppInt k
 ppTerm (Var x) = ft x
-ppTerm (Fun "" []) = "·"
-ppTerm (Fun f xs) = ft f <> ppArgs (L.map ppTerm xs)
+ppTerm (Fun f xs) = ppFunct f <> ppArgs (L.map ppTerm xs)
 
 ppJct :: Bool -> String
 ppJct True  = " /\\ "
@@ -74,9 +80,13 @@ ppQtf :: Bool -> Builder
 ppQtf True  = "!"
 ppQtf False = "?"
 
+ppFunct :: Funct -> Builder
+ppFunct (Reg tx) = ft tx
+ppFunct (Idx k) = "'#" <> ppInt k <> "'"
+
 ppForm :: Form -> Builder
 ppForm (Eq t s) = "(" <> ppTerm t <> " = " <> ppTerm s <> ")"
-ppForm (Rel r xs) = ft r <> ppArgs (L.map ppTerm xs)
+ppForm (Rel r xs) = ppFunct r <> ppArgs (L.map ppTerm xs)
 ppForm (Not f) = "~ " <> ppForm f
 ppForm (And []) = "$true"
 ppForm (Or  []) = "$false"
@@ -109,8 +119,8 @@ ppForms fs = ppInter "\n" $ L.map ppForm fs
 ppObj :: [Form] -> Form -> Builder
 ppObj fs g = ppForms fs <> "\n---------------------------------------------------------------------\n" <> ppForm g <> "\n"
 
-ppSeq :: Seq -> Builder
-ppSeq s = ppList ppForm $ S.toList s
+-- ppSeq :: Seq -> Builder
+-- ppSeq s = ppList ppForm $ S.toList s
 
 ppGterm :: Gterm -> Builder
 ppGterm (Gfun f ts) = ft f <> ppArgs (L.map ppGterm ts)
@@ -131,42 +141,42 @@ ppEq (x, y) = ppForm (Eq x y)
 pad :: Builder -> Builder
 pad t = "  " <> t
 
-ppProof :: Int -> Prf -> Builder
-ppProof k p = ppInter "\n" $ ppPrf k p
+ppPrf :: Int -> Prf -> Builder
+ppPrf k p = ppInter "\n" $ ppPrfCore k p
 
-ppPrf :: Int -> Prf -> [Builder]
-ppPrf 0 _ = ["..."]
-ppPrf k (Id' f) = ["Id' : " <> ppForm f]
-ppPrf k (NotT' f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (NotF' f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (Cut' f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
-ppPrf k (IffF' f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
-ppPrf k (IffTO' f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (IffTR' f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ImpT' f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p0 ++ ppPrf (k - 1) p1)
-ppPrf k (ImpFC' f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ImpFA' f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (Mrk s p) = ("Mark : " <> ft s) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FunC' f xs ys) = ["Fun-C : ", "  f : " <> ft f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrf k (RelC' r xs ys) = ["Rel-C : ", "  r : " <> ft r, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrf k (OrT' fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
-ppPrf k (OrF' fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (AndT' fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (AndF' fps) = "And-R" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrf (k - 1) p_) fps)
-ppPrf k (EqS' x y) = ["Eq-S?"]
-ppPrf k (EqR' x) = ["Eq-R : " <> ppTerm x]
-ppPrf k (EqT' x y z) = ["Eq-T?"]
-ppPrf k (FaT' vxs f p) =
+ppPrfCore :: Int -> Prf -> [Builder]
+ppPrfCore 0 _ = ["..."]
+ppPrfCore k (Id' f) = ["Id' : " <> ppForm f]
+ppPrfCore k (NotT' f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (NotF' f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (Cut' f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrfCore (k - 1) p0 ++ ppPrfCore (k - 1) p1)
+ppPrfCore k (IffF' f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrfCore (k - 1) p0 ++ ppPrfCore (k - 1) p1)
+ppPrfCore k (IffTO' f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (IffTR' f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (ImpT' f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrfCore (k - 1) p0 ++ ppPrfCore (k - 1) p1)
+ppPrfCore k (ImpFC' f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (ImpFA' f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (Mrk s p) = ("Mark : " <> ft s) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (FunC' f xs ys) = ["Fun-C : ", "  f : " <> ppFunct f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
+ppPrfCore k (RelC' r xs ys) = ["Rel-C : ", "  r : " <> ppFunct r, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
+ppPrfCore k (OrT' fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrfCore (k - 1) p_) fps)
+ppPrfCore k (OrF' fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (AndT' fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (AndF' fps) = "And-R" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrfCore (k - 1) p_) fps)
+ppPrfCore k (EqS' x y) = ["Eq-S?"]
+ppPrfCore k (EqR' x) = ["Eq-R : " <> ppTerm x]
+ppPrfCore k (EqT' x y z) = ["Eq-T?"]
+ppPrfCore k (FaT' vxs f p) =
   let (vs, xs) = unzip vxs in
-  ("Fa-L : " <> ppForm (Fa vs f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ExF' vxs f p) =
+  ("Fa-L : " <> ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (ExF' vxs f p) =
   let (vs, xs) = unzip vxs in
-  ("Ex-R : " <> ppForm (Ex vs f)) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (FaF' vs m f p) = 
-  "Fa-R : " <> ppForm (Fa vs f) : L.map pad (ppPrf (k - 1) p)
-ppPrf k (ExT' vs m f p) = 
-  "Ex-L : " <> ppForm (Ex vs f) : L.map pad (ppPrf (k - 1) p)
-ppPrf k Asm = ["Asm!"]
+  ("Ex-R : " <> ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (FaF' vs m f p) = 
+  "Fa-R : " <> ppForm (Fa vs f) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k (ExT' vs m f p) = 
+  "Ex-L : " <> ppForm (Ex vs f) : L.map pad (ppPrfCore (k - 1) p)
+ppPrfCore k Open' = ["Open!"]
 
 -- ppTake :: Int -> (a -> Builder) -> a -> Builder
 -- ppTake k f x =
@@ -184,11 +194,11 @@ ppPrf k Asm = ["Asm!"]
 
 writeTerm :: Term -> Builder
 writeTerm (Var x) = ft x
-writeTerm (Fun f xs) = ft f <> ppArgs (L.map writeTerm xs)
+writeTerm (Fun f xs) = ppFunct f <> ppArgs (L.map writeTerm xs)
 
 writeForm :: Form -> Builder
 writeForm (Eq t s) = "(" <> writeTerm t <> " = " <> writeTerm s <> ")"
-writeForm (Rel r xs) = ft r <> ppArgs (L.map writeTerm xs)
+writeForm (Rel r xs) = ppFunct r <> ppArgs (L.map writeTerm xs)
 writeForm (Not f) = "~ " <> writeForm f
 writeForm (And []) = "$true"
 writeForm (Or  []) = "$false"
@@ -199,48 +209,48 @@ writeForm (Iff f g) = "(" <> writeForm f <> " <=> " <> writeForm g <> ")"
 writeForm (Fa vs f) = "! " <> ppList ft vs <> " : " <> writeForm f
 writeForm (Ex vs f) = "? " <> ppList ft vs <> " : " <> writeForm f
 
-writeEF :: EF -> Builder
-writeEF (ep, sgn, f, k, i, Nothing) = ppApp "fof" [ppEP ep, ppSign sgn, writeForm f, ppApp "inference" [ppInt k, ppInf i]] <> "."
-writeEF (ep, sgn, f, k, i, Just cmt) = ppApp "fof" [ppEP ep, ppSign sgn, writeForm f, ppApp "inference" [ppInt k, ppInf i], ppList ft [cmt]] <> "."
+ppElab :: Elab -> Builder
+ppElab ((nm, sgn, f), i, Nothing) =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i]] <> "."
+ppElab ((nm, sgn, f), i, Just cmt) = ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i], ppList ft [cmt]] <> "."
 
 fmtAF :: AF -> Builder
 fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
 fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
 fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]
 
-ppEP :: EP -> Builder
-ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
+-- ppEP :: EP -> Builder
+-- ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
 
 -- ppSide :: Side -> Builder
 -- ppSide Lft = "lft"
 -- ppSide Rgt = "rgt"
 
 ppInf :: Inf -> Builder
-ppInf Cut = "cut"
+ppInf (Cut nf nt) = ppApp "cut" [ft nf, ft nt]
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
 ppInf (FunC ns m) = ppApp "func" [ppList ft ns, ft m]
 ppInf (RelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]
 ppInf (EqR nm) = ppApp "eqr" [ft nm]
 ppInf (EqS nm0 nm1) = ppApp "eqs" [ft nm0, ft nm1]
 ppInf (EqT nm0 nm1 nm2) = ppApp "eqt" [ft nm0, ft nm1, ft nm2]
-ppInf (NotT nm) = ppApp "nott" [ft nm]
-ppInf (NotF nm) = ppApp "notf" [ft nm]
-ppInf (ImpFA nm) = ppApp "impfa" [ft nm]
-ppInf (ImpFC nm) = ppApp "impfc" [ft nm]
-ppInf (IffTR nm) = ppApp "ifftr" [ft nm]
-ppInf (IffTO nm) = ppApp "iffto" [ft nm]
-ppInf (IffF n) = ppApp "ifff" [ft n]
-ppInf (ImpT n) = ppApp "impt" [ft n]
-ppInf (OrF n) = ppApp "orf" [ft n]
-ppInf (AndT n) = ppApp "andt" [ft n]
-ppInf (OrT n) = ppApp "ort" [ft n]
-ppInf (AndF n) = ppApp "andf" [ft n]
-ppInf (FaT nm xs) = ppApp "fat" [ft nm, ppList writeTerm xs]
-ppInf (FaF nm k) = ppApp "faf" [ft nm, ppInt k]
-ppInf (ExT nm k) = ppApp "ext" [ft nm, ppInt k]
-ppInf (ExF nm xs) = ppApp "exf" [ft nm, ppList writeTerm xs]
-ppInf RelD = "reld" 
-ppInf (AoC xs) = ppApp "aoc" $ L.map ppTerm xs
+ppInf (NotT nh nc) = ppApp "nott" [ft nh, ft nc]
+ppInf (NotF nh nc) = ppApp "notf" [ft nh, ft nc]
+ppInf (ImpFA nh nc) = ppApp "impfa" [ft nh, ft nc]
+ppInf (ImpFC nh nc) = ppApp "impfc" [ft nh, ft nc]
+ppInf (IffTR nh nc) = ppApp "ifftr" [ft nh, ft nc]
+ppInf (IffTO nh nc) = ppApp "iffto" [ft nh, ft nc]
+ppInf (IffF nh n0 n1) = ppApp "ifff" [ft nh, ft n0, ft n1]
+ppInf (ImpT nh n0 n1) = ppApp "impt" [ft nh, ft n0, ft n1]
+ppInf (OrF nh k nc) =  ppApp "orf"  [ft nh, ppInt k, ft nc]
+ppInf (AndT nh k nc) = ppApp "andt" [ft nh, ppInt k, ft nc]
+ppInf (OrT nh ns) = ppApp "ort" [ft nh, ppList ft ns]
+ppInf (AndF nh ns) = ppApp "andf" [ft nh, ppList ft ns]
+ppInf (FaT nh xs nc) = ppApp "fat" [ft nh, ppList writeTerm xs, ft nc]
+ppInf (FaF nh k nc) = ppApp "faf" [ft nh, ppInt k, ft nc]
+ppInf (ExT nh k nc) = ppApp "ext" [ft nh, ppInt k, ft nc]
+ppInf (ExF nh xs nc) = ppApp "exf" [ft nh, ppList writeTerm xs, ft nc]
+ppInf (RelD nc) = ppApp "reld" [ft nc]
+ppInf (AoC xs nc) = ppApp "aoc" [ppList ppTerm xs, ft nc]
 ppInf Open = "open"
 
 ppDir :: Dir -> Builder
@@ -251,15 +261,14 @@ ppSign :: Bool -> Builder
 ppSign True = "true"
 ppSign False = "false"
 
-ppElab :: Stelab -> Builder
-ppElab (Plab f p t) = ppInter "\n" $ ["Plab", "f :" <> ppForm f, "prf :"] ++ ppPrf 20 p ++ ["Notes : " <> ft t]
-ppElab (RelD' f g _ t) = "rdef : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
-ppElab (AoC' xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
+ppStelab :: Stelab -> Builder
+ppStelab (InfStep f p t) = ppInter "\n" $ ["InfStep", "f :" <> ppForm f, "prf :"] ++ ppPrfCore 20 p ++ ["Notes : " <> ft t]
+ppStelab (DefStep f g _ t) = "rdef : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
+ppStelab (SkmStep xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
 
-
-ppSignForm :: (Form, Bool) -> Builder
-ppSignForm (f, True) = ppForm f <> " |-"
-ppSignForm (f, False) = "|- " <> ppForm f
+ppSignForm :: (Bool, Form) -> Builder
+ppSignForm (True, f) = "[T] " <> ppForm f
+ppSignForm (False, f) = "[F] " <> ppForm f
 
 ppStep :: Step -> Builder
 ppStep (n, r, ns, f) = 

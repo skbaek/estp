@@ -402,7 +402,7 @@ iffRFull :: Form -> Form -> Prf -> Prf -> Prf
 iffRFull f g po pr = IffF' f g (impFAC f g po) (impFAC g f pr)
 
 -- relCong r xs ys : x0 = y0 ... xn = yn |- r(x0 ... xn) <=> r(y0 ... yn)
-relCong :: Text -> [Term] -> [Term] -> IO Prf
+relCong :: Funct -> [Term] -> [Term] -> IO Prf
 relCong r xs ys = do 
   xys <- zipM xs ys 
   return $ congAux xys $ iffRFull (Rel r xs) (Rel r ys) (RelC' r xs ys) (RelC' r ys xs)

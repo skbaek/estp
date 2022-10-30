@@ -629,6 +629,7 @@ fContained hs (_, y, _, _) =
   let yfs = tfuns y in
   S.isSubsetOf yfs hfs
 
+
 genSST :: Dir -> [Form] -> [Form] -> (Form, [Form]) -> [(Term, Term, Dir, SST)]
 genSST dr hs gs (Eq x y, fs) =
   let fs' = L.filter (\ l_ -> not (litOccursIn l_ hs)) fs in
@@ -1191,10 +1192,10 @@ orig f g
 
 failAsm :: Int -> IO Prf -> IO Prf
 failAsm k pf = do
-  rst <- timeout k (pf <|> return Asm)
+  rst <- timeout k (pf <|> return Open')
   case rst of 
     Just p -> return p 
-    _ -> return Asm 
+    _ -> return Open' 
 
 origSearchTimed :: Int -> Bool -> VC -> Form -> Form -> IO VC
 origSearchTimed tm md vc f g = do
@@ -1368,11 +1369,11 @@ varSigs sg v =
     Just _ -> et "var-new-sigs"
     _ -> HM.insert v HM.empty sg
 
-extendPrePathsRel :: [PrePath] -> Text -> Int -> [Term] -> [([PrePath], Term)]
+extendPrePathsRel :: [PrePath] -> Funct -> Int -> [Term] -> [([PrePath], Term)]
 extendPrePathsRel pts r k [] = []
 extendPrePathsRel pts r k (x : xs) = (PreRel r k : pts, x) : extendPrePathsRel pts r (k + 1) xs
 
-extendPrePathsFun :: [PrePath] -> Text -> Int -> [Term] -> [([PrePath], Term)]
+extendPrePathsFun :: [PrePath] -> Funct -> Int -> [Term] -> [([PrePath], Term)]
 extendPrePathsFun pts f k [] = []
 extendPrePathsFun pts f k (x : xs) = (PreFun f k : pts, x) : extendPrePathsFun pts f (k + 1) xs
 
@@ -1692,11 +1693,11 @@ duf es (Eq w x)  (Eq y z)  =
 duf es (Rel r xs) (Rel s ys) = (Rel r xs,) <$> mapM2 (du es) xs ys
 duf _ _ _ = mzero
 
-headFix :: Set Text -> Term -> Bool
+headFix :: Set Funct -> Term -> Bool
 headFix dfs (Fun f _) = S.member f dfs
 headFix dfs _ = False
 
-obvEq :: Set Text -> Form -> (Dir, Form)
+obvEq :: Set Funct -> Form -> (Dir, Form)
 obvEq dfs f@(Fa vs (Eq a b))
   | headFix dfs a && disjoint dfs (tfuns b) = (Obv, f)
   | headFix dfs b && disjoint dfs (tfuns a) = (Rev, f)
@@ -1989,7 +1990,7 @@ revDir :: Dir -> Dir
 revDir Obv = Rev
 revDir Rev = Obv
 
-diffPreds :: Form -> Form -> Set Text
+diffPreds :: Form -> Form -> Set Funct
 diffPreds f g = S.difference (formPreds f) (formPreds g)
   
 iffsTrans :: [(Form, Prf)] -> Form -> Prf
@@ -2138,7 +2139,7 @@ relDef :: Text -> Form -> IO Stelab
 relDef n g = do
   f <- cast $ mkRelD g
   p <- proveRelD' f g
-  return $ RelD' f g p n
+  return $ DefStep f g p n
 
 pqm :: Int -> Form -> Form -> IO Prf
 pqm k (Not f) (Not g) = do

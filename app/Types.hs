@@ -7,11 +7,14 @@ import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Data.Functor ((<&>))
 
-data Term = Var Text | Fun Text [Term]
+data Funct = Reg Text | Idx Int
+  deriving (Show, Eq, Ord)
+
+data Term = Var Text | Fun Funct [Term]
   deriving (Show, Eq, Ord)
 
 data Form =
-    Rel Text [Term]
+    Rel Funct [Term]
   | Eq Term Term
   | Not Form
   | And [Form]
@@ -36,8 +39,8 @@ data Prf =
   | EqR' Term
   | EqS' Term Term
   | EqT' Term Term Term
-  | FunC' Text [Term] [Term]
-  | RelC' Text [Term] [Term]
+  | FunC' Funct [Term] [Term]
+  | RelC' Funct [Term] [Term]
   | NotT' Form Prf
   | NotF' Form Prf
   | OrT' [(Form, Prf)]
@@ -54,15 +57,17 @@ data Prf =
   | FaF' [Text] Int Form Prf
   | ExT' [Text] Int Form Prf
   | ExF' [(Text, Term)] Form Prf
-  | Cut' Form Prf Prf
+  | Cut' Form Prf Prf 
+  -- | RelD' Form Prf 
+  -- | AoC' [Term] Form Prf 
   | Mrk Text Prf 
-  | Asm
+  | Open'
   deriving (Show)
 
 data Stelab =
-    Plab Form Prf Text
-  | RelD' Form Form Prf Text
-  | AoC' [Term] Form Form Prf Text
+    InfStep Form Prf Text
+  | DefStep Form Form Prf Text
+  | SkmStep [Term] Form Form Prf Text
   deriving (Show)
 
 -- | RelD'' Form Form Prf Text
@@ -105,17 +110,20 @@ data Dir =
 data Lrat = Del Int [Int] | Add Int [Form] [Int]
   deriving (Show)
 
-type NSeq = Map Text Form
-type Seq = Set Form
-type Hyps = (NSeq, Seq)
+type NTF = Map Text Form
+type SFTN = Map (Bool, Form) Text
+
+-- type NSeq = Map Text Form
+-- type Seq = Set Form
+-- type Hyps = (NSeq, Seq)
 
 type VC = (HM.Map Text (Set Text), HM.Map Text (Set Text)) 
 type VR = (HM.Map Text Text, HM.Map Text Text) 
 type VM = HM.Map Text Term
 
 data Path =
-    NewRel Text Int
-  | NewFun Text Int
+    NewRel Funct Int
+  | NewFun Funct Int
   | NewEq
   | NewFa Bool
   | NewEx Bool
@@ -129,8 +137,8 @@ data Path =
   deriving (Ord, Eq)
 
 data PrePath =
-    PreRel Text Int
-  | PreFun Text Int
+    PreRel Funct Int
+  | PreFun Funct Int
   | PreEq
   | PreFa [Text]
   | PreEx [Text]
@@ -155,25 +163,89 @@ type MTT = HM.Map Text Text
 type MTI = HM.Map Text Int
 type USOL = [Term]
 
-type EP = (Int, [(Int, Int)])
-type EF = (EP, Bool, Form, Int, Inf, Maybe Text)
+-- type EP = (Int, [(Int, Int)])
+
+type Elab = (NodeInfo, Inf, Maybe Text)
 
 data Inf =
     Id Text Text 
-  | Cut
   | FunC [Text] Text | RelC [Text] Text Text
   | EqR Text | EqS Text Text |EqT Text Text Text
-  | NotT Text | NotF Text 
-  | OrT Text | OrF Text | AndT Text | AndF Text
-  | ImpT Text | ImpFA Text | ImpFC Text 
-  | IffTO Text | IffTR Text | IffF Text
-  | FaT Text [Term] | FaF Text Int 
-  | ExT Text Int | ExF Text [Term]
-  | RelD | AoC [Term] | Open
+  | Cut Text Text
+  | NotT Text Text | NotF Text Text
+  | OrT Text [Text] | OrF Text Int Text 
+  | AndT Text Int Text | AndF Text [Text]
+  | ImpT Text Text Text | ImpFA Text Text | ImpFC Text Text
+  | IffTO Text Text | IffTR Text Text | IffF Text Text Text
+  | FaT Text [Term] Text | FaF Text Int Text
+  | ExT Text Int Text | ExF Text [Term] Text
+  | RelD Text | AoC [Term] Text | Open
   deriving (Show)
 
+rootNode :: Proof -> NodeInfo 
+rootNode (Id_ ni _ _) = ni
+rootNode (Cut_ ni _ _) = ni
+rootNode (FunC_ ni _ _) = ni
+rootNode (RelC_ ni _ _ _) = ni
+rootNode (EqR_ ni _) = ni
+rootNode (EqS_ ni _ _) = ni
+rootNode (EqT_ ni _ _ _) = ni
+rootNode (NotT_ ni _ _) = ni
+rootNode (NotF_ ni _ _) = ni
+rootNode (OrT_ ni _ _) = ni
+rootNode (OrF_ ni _ _ _) = ni
+rootNode (AndT_ ni _ _ _) = ni
+rootNode (AndF_ ni _ _) = ni
+rootNode (ImpT_ ni _ _ _) = ni
+rootNode (ImpFA_ ni _ _) = ni
+rootNode (ImpFC_ ni _ _) = ni
+rootNode (IffTO_ ni _ _) = ni
+rootNode (IffTR_ ni _ _) = ni
+rootNode (IffF_ ni _ _ _) = ni
+rootNode (FaT_ ni _ _ _) = ni
+rootNode (FaF_ ni _ _ _) = ni
+rootNode (ExT_ ni _ _ _) = ni
+rootNode (ExF_ ni _ _ _) = ni
+rootNode (RelD_ ni _) = ni
+rootNode (AoC_ ni _ _) = ni
+rootNode (Open_ ni) = ni
+
+type NodeInfo = (Text, Bool, Form)
+
+data Proof =
+    Id_ NodeInfo Text Text 
+  | Cut_ NodeInfo Proof Proof
+  | FunC_ NodeInfo [Text] Text 
+  | RelC_ NodeInfo [Text] Text Text
+  | EqR_ NodeInfo Text 
+  | EqS_ NodeInfo Text Text 
+  | EqT_ NodeInfo Text Text Text
+  | NotT_ NodeInfo Text Proof 
+  | NotF_ NodeInfo Text Proof 
+  | OrT_ NodeInfo Text [Proof] 
+  | OrF_ NodeInfo Text Int Proof
+  | AndT_ NodeInfo Text Int Proof
+  | AndF_ NodeInfo Text [Proof]
+  | ImpT_ NodeInfo Text Proof Proof
+  | ImpFA_ NodeInfo Text Proof
+  | ImpFC_ NodeInfo Text Proof
+  | IffTO_ NodeInfo Text Proof
+  | IffTR_ NodeInfo Text Proof
+  | IffF_ NodeInfo Text Proof Proof
+  | FaT_ NodeInfo Text [Term] Proof
+  | FaF_ NodeInfo Text Int Proof
+  | ExT_ NodeInfo Text Int Proof
+  | ExF_ NodeInfo Text [Term]Proof
+  | RelD_ NodeInfo Proof
+  | AoC_ NodeInfo [Term] Proof 
+  | Open_ NodeInfo
+  deriving (Show)
 type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)
 
 type Invranch = HM.Map (Form, Bool) Text
 
+type Branch = HM.Map Text (Bool, Form)
+
 type Nodes = HM.Map Text (Form, Bool, Int)
+
+type SignForm = (Bool, Form)

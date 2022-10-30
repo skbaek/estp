@@ -55,7 +55,7 @@ substForm vxs (Ex vs f) =
   Ex vs $ substForm vxs' f
 
 par :: Int -> Term
-par k = Fun (tlt $ ppSQ $ "#" <> ppInt k) []
+par k = Fun (Idx k) [] -- Fun (tlt $ ppSQ $ "#" <> ppInt k) []
 
 varPars :: Int -> [Text] -> (Int, [(Text, Term)])
 varPars k [] = (k, [])
@@ -191,7 +191,7 @@ breakSingleton [x] = Just x
 breakSingleton _ = Nothing
 
 zt :: Term
-zt = Fun "c" []
+zt = Fun (Reg "c") []
 
 isPos :: Form -> Bool
 isPos = not . isNeg
@@ -319,14 +319,14 @@ isLit f = isAtom f
 ru :: (Monad m) => m ()
 ru = return ()
 
-tfuns :: Term -> Set Text
+tfuns :: Term -> Set Funct
 tfuns (Fun f xs) = S.insert f $ S.unions $ L.map tfuns xs
 tfuns _ = S.empty
 
-fsfuns :: [Form] -> Set Text
+fsfuns :: [Form] -> Set Funct
 fsfuns = S.unions . L.map ffuns
 
-ffuns :: Form -> Set Text
+ffuns :: Form -> Set Funct
 ffuns (Rel _ xs) = S.unions $ L.map tfuns xs
 ffuns (Or fs) = S.unions $ L.map ffuns fs
 ffuns (And fs) = S.unions $ L.map ffuns fs
@@ -338,8 +338,8 @@ ffuns (Fa _ f) = ffuns f
 ffuns (Ex _ f) = ffuns f
 
 cuts :: [(Form, Prf)] -> Prf -> Prf
-cuts [] = id
-cuts ((f, p) : fps) = Cut' f p . cuts fps
+cuts [] prf = prf
+cuts ((f, p0) : fps) p1 = Cut' f p0 (cuts fps p1) 
 
 guardMsg :: (Alternative m, Monad m) => Text -> Bool -> m ()
 guardMsg _ True  = return ()
@@ -488,7 +488,7 @@ desnoc [] = nt
 desnoc [x] = return ([], x)
 desnoc (x : xs) = DBF.first (x :) <$> desnoc xs
 
-formPreds :: Form -> Set Text
+formPreds :: Form -> Set Funct
 formPreds (Eq _ _) = S.empty
 formPreds (Rel r _) = S.singleton r
 formPreds (Not f) = formPreds f
@@ -536,8 +536,8 @@ formSJ (Fa _ f) = formSJ f
 formSJ (Ex _ f) = formSJ f
 formSJ _ = False
 
-elabSingleJunct :: EF -> Bool
-elabSingleJunct (_, _, f, _, _, _) = formSJ f
+elabSingleJunct :: Elab -> Bool
+elabSingleJunct ((_, _, f), _, _) = formSJ f
 
 bt :: Bool
 bt = True
@@ -552,12 +552,12 @@ bf = False
 -- insertBag :: (Ord a) => a -> Bag a -> Bag a 
 -- insertBag x b = HM.insert x () b
 
-epIncr :: EP -> EP
-epIncr (k, l) = (k + 1, l)
-
-epFork :: Int -> EP -> EP
-epFork 0 ep = epIncr ep
-epFork m (k, l) = (0, (m - 1, k) : l)
+--epIncr :: EP -> EP
+--epIncr (k, l) = (k + 1, l)
+--
+--epFork :: Int -> EP -> EP
+--epFork 0 ep = epIncr ep
+--epFork m (k, l) = (0, (m - 1, k) : l)
 
 ft = B.fromLazyText
 tlt = B.toLazyText 
@@ -601,3 +601,45 @@ ppNat k = ppNat (k `div` 10) <> ppNat (k `rem` 10)
 
 ppInt :: Int -> Builder
 ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k
+
+skip :: IO ()
+skip = return ()
+
+
+proofRootNode :: Proof -> NodeInfo
+proofRootNode (Id_ ni nt nf) = ni
+proofRootNode (Cut_ ni p q) = ni
+proofRootNode (FunC_ ni xs nm) = ni
+proofRootNode (RelC_ ni xs nt nf) = ni
+proofRootNode (EqR_ ni nm) = ni
+proofRootNode (EqS_ ni nt nf) = ni
+proofRootNode (EqT_ ni nxy nyz nxz) = ni
+proofRootNode (NotT_ ni nm p) = ni
+proofRootNode (NotF_ ni nm p) = ni
+proofRootNode (OrT_ ni nm ps) = ni
+proofRootNode (OrF_ ni nm k p) = ni
+proofRootNode (AndT_ ni nm k p) = ni
+proofRootNode (AndF_ ni nm ps) = ni
+proofRootNode (ImpT_ ni nm p q) = ni
+proofRootNode (ImpFA_ ni nm p) = ni
+proofRootNode (ImpFC_ ni nm p) = ni
+proofRootNode (IffTO_ ni nm p) = ni
+proofRootNode (IffTR_ ni nm p) = ni
+proofRootNode (IffF_ ni nm p q) = ni
+proofRootNode (FaT_ ni nm xs p) = ni
+proofRootNode (FaF_ ni nm k p) = ni
+proofRootNode (ExT_ ni nm k p) = ni
+proofRootNode (ExF_ ni nm xs p) = ni
+proofRootNode (RelD_ ni p) = ni
+proofRootNode (AoC_ ni xs p) = ni
+proofRootNode (Open_ ni) = ni
+
+proofRN :: Proof -> Text
+proofRN p = 
+  case proofRootNode p of 
+    (ni, _, _) -> ni 
+
+proofRSF :: Proof -> (Bool, Form)
+proofRSF p = 
+  case proofRootNode p of 
+    (_, b, f) -> (b, f)

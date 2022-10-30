@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 
 module Expand where
 
@@ -10,7 +9,8 @@ import Data.Text.Lazy as T (Text)
 import PP 
 import Data.Map as HM (insert, lookup, foldrWithKey, empty)
 
-addExp :: Invranch -> Form -> Bool -> EP -> Int -> Prf -> IO [EF]
+{-
+addExp :: Invranch -> Form -> Bool -> EP -> Int -> Prf -> IO [Elab]
 addExp br f pl ep k p = do
   let br' = HM.insert (f, pl) (tlt $ ppEP ep) br
   -- pt "\nWorking on proof :\n"
@@ -20,7 +20,7 @@ addExp br f pl ep k p = do
   -- pt "\n\n"
   expp br' f pl ep k p
 
-expp :: Invranch -> Form -> Bool -> EP -> Int -> Prf -> IO [EF]
+expp :: Invranch -> Form -> Bool -> EP -> Int -> Prf -> IO [Elab]
 expp br f sd ep k (Cut'  g p0 p1) = do
   let ep0 = epFork 0 ep
   let ep1 = epFork 1 ep
@@ -150,11 +150,11 @@ expp br f sd ep k (RelC' r xs ys) = do
   epg <- cast $ HM.lookup (Rel r ys, bf) br
   return [(ep, sd, f, k, RelC eps epf epg, nt)]
 
-expp br f sd ep k Asm = return [(ep, sd, f, k, Open, nt)]
+expp br f sd ep k Open' = return [(ep, sd, f, k, Open, nt)]
 
 expp _ f b ep k p = eb $ ppInter "\n" $ "expansion not implemented" : ppPrf 10 p
 
-expOr :: Invranch -> Int -> Text ->  Form -> Bool -> EP -> [Form] -> Prf -> IO [EF]
+expOr :: Invranch -> Int -> Text ->  Form -> Bool -> EP -> [Form] -> Prf -> IO [Elab]
 expOr br k epg f pl ep [] p = expp br f pl ep k p
 expOr br k epg f pl ep (g : gs) p = do
   let ep' = epIncr ep
@@ -162,7 +162,7 @@ expOr br k epg f pl ep (g : gs) p = do
   efs <- expOr br' k epg g bf ep' gs p
   return $ (ep, pl, f, k, OrF epg, nt) : efs
 
-expAnd :: Invranch -> Int -> Text -> Form -> Bool -> EP -> [Form] -> Prf -> IO [EF]
+expAnd :: Invranch -> Int -> Text -> Form -> Bool -> EP -> [Form] -> Prf -> IO [Elab]
 expAnd br k epg f pl ep [] p = expp br f pl ep k p
 expAnd br k epg f pl ep (g : gs) p = do
   let ep' = epIncr ep
@@ -171,16 +171,16 @@ expAnd br k epg f pl ep (g : gs) p = do
   return $ (ep, pl, f, k, AndT epg, nt) : efs
 
 
-expand' :: Invranch -> Form -> EP -> [Stelab] -> IO [EF]
+expand' :: Invranch -> Form -> EP -> [Stelab] -> IO [Elab]
 expand' br f ep [] = expand br f ep []
 expand' br f ep (el : els) = do
   -- ptnl $ "Expanding : " <> elabNote el
   expand br f ep (el : els)
 
-expand :: Invranch -> Form -> EP -> [Stelab] -> IO [EF]
+expand :: Invranch -> Form -> EP -> [Stelab] -> IO [Elab]
 expand _ (Or []) ep [] = return [(ep, bt, Or [], 0, OrT (tlt $ ppEP ep), Just "'EOP'")]
 expand _ f ep [] = et "last added formula must be bot\n"
-expand br f ep (Plab g p tx : els) = do
+expand br f ep (InfStep g p tx : els) = do
   let br' = HM.insert (f, bt) (tlt $ppEP ep) br
   efs0 <- expand' br' g (epFork 0 ep) els
   efs1 <- addExp br' g bf (epFork 1 ep) 0 p
@@ -202,8 +202,11 @@ expand br f ep (AoC' xs g h p tx : els) = do
   efs1 <- addExp br'' h bf (epFork 1 ep') 0 p
   return $ (ep, bt, f, 0, AoC xs, Just tx) : (ep', bt, g, 0, Cut, Just "'aoc-cut'") : efs0 ++ efs1
 
-stelabsToElabs :: NSeq -> [Stelab] -> IO [EF]
+-}
+
+stelabsToElabs :: NTF -> [Stelab] -> IO [Elab]
 stelabsToElabs hs slbs = do
-  let hbr = HM.foldrWithKey (\ nm_ f_ br_ -> HM.insert (f_, bt) nm_ br_) HM.empty hs 
-  expand' hbr (And []) (0, []) slbs
+  -- let hbr = HM.foldrWithKey (\ nm_ f_ br_ -> HM.insert (f_, bt) nm_ br_) HM.empty hs 
+  -- expand' hbr (And []) (0, []) slbs
+  error "todo"
   
