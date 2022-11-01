@@ -5,7 +5,7 @@ module Check where
 
 import Types
 import Basic
-import PP (ppSignForm, ppElab, ppForm, ppTerm, ppFunct)
+import PP (ppSignForm, ppElab, ppForm, ppTerm, ppFunct, ppList)
 import Data.Text.Lazy as T (Text, intercalate)
 import Data.Map as HM (Map, lookup, insert)
 import Data.Set as S (fromList, size)
@@ -50,11 +50,17 @@ complementary :: SignForm -> SignForm -> Bool
 complementary (True, f) (False, g) = f == g 
 complementary _ _ = False
 
+neqVars :: [Text] -> [Text] -> Builder
+neqVars vs ws = ppList ft vs <> "\n!=\n" <> ppList ft ws
+
+neqAppend :: Builder ->  Builder -> Builder
+neqAppend b c = b <> "\n------------------------------------------\n" <> c
+
 neqForm :: Form -> Form -> Builder -> Builder
-neqForm f g b = ppForm f <> " != " <> ppForm g <> "\n" <> b
+neqForm f g = neqAppend (ppForm f <> "\n!=\n" <> ppForm g) 
 
 neqTerm :: Term -> Term -> Builder -> Builder
-neqTerm f g b = ppTerm f <> " != " <> ppTerm g <> "\n" <> b
+neqTerm f g  = neqAppend (ppTerm f <> "\n!=\n" <> ppTerm g) 
 
 diffFunct :: Funct -> Funct -> Maybe Builder
 diffFunct (Reg t) (Idx k) = return $ "Reg " <> ft t <> " != Idx " <> ppInt k
@@ -67,6 +73,11 @@ diffFunct (Reg t) (Reg s) = do
   guard $ t /= s
   return $ ft t <> " != " <> ft s
 
+diffTerms :: [Term] -> [Term] -> Maybe Builder
+diffTerms [] [] = mzero
+diffTerms (x : xs) (y : ys) = diffTerm x y <|> diffTerms xs ys
+diffTerms _ _ = Just "unequal number of terms"
+
 diffTerm :: Term -> Term -> Maybe Builder
 diffTerm x@(Var _) y@(Fun _ _) = return $ ppTerm x <> " != " <> ppTerm y
 diffTerm x@(Fun _ _) y@(Var _) = return $ ppTerm x <> " != " <> ppTerm y
@@ -76,11 +87,25 @@ diffTerm x@(Var v) y@(Var w) = do
 diffTerm x@(Fun f xs) y@(Fun g ys) = 
   neqTerm x y <$> ( diffFunct f g <|> (zipM xs ys >>= first (uncurry diffTerm)) )
 
+diffJunct :: [Form] -> [Form] -> Maybe Builder
+diffJunct [] [] = mzero
+diffJunct (f : fs) (g : gs) = diffForm f g <|> diffJunct  fs gs
+diffJunct _ _ = Just "unequal number of conjuncts/disjuncts"
+
 diffForm :: Form -> Form -> Maybe Builder
 diffForm f@(Eq x y) g@(Eq a b) = neqForm f g <$> (diffTerm x a <|> diffTerm y b)
+diffForm f@(Rel r xs) g@(Rel s ys) = neqForm f g <$> (diffFunct r s <|> diffTerms xs ys)
 diffForm f@(Iff fl fr) g@(Iff gl gr) = neqForm f g <$> (diffForm fl gl <|> diffForm fr gr)
 diffForm (Not f) (Not g) = neqForm (Not f) (Not g) <$> diffForm f g
-diffForm f g = error "todo"
+diffForm (Ex vs f) (Ex ws g) = 
+  neqForm (Ex vs f) (Ex ws g) <$> (if vs == ws then diffForm f g else return (neqVars vs ws))
+diffForm (Fa vs f) (Fa ws g) = 
+  neqForm (Fa vs f) (Fa ws g) <$> (if vs == ws then diffForm f g else return (neqVars vs ws))
+diffForm (Imp fa fc) (Imp ga gc) = 
+  neqForm (Imp fa fc) (Imp ga gc) <$> (diffForm fa ga <|> diffForm fc gc)
+diffForm (And fs) (And gs) = neqForm (And fs) (And gs) <$> diffJunct fs gs
+diffForm (Or fs) (Or gs) = neqForm (Or fs) (Or gs) <$> diffJunct fs gs
+diffForm f g = Just $ "Default case!\n" <> ppForm f <> "\n!=\n" <> ppForm g 
 
 diffSignForm :: (Bool, Form) -> (Bool, Form) -> Maybe Builder
 diffSignForm (True, _) (False, _) = Just "diff sign"
@@ -141,41 +166,40 @@ checkRelD _ _ = mzero
 distintList :: (Ord a) => [a] -> Bool
 distintList xs = S.size (S.fromList xs) == L.length xs
 
-checkSkolemTerms :: [Text] -> Int -> [Term] -> IO Int
-checkSkolemTerms vs k [] = return k
-checkSkolemTerms vs k (Var _ : _) = mzero
-checkSkolemTerms vs k (Fun (Reg _) _ : _) = mzero
-checkSkolemTerms vs k (Fun (Idx m) xs : ys) = do
+checkSkolemTerm :: [Text] -> Int -> Term -> IO Int
+checkSkolemTerm vs k (Var _) = mzero
+checkSkolemTerm vs k (Fun (Reg _) _) = mzero
+checkSkolemTerm vs k (Fun (Idx m) xs) = do
   guard $ k <= m
   ws <- cast $ mapM breakVar xs
   guard $ sublist ws vs
-  checkSkolemTerms vs (m + 1) ys 
+  return $ m + 1
 
-checkAoC :: Int -> [Term] -> Form -> IO Int
-checkAoC k xs (Fa vs (Imp (Ex ws f) g)) = do
-  guard $ distintList (vs ++ ws)
-  k' <- checkSkolemTerms vs k xs 
-  wxs <- zipM ws xs
-  guard $ substForm wxs f == g
+checkAoC :: Int -> Term -> Form -> IO Int
+
+checkAoC k x (Fa vs (Imp (Ex [w] f) g)) = do
+  guard $ distintList (w : vs)
+  k' <- checkSkolemTerm vs k x 
+  guard $ substForm [(w, x)] f == g
   return k'
-checkAoC k xs (Imp (Ex ws f) g) = do
-  guard $ distintList ws
-  k' <- checkSkolemTerms [] k xs 
-  wxs <- zipM ws xs
-  guard $ substForm wxs f == g
+
+checkAoC k x (Fa vs (Imp (Ex (w : ws) f) g)) = do
+  guard $ distintList (w : ws ++ vs)
+  k' <- checkSkolemTerm vs k x 
+  guard $ substForm [(w, x)] (Ex ws f) == g
+  return k'
+
+checkAoC k x (Imp (Ex [w] f) g) = do
+  k' <- checkSkolemTerm [] k x
+  guard $ substForm [(w, x)] f == g
+  return k'
+
+checkAoC k x (Imp (Ex (w : ws) f) g) = do
+  guard $ distintList (w : ws)
+  k' <- checkSkolemTerm [] k x
+  guard $ substForm [(w, x)] (Ex ws f) == g
   return k'
 checkAoC k xs _ = mzero
-
--- isAoC' :: [Term] -> Form -> IO ()
--- isAoC' xs (Fa vs (Imp (Ex ws f) g)) = do
---   guard $ L.all (isSkolemTerm vs) xs
---   wxs <- zipM ws xs
---   guard $ substForm wxs f == g
--- isAoC' xs (Imp (Ex ws f) g) = do
---   guard $ L.all isConstant xs
---   wxs <- zipM ws xs
---   guard $ substForm wxs f == g
--- isAoC' _ _ = mzero
 
 breakTrueEq :: SignForm -> IO (Term, Term)
 breakTrueEq (True, Eq x y) = return (x, y)
@@ -211,9 +235,9 @@ check vb k bch (RelD_ _ prf) = do
   let (True, f) = rootSignForm prf
   k' <- checkRelD k f
   check_ vb k' bch (True, f) prf
-check vb k bch (AoC_ _ xs prf) = do 
+check vb k bch (AoC_ _ x prf) = do 
   let (True, f) = rootSignForm prf
-  k' <- checkAoC k xs f
+  k' <- checkAoC k x f
   check_ vb k' bch (True, f) prf
 check vb k bch (ImpT_ _ nm pa pc) = do 
   (True, Imp f g) <- cast $ HM.lookup nm bch 
@@ -274,10 +298,7 @@ check vb k bch (FaT_ _ nm xs prf) = do
   let f' = substForm vxs f
   check_ vb k bch (True, f') prf
 check vb k bch (FaF_ _ nm m prf) = do 
-  pb $ "k = " <> ppInt k <> "\n"
-  pb $ "m = " <> ppInt m <> "\n"
   guard $ k <= m
-  pb $ "faf-success\n"
   (False, Fa vs f) <- cast $ HM.lookup nm bch 
   let (k', xs) = listPars m vs
   vxs <- zipM vs xs <|> error "FaF'-fail : cannot zip"

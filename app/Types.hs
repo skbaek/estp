@@ -67,7 +67,7 @@ data Prf =
 data Stelab =
     InfStep Form Prf Text
   | DefStep Form Form Prf Text
-  | SkmStep [Term] Form Form Prf Text
+  | AoCStep [Term] Form Form Prf Text
   deriving (Show)
 
 -- | RelD'' Form Form Prf Text
@@ -179,7 +179,7 @@ data Inf =
   | IffTO Text Text | IffTR Text Text | IffF Text Text Text
   | FaT Text [Term] Text | FaF Text Int Text
   | ExT Text Int Text | ExF Text [Term] Text
-  | RelD Text | AoC [Term] Text | Open
+  | RelD Text | AoC Term Text | Open
   deriving (Show)
 
 rootNode :: Proof -> NodeInfo 
@@ -237,7 +237,7 @@ data Proof =
   | ExT_ NodeInfo Text Int Proof
   | ExF_ NodeInfo Text [Term]Proof
   | RelD_ NodeInfo Proof
-  | AoC_ NodeInfo [Term] Proof 
+  | AoC_ NodeInfo Term Proof 
   | Open_ NodeInfo
   deriving (Show)
 type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)

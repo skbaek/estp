@@ -802,10 +802,10 @@ gTermToInf (Gfun "relc" [Glist gts, gt0, gt1]) = do
   m <- gTermToText gt0
   n <- gTermToText gt1
   return $ RelC nms m n
-gTermToInf (Gfun "aoc" [Glist gts, gt]) = do
-  xs <- mapM gTermToTerm gts
-  nm <- gTermToText gt
-  return $ AoC xs nm
+gTermToInf (Gfun "aoc" [gtx, gtn]) = do
+  x <- gTermToTerm gtx
+  nm <- gTermToText gtn
+  return $ AoC x nm
 
 gTermToInf (Gfun "reld" [gt]) = RelD <$> gTermToText gt
 gTermToInf (Gfun "open" []) = return Open

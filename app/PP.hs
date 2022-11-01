@@ -226,8 +226,8 @@ fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGt
 -- ppSide Rgt = "rgt"
 
 ppInf :: Inf -> Builder
-ppInf (Cut nf nt) = ppApp "cut" [ft nf, ft nt]
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
+ppInf (Cut nf nt) = ppApp "cut" [ft nf, ft nt]
 ppInf (FunC ns m) = ppApp "func" [ppList ft ns, ft m]
 ppInf (RelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]
 ppInf (EqR nm) = ppApp "eqr" [ft nm]
@@ -235,22 +235,23 @@ ppInf (EqS nm0 nm1) = ppApp "eqs" [ft nm0, ft nm1]
 ppInf (EqT nm0 nm1 nm2) = ppApp "eqt" [ft nm0, ft nm1, ft nm2]
 ppInf (NotT nh nc) = ppApp "nott" [ft nh, ft nc]
 ppInf (NotF nh nc) = ppApp "notf" [ft nh, ft nc]
+ppInf (OrT nh ns) = ppApp "ort" [ft nh, ppList ft ns]
+ppInf (OrF nh k nc) =  ppApp "orf"  [ft nh, ppInt k, ft nc]
+ppInf (AndT nh k nc) = ppApp "andt" [ft nh, ppInt k, ft nc]
+ppInf (AndF nh ns) = ppApp "andf" [ft nh, ppList ft ns]
+
+ppInf (ImpT nh n0 n1) = ppApp "impt" [ft nh, ft n0, ft n1]
 ppInf (ImpFA nh nc) = ppApp "impfa" [ft nh, ft nc]
 ppInf (ImpFC nh nc) = ppApp "impfc" [ft nh, ft nc]
 ppInf (IffTR nh nc) = ppApp "ifftr" [ft nh, ft nc]
 ppInf (IffTO nh nc) = ppApp "iffto" [ft nh, ft nc]
 ppInf (IffF nh n0 n1) = ppApp "ifff" [ft nh, ft n0, ft n1]
-ppInf (ImpT nh n0 n1) = ppApp "impt" [ft nh, ft n0, ft n1]
-ppInf (OrF nh k nc) =  ppApp "orf"  [ft nh, ppInt k, ft nc]
-ppInf (AndT nh k nc) = ppApp "andt" [ft nh, ppInt k, ft nc]
-ppInf (OrT nh ns) = ppApp "ort" [ft nh, ppList ft ns]
-ppInf (AndF nh ns) = ppApp "andf" [ft nh, ppList ft ns]
 ppInf (FaT nh xs nc) = ppApp "fat" [ft nh, ppList writeTerm xs, ft nc]
 ppInf (FaF nh k nc) = ppApp "faf" [ft nh, ppInt k, ft nc]
 ppInf (ExT nh k nc) = ppApp "ext" [ft nh, ppInt k, ft nc]
 ppInf (ExF nh xs nc) = ppApp "exf" [ft nh, ppList writeTerm xs, ft nc]
 ppInf (RelD nc) = ppApp "reld" [ft nc]
-ppInf (AoC xs nc) = ppApp "aoc" [ppList ppTerm xs, ft nc]
+ppInf (AoC x nc) = ppApp "aoc" [ppTerm x, ft nc]
 ppInf Open = "open"
 
 ppDir :: Dir -> Builder
@@ -264,7 +265,7 @@ ppSign False = "false"
 ppStelab :: Stelab -> Builder
 ppStelab (InfStep f p t) = ppInter "\n" $ ["InfStep", "f :" <> ppForm f, "prf :"] ++ ppPrfCore 20 p ++ ["Notes : " <> ft t]
 ppStelab (DefStep f g _ t) = "rdef : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
-ppStelab (SkmStep xs _ _ _ t) = "AOC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
+ppStelab (AoCStep xs _ _ _ t) = "AoC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
 
 ppSignForm :: (Bool, Form) -> Builder
 ppSignForm (True, f) = "[T] " <> ppForm f

@@ -84,11 +84,10 @@ skipList n = False
 ppInvranch :: Invranch -> Builder
 ppInvranch br = ppListNl (\ (f_, b_) -> ppSignForm (b_, f_)) $ L.map fst (HM.toList br)
 
-elabNote :: Stelab -> Text
-elabNote (InfStep _ _ n) = n
-elabNote (DefStep _ _ _ n) = n
-elabNote (SkmStep _ _ _ _ n) = n
--- elabNote (ElabFail _ n) = n
+-- elabNote :: Stelab -> Text
+-- elabNote (InfStep _ _ n) = n
+-- elabNote (DefStep _ _ _ n) = n
+-- elabNote (AoCStep _ _ _ _ n) = n
 
 prfHasAsm :: Prf -> Bool
 prfHasAsm (Id' _) = False
@@ -117,10 +116,10 @@ prfHasAsm (ExF' _ _ p) = prfHasAsm p
 prfHasAsm (Mrk _ p) = prfHasAsm p
 prfHasAsm Open' = True
 
-elabHasAsm :: Stelab -> Bool
-elabHasAsm (InfStep _ p _) = prfHasAsm p
-elabHasAsm (DefStep _ _ p _) = prfHasAsm p
-elabHasAsm (SkmStep _ _ _ p _) = prfHasAsm p
+-- elabHasAsm :: Stelab -> Bool
+-- elabHasAsm (InfStep _ p _) = prfHasAsm p
+-- elabHasAsm (DefStep _ _ p _) = prfHasAsm p
+-- elabHasAsm (AoCStep _ _ _ p _) = prfHasAsm p
 
 -- elabHasSjt :: Stelab -> Bool
 -- elabHasSjt (InfStep _ p _)     = prfHasSjt p
@@ -327,10 +326,11 @@ mainArgs ("elab" : tptp : tstp : estp : flags) = do
   writeElab estp elbs
 mainArgs ("check" : tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
-  (bch, prf) <- branchProof vb tptp estp
   mark 0
-  check vb 0 bch prf
+  (bch, prf) <- branchProof vb tptp estp
   mark 1
+  check vb 0 bch prf
+  mark 2
 mainArgs _ = et "Invalid main args"
 
 main :: IO ()

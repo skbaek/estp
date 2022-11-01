@@ -7,6 +7,7 @@ import Types
 import Basic
 import PP 
 import Prove
+import Lem (impFAC)
 import Sat (sat)
 import Expand (stelabsToElabs)
 
@@ -15,7 +16,7 @@ import Data.Map as HM (insert, lookup, Map, empty, toList)
 import Data.Set as S (Set, insert, singleton, toList, member)
 import Data.Text.Lazy as T (Text, intercalate)
 import Data.Text.Lazy.Builder (Builder)
-import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
+import Control.Monad as M ( guard, MonadPlus(mzero), foldM, foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
 import Data.Bifunctor as DBF (first, second, bimap)
@@ -115,7 +116,7 @@ removeMultiStepPrf Open' = Open'
 
 -- resj :: Stelab -> Stelab
 -- resj (InfStep f p t) = InfStep f (rpsj p) t
--- resj (SkmStep xs f g p t) = SkmStep xs (rfsj f) (rfsj g) (rpsj p) t
+-- resj (AoCStep xs f g p t) = AoCStep xs (rfsj f) (rfsj g) (rpsj p) t
 -- resj (DefStep f g p t) = DefStep (rfsj f) (rfsj g) (rpsj p) t
 
 -- detectSJ :: Elab -> IO ()
@@ -240,7 +241,7 @@ checkStelab sq (DefStep f g p nm) = do
   guard $ isRelD f
   verify 0 (S.singleton f) (S.singleton g) p
   return g
-checkStelab sq (SkmStep xs f g p nm) = do
+checkStelab sq (AoCStep xs f g p nm) = do
   pb $ "Checking stelab : " <> ft nm <> "\n"
   isAoC' xs f
   verify 0 (S.singleton f) (S.singleton g) p
@@ -249,7 +250,7 @@ checkStelab sq (SkmStep xs f g p nm) = do
 -- stelabConc :: Stelab -> Form
 -- stelabConc (InfStep g p _) = g
 -- stelabConc (DefStep f g p _) = g
--- stelabConc (SkmStep xs f g p _) = g
+-- stelabConc (AoCStep xs f g p _) = g
 
 infer :: Text -> [Form] -> Form -> IO Prf
 infer "superposition" [f, g] h         = superpose f g h
@@ -290,7 +291,7 @@ elab _ (n, "avatar_definition", [], g) = relDef n g
 elab s (n, "choice_axiom", [], g) = do
   (xs, f) <- normalizeAoC g
   p <- orig f g
-  return $ SkmStep xs f g p n
+  return $ AoCStep xs f g p n
 elab s (n, "avatar_sat_refutation", ns, g) = do
   fs <- mapM (`lookupM` s) ns
   p <- sat fs
@@ -311,51 +312,15 @@ stepsToStelabs vb ntf sf stps = do
   (_, es) <- mapAccumM (stelabIO vb) (ntf, sf) stps
   return es
 
--- elaborate :: [String] -> IO ()
--- elaborate (tptp : tstp : estp : flags) = do
---   let vb = "silent" `notElem` flags
---   (hs, stps) <- hypsSteps vb tptp tstp
---   -- -- (_, es) <- mapAccumM (elabIO verbose) hs stps
---   slbs <- stepsToStelabs vb hs stps
---   elbs <- stelabsToElabs (fst hs) slbs
---   writeElab estp elbs
-
-
--- expand :: Invranch -> Form -> EP -> [Stelab] -> IO [Elab]
--- expand _ (Or []) ep [] = return [(ep, bt, Or [], 0, OrT (tlt $ ppEP ep), Just "'EOP'")]
--- expand _ f ep [] = et "last added formula must be bot\n"
--- expand br f ep (InfStep g p tx : els) = do
---   let br' = HM.insert (f, bt) (tlt $ppEP ep) br
---   efs0 <- expand' br' g (epFork 0 ep) els
---   efs1 <- addExp br' g bf (epFork 1 ep) 0 p
---   return $ (ep, bt, f, 0, Cut, Just tx) : efs0 ++ efs1
--- expand br f ep (RelD' g h p tx : els) = do
---   let br' = HM.insert (f, bt) (tlt $ ppEP ep) br
---   let ep' = epIncr ep
---   let br'' = HM.insert (g, bt) (tlt $ ppEP ep') br'
---   let ep'' = epIncr ep'
---   efs0 <- addExp br'' h bf (epFork 1 ep') 0 p
---   efs1 <- expand' br'' h ep'' els
---   return $ (ep, bt, f, 0, RelD, Just tx) : (ep', bt, g, 0, Cut, Just "'rel-def-cut'") : efs0 ++ efs1
--- expand br f ep (AoC' xs g h p tx : els) = do
---   let br' = HM.insert (f, bt) (tlt $ppEP ep) br
---   let ep' = epIncr ep
---   let br'' = HM.insert (g, bt) (tlt $ ppEP ep') br'
---   let ep'' = epIncr ep'
---   efs0 <- expand' br'' h ep'' els
---   efs1 <- addExp br'' h bf (epFork 1 ep') 0 p
---   return $ (ep, bt, f, 0, AoC xs, Just tx) : (ep', bt, g, 0, Cut, Just "'aoc-cut'") : efs0 ++ efs1
--- 
-
 desingle :: Stelab -> Stelab
 desingle (InfStep f p tx) = InfStep (rfsj f) (rpsj p) tx
 desingle (DefStep f g p tx) = DefStep (rfsj f) (rfsj g) (rpsj p) tx
-desingle (SkmStep xs f g p tx) = SkmStep xs (rfsj f) (rfsj g) (rpsj p) tx
+desingle (AoCStep xs f g p tx) = AoCStep xs (rfsj f) (rfsj g) (rpsj p) tx
 
 removeMultiStep :: Stelab -> Stelab
 removeMultiStep (InfStep f p tx) = InfStep f (removeMultiStepPrf p) tx
 removeMultiStep (DefStep f g p tx) = DefStep f g (removeMultiStepPrf p) tx
-removeMultiStep (SkmStep xs f g p tx) = SkmStep xs f g (removeMultiStepPrf p) tx
+removeMultiStep (AoCStep xs f g p tx) = AoCStep xs f g (removeMultiStepPrf p) tx
 
 indexStelabs :: Int -> HM.Map Funct Int -> [Stelab] -> IO [Stelab]
 indexStelabs k mp [] = return []
@@ -373,28 +338,17 @@ indexStelabs k mp (DefStep f g p tx : slbs) = do
   pt "\n\n\n"
   slbs' <- indexStelabs (k + 1) mp' slbs 
   return $ DefStep f' g' p' tx : slbs'
-indexStelabs k mp (SkmStep xs f g p tx : slbs) = do
+indexStelabs k mp (AoCStep xs f g p tx : slbs) = do
   let ((k', mp'), xs') = L.mapAccumL indexAoCStep (k, mp) xs 
   let f' = indexForm mp' f
   let g' = indexForm mp' g
   let p' = indexPrf k' mp' p
   slbs' <- indexStelabs k' mp' slbs 
-  return $ SkmStep xs' f' g' p' tx : slbs'
+  return $ AoCStep xs' f' g' p' tx : slbs'
 
 indexAoCStep :: (Int, HM.Map Funct Int) -> Term -> ((Int, HM.Map Funct Int), Term)
 indexAoCStep (k, mp) (Fun (Reg tx) xs) = ((k + 1, HM.insert (Reg tx) k mp), Fun (Idx k) xs)
 indexAoCStep (k, mp) x =  error "cannot get functor text"
-
--- relabel k (AoC' xs f p) = 
---   let len = length xs in
---   let k' = k + len in
---   let p' = relabel k' p in
---   let fks = relabelPairsAoC xs k in 
---   AoC' (L.map (indexTerm fks) xs) (indexForm fks f) $ relabel' fks p'
--- relabel k (RelD' f p) = 
---   let r = definedRel f in
---   let p' = relabel (k + 1) p in
---   RelD' (indexForm [(r, k)] f) $ relabel' [(r, k)] p'
 
 indexPrf :: Int -> HM.Map Funct Int -> Prf -> Prf
 indexPrf k mp Open' = Open'
@@ -406,10 +360,8 @@ indexPrf k mp (FunC' f xs ys) = FunC' (indexFunctor mp f) (L.map (indexTerm mp) 
 indexPrf k mp (RelC' r xs ys) = RelC' (indexFunctor mp r) (L.map (indexTerm mp) xs) (L.map (indexTerm mp) ys)
 indexPrf k mp (NotT' f p) = NotT' (indexForm mp f) $ indexPrf k mp p
 indexPrf k mp (NotF' f p) = NotF' (indexForm mp f) $ indexPrf k mp p
-
 indexPrf k mp (AndT' fs gs p) = AndT' (L.map (indexForm mp) fs) (L.map (indexForm mp) gs) $ indexPrf k mp p
 indexPrf k mp (OrF' fs gs p)  = OrF'  (L.map (indexForm mp) fs) (L.map (indexForm mp) gs) $ indexPrf k mp p
-
 indexPrf k mp (OrT' fps) =  OrT'  $ L.map (bimap (indexForm mp) (indexPrf k mp)) fps
 indexPrf k mp (AndF' fps) = AndF' $ L.map (bimap (indexForm mp) (indexPrf k mp)) fps
 indexPrf k mp (ImpT' f g p q) = ImpT' (indexForm mp f) (indexForm mp g) (indexPrf k mp p) (indexPrf k mp q)
@@ -516,61 +468,135 @@ range k m = k : range (k + 1) (m - 1)
 stitch :: SFTN -> NodeInfo -> [Stelab] -> IO Proof
 stitch sftn ni@(nm, True, Or []) [] = return (OrT_ ni nm [])
 stitch _ _ [] = error "Last signed formula of branch is not a T-bot"
-stitch sftn (nm, b, f) (InfStep g prf cmt : slbs) = do 
-  pt $ "Stitching inf step : " <> cmt <> "\n"
-  pt "Proof:\n"
-  pb $ ppPrf 1000 prf
-
+stitch sftn ni (InfStep g prf cmt : slbs) = do 
   let loc = (cmt, [], 0)
   proofL <- deliteral' sftn loc (False, g) prf
-  pt "Left stitched!\n"
   proofR <- stitch (HM.insert (True, g) cmt sftn) (cmt, True, g) slbs
-  pt "Right stitched!\n"
-  return $ Cut_ (nm, b, f) proofL proofR
-stitch sftn (nm, b, h) (DefStep f g p cmt : slbs) = do 
-  pt $ "Stitching def step : " <> cmt <> "\n"
+  return $ Cut_ ni proofL proofR
+stitch sftn ni (DefStep f g p cmt : slbs) = do 
   let loc = (cmt, [], 0)
   let loc' = extLoc loc
   let sftn' = HM.insert (True, f) (locText loc) sftn
   pf <- deliteral' sftn' loc' (False, g) p
-
   pt <- stitch (HM.insert (True, g) cmt sftn') (cmt, True, g) slbs
+  return $ RelD_ ni $ Cut_ (locText loc, True, f) pf pt
 
-  return $ RelD_ (nm, b, h) $ Cut_ (locText loc, True, f) pf pt
-stitch sftn (nm, b, h) (SkmStep xs f g p cmt : slbs) = do 
-  pt $ "Stitching AoC step : " <> cmt <> "\n"
-  let loc = (cmt, [], 0)
-  let loc' = extLoc loc
-  let sftn' = HM.insert (True, f) (locText loc) sftn
+stitch sftn ni (AoCStep xs f g prf_g cmt : slbs) = do 
+  (vs, fa) <- breakAoC f
+  nxfs <- singleAoCs 0 (cmt <> "_AoCs_") xs vs fa
+  let locf = (cmt <> "_AoC", [], 0)
+  let nmf = cmt <> "_AoC"
+  let locg = (cmt, [], 0)
+  let nmg = cmt
+  prf_f <- proveAoC nxfs f
+  let sftn_fs = foldl (\ sftn_ (nm_, _, f_) -> HM.insert (True, f_) nm_ sftn_) sftn nxfs
+  pf <- deliteral' sftn_fs locf (False, f) prf_f
+  let sftn_f = HM.insert (True, f) nmf sftn
+  pg <- deliteral' sftn_f locg (False, g) prf_g
+  let sftn_fg = HM.insert (True, g) nmg sftn_f
+  pt <- stitch sftn_fg (cmt, True, g) slbs
+  return $ stitchAoCs ni nxfs pf (Cut_ (nmf, True, f) pg pt)
 
-  pf <- deliteral' sftn' loc' (False, g) p
-  pt <- stitch (HM.insert (True, g) cmt sftn') (cmt, True, g) slbs
+stitchAoCs :: NodeInfo -> [(Text, Term, Form)] -> Proof -> Proof -> Proof
+stitchAoCs ni [] pf pr = Cut_ ni pf pr 
+stitchAoCs ni ((nm, x, f) : nxfs) pf pr = 
+  let p = stitchAoCs (nm, True, f) nxfs pf pr in
+  AoC_ ni x p 
+  -- return $ pprf $ Cut_ ni' pf (Cut_ (locText loc'', True, f) pg pt)
+--   let loc' = extLoc loc
+--   pf <- deliteral' sftn' loc' (False, g) p
+--   pt <- stitch (HM.insert (True, g) cmt sftn') (cmt, True, g) slbs
+--   return $ AoC_ (nm, b, h) xs $ Cut_ (locText loc, True, f) pf pt
 
-  return $ AoC_ (nm, b, h) xs $ Cut_ (locText loc, True, f) pf pt
+lastSkolemIdx :: [(Text, Term, Form)] -> IO Int
+lastSkolemIdx [] = mzero
+lastSkolemIdx [(_, Fun (Idx k) _, _)] = return k
+lastSkolemIdx [(_, _, _)] = mzero
+lastSkolemIdx (_ : nxfs) = lastSkolemIdx nxfs
 
--- stitch :: [Stelab] -> IO Prf
--- stitch [] = return $ OrT' []
--- stitch (InfStep f prf cmt : slbs) = do
---   prf' <- stitch slbs
---   return $ Cut' f prf (Mrk cmt prf')
--- stitch (DefStep f g prf cmt : slbs) = do
---   prf' <- stitch slbs
---   return $ RelD' f $ Mrk (cmt <> " : pre-def") $
---     Cut' g prf $ Mrk (cmt <> " : post-def") prf'
--- stitch (SkmStep xs f g prf cmt : slbs) = do
---   prf' <- stitch slbs
---   return $ AoC' xs f $ Mrk (cmt <> " : pre-skm") $
---     Cut' g prf $ Mrk (cmt <> " : post-stm") prf'
+-- f0 ... fn, fa |- fc
+proveAoC' :: [(Text, Term)] -> [(Text, Term, Form)] -> Form -> Form -> IO Prf
+proveAoC' _ [] fa fc = do 
+  guard $ fa == fc 
+  return $ Id' fa
+proveAoC' [] ((_, _, Imp fa' fc') : nxfs) fa fc = do
+  guard $ fa' == fa
+  p <- proveAoC' [] nxfs fc' fc
+  return $ ImpT' fa' fc' (Id' fa) p
+proveAoC' vxs@(_ : _) ((_, _, Fa vs f) : nxfs) fa fc = do
+  guard $ vs == L.map fst vxs 
+  (Imp fa' fc') <- return $ substForm vxs f
+  guard $ fa' == fa
+  p <- proveAoC' vxs nxfs fc' fc
+  return $ FaT' vxs f $ ImpT' fa' fc' (Id' fa) p
+proveAoC' _ _ _ _ = mzero
+
+proveAoC :: [(Text, Term, Form)] -> Form -> IO Prf
+proveAoC nxfs (Fa vs f) = do 
+  mark 10
+  k <- lastSkolemIdx nxfs
+  mark 11
+  let (_, vxs) = varPars (k + 1) vs
+  (Imp fa fc) <- return $ substForm vxs f
+  mark 12
+  p <- proveAoC' vxs nxfs fa fc
+  mark 13
+  return $ FaF' vs (k + 1) f (impFAC fa fc p)
+proveAoC nxfs (Imp fa fc) = do
+  p <- proveAoC' [] nxfs fa fc
+  return $ impFAC fa fc p
+
+proveAoC _ _ = mzero
+
+
+-- stitch :: SFTN -> NodeInfo -> [Stelab] -> IO Proof
+
+
+breakAoC :: Form -> IO ([Text], Form)
+breakAoC (Fa vs (Imp (Ex ws f) _)) = return (vs, Ex ws f)
+breakAoC (Imp (Ex ws f) _) = return ([], Ex ws f)
+breakAoC _ = mzero
+
+singleAoCs :: Int -> Text -> [Term] -> [Text] -> Form -> IO [(Text, Term, Form)]
+singleAoCs k nm [] vs _ = mzero
+
+singleAoCs k nm [x] [] (Ex [w] f) = do 
+  let nmk = nm <> tlt (ppInt k)
+  let f' = substForm [(w, x)] f
+  return [(nmk, x, Imp (Ex [w] f) f')]
+
+singleAoCs k nm [x] vs (Ex [w] f) = do 
+  let nmk = nm <> tlt (ppInt k)
+  let f' = substForm [(w, x)] f
+  return [(nmk, x, Fa vs (Imp (Ex [w] f) f'))]
+
+singleAoCs k nm (x : xs) [] (Ex (w : ws) f) = do 
+  let nmk = nm <> tlt (ppInt k)
+  let f' = substForm [(w, x)] (Ex ws f)
+  l <- singleAoCs (k + 1) nm xs [] f'
+  return $ (nmk, x, Imp (Ex (w : ws) f) f') : l
+
+singleAoCs k nm (x : xs) vs (Ex (w : ws) f) = do 
+  let nmk = nm <> tlt (ppInt k)
+  let f' = substForm [(w, x)] (Ex ws f)
+  l <- singleAoCs (k + 1) nm xs vs f'
+  return $ (nmk, x, Fa vs (Imp (Ex (w : ws) f) f')) : l
+
+singleAoCs _ _ _ _ _ = mzero
+
 deliteral' :: SFTN -> Loc -> (Bool, Form) -> Prf -> IO Proof
 deliteral' sftn loc (b, f) prf = do
   let sftn' = HM.insert (b, f) (locText loc) sftn 
+
   -- pt "\n-----------------------------------------------------------\n"
   -- pt "Branch after insert :\n"
   -- pb $ ppInter "\n" $ L.map (\ (sf_, nm_) ->  ppSignForm sf_ <> " ----- " <> ft nm_ <> "\n") $ HM.toList sftn'
-  pt "\n-----------------------------------------------------------\n"
-  pb "Proof :\n"
-  pb $ ppPrf 5 prf
-  pt "\n-----------------------------------------------------------\n\n\n\n"
+
+  -- pt "\n-----------------------------------------------------------\n"
+  -- pb "Proof :\n"
+  -- pb $ ppPrf 5 prf
+  -- pt "\n-----------------------------------------------------------\n\n\n\n"
+
   deliteral sftn' loc (b, f) prf
 
 deliteral :: SFTN -> Loc -> (Bool, Form) -> Prf -> IO Proof
@@ -746,14 +772,15 @@ linearize (Open_ ni) = [(ni, Open, Nothing)]
 
 elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO [Elab]
 elaborate vb ntf sf ftn stps = do
-   slbs <- stepsToStelabs vb ntf sf stps
-   checkStelabs sf slbs
-   let slbs' = L.map (removeMultiStep . desingle) slbs
-   checkStelabs sf slbs'
-   slbs'' <- indexStelabs 0 HM.empty slbs'
-   checkStelabs sf slbs''
-   proof <- stitch ftn ("root", True, top) slbs''
-   return $ linearize proof
+  slbs <- stepsToStelabs vb ntf sf stps
+  -- checkStelabs sf slbs
+  let slbs' = L.map (removeMultiStep . desingle) slbs
+  -- checkStelabs sf slbs'
+  slbs'' <- indexStelabs 0 HM.empty slbs'
+  -- checkStelabs sf slbs''
+  proof <- stitch ftn ("root", True, top) slbs''
+  -- checkStelabs sf slbs''
+  return $ linearize proof
 
 checkStelabs :: Set Form -> [Stelab] -> IO ()
 checkStelabs sf [] = return ()
