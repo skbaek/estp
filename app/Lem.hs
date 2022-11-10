@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Lem where
 
@@ -314,6 +315,19 @@ genFaIffToFaIffFa (vw, wv) k vs f ws g = do
     (FaF' ws k g $ FaT' vxs' f $ FaT' wxs  (fp <=> g) $ iffMP  f'' g' ) 
     (FaF' vs k f $ FaT' wxs' g $ FaT' wxs' (fp <=> g) $ iffMPR f'  g'')
 
+-- ! ws (f' <=> g) |- (? vs f) <=> (? ws g)
+genFaIffToExIffEx' :: Int -> [Text] -> [Term] -> Form -> Form -> [Text] -> [Term] -> Form -> IO Prf
+genFaIffToExIffEx' k vs xs f fr ws ys g = do 
+  vxs <- zipM vs xs
+  wys <- zipM ws ys
+  let f' = substForm vxs f 
+  let fr' = substForm wys f 
+  let g' = substForm wys g 
+  guardMsg "Substitution mismatch" $ f' == fr'
+  return $ iffRFull (Ex vs f) (Ex ws g) 
+    (ExT' vs k f $ ExF' wxs' g $ FaT' wxs' (fp <=> g) $ iffMP  f'' g' ) 
+    (ExT' ws k g $ ExF' vxs' f $ FaT' wxs  (fp <=> g) $ iffMPR f'  g'')
+
 -- ! ws (f[vw] <=> g) |- (? vs f) <=> (? ws g)
 genFaIffToExIffEx :: VR -> Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
 genFaIffToExIffEx (vw, wv) k vs f ws g = do
@@ -418,6 +432,13 @@ relCong r xs ys = do
 
 notTF :: Form -> Form -> Prf -> Prf
 notTF f g p = NotT' f $ NotF' g p
+
+-- iffNotNot f : |- f <=> ~~f
+iffNotNot :: Form -> Prf
+iffNotNot f =
+  iffRFull f (Not (Not f))
+    (NotF' (Not f) $ NotT' f $ Id' f)
+    (NotT' (Not f) $ NotF' f $ Id' f)
 
 -- notNotIff f : |- ~~f <=> f
 notNotIff :: Form -> Prf

@@ -570,8 +570,9 @@ univClose f =
     vs -> Fa vs f
 
 conjecturize :: Text -> Form -> Form
-conjecturize "conjecture" = Not
-conjecturize _ = id
+-- conjecturize "conjecture" (Not f) = f
+conjecturize "conjecture" f = Not f
+conjecturize _ f = f
 
 mergeVars :: [Text] -> [Text] -> [Text]
 mergeVars vs ws = vs ++ (ws \\ vs)
@@ -734,6 +735,10 @@ gTermToInf (Gfun "impt" [gth, gt0, gt1]) = do
   n1 <- gTermToText gt1
   return $ ImpT nh n0 n1
 
+gTermToInf (Gfun "bott" [gt]) = do
+  nm <- gTermToText gt
+  return $ OrT nm []
+
 gTermToInf (Gfun "ort" [gt, Glist gts]) = do
   nm <- gTermToText gt
   nms <- mapM gTermToText gts
@@ -748,6 +753,10 @@ gTermToInf (Gfun "andt" [gth, Gnum k, gtc]) = do
   nh <- gTermToText gth
   nc <- gTermToText gtc
   return $ AndT nh k nc
+
+gTermToInf (Gfun "topf" [gt]) = do
+  nm <- gTermToText gt
+  return $ AndF nm []
 
 gTermToInf (Gfun "andf" [gt, Glist gts]) = do
   nm <- gTermToText gt

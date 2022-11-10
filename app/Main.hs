@@ -326,11 +326,8 @@ mainArgs ("elab" : tptp : tstp : estp : flags) = do
   writeElab estp elbs
 mainArgs ("check" : tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
-  mark 0
   (bch, prf) <- branchProof vb tptp estp
-  mark 1
   check vb 0 bch prf
-  mark 2
 mainArgs _ = et "Invalid main args"
 
 main :: IO ()

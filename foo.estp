@@ -1,0 +1,7 @@
+fof(root, true, $true, inference(cut(f2__0, f2))).
+fof(f2__0, false, ! [B, A] : ~ (response(a, B) = A), inference(id(prove_happiness_2, f2__0))).
+fof(f2, true, ! [B, A] : ~ (response(a, B) = A), inference(cut(f3__0, f3))).
+fof(f3__0, false, $false, inference(fat(f2, [c, response(a, c)], f3__1))).
+fof(f3__1, true, ~ (response(a, c) = response(a, c)), inference(nott(f3__1, f3__2))).
+fof(f3__2, false, (response(a, c) = response(a, c)), inference(eqr(f3__2))).
+fof(f3, true, $false, inference(bott(f3))).

@@ -6,10 +6,11 @@ module Elab where
 import Types
 import Basic
 import PP 
-import Prove
+import Prove 
 import Lem (impFAC)
 import Sat (sat)
 import Expand (stelabsToElabs)
+import Check (isRelD, verify)
 
 import Data.List as L (all, map, foldl, length, reverse, findIndex, concatMap, mapAccumL, elemIndex)
 import Data.Map as HM (insert, lookup, Map, empty, toList)
@@ -124,126 +125,22 @@ removeMultiStepPrf Open' = Open'
 --   | formSJ f = eb "single junct at EP : " 
 --   | otherwise = return ()
 
-{- Verification -}
-
-isRelD :: Form -> Bool
-isRelD (Fa vs (Iff (Rel s xs) f)) = L.map Var vs == xs && isGndForm vs f
-isRelD (Iff (Rel s []) f) = isGndForm [] f
-isRelD _ = False
-
-verifyEqGoal :: Int -> Set Form -> Set Form -> (Term, Term, Prf) -> IO ()
-verifyEqGoal k lft rgt (x, y, p) = verify k lft (S.insert (Eq x y) rgt) p
-
-verifyRgtGoal :: Int -> Set Form -> Set Form -> (Form, Prf) -> IO ()
-verifyRgtGoal k lft rgt (f, p) = verify k lft (S.insert f rgt) p
-
-verifyLftGoal :: Int -> Set Form -> Set Form -> (Form, Prf) -> IO ()
-verifyLftGoal k lft rgt (f, p) = verify k (S.insert f lft) rgt p
-
-ev :: Text -> Form -> Set Form -> Set Form -> IO ()
-ev t f lhs rhs = eb $ ft t <> ppForm f <> "\nLHS :\n" <> ppListNl ppForm (S.toList lhs) <> "\nRHS :\n" <> ppListNl ppForm (S.toList rhs) <> "\n"
-
-verify :: Int -> Set Form -> Set Form -> Prf -> IO ()
-verify _ _ _ Open' = return ()
-verify _ lft rgt (Id' f) = do
-  let lhs_text = ppListNl ppForm (S.toList lft)
-  let rhs_text = ppListNl ppForm (S.toList rgt)
-  guard (S.member f lft) <|> eb ("Id' fail, LHS missing : " <> ppForm f <> "\nLHS = " <> lhs_text)
-  guard (S.member f rgt) <|> eb ("Id' fail, RHS missing : " <> ppForm f <> "\nRHS = " <> rhs_text)
-verify _ lft rgt (EqR' x) = guard (S.member (Eq x x) rgt) <|> error "EqR'-fail"
-verify k lft rgt (EqS' x y) =
-  guard (S.member (Eq x y) lft && S.member (Eq y x) rgt) <|> error "EqS'-fail"
-verify k lft rgt (EqT' x y z) =
-  guard (S.member (Eq x y) lft && S.member (Eq y z) lft && S.member (Eq x z) rgt) <|> error "EqT'-fail"
-verify k lft rgt (FunC' f xs ys) = do
-  xys <- zipM xs ys
-  guardMsg "Fun-C : premise missing" $ L.all (\ (x_, y_) -> S.member (x_ === y_) lft) xys
-  guardMsg "Fun-C : conclusion missing" $ S.member (Fun f xs === Fun f ys) rgt
-verify k lft rgt (RelC' r xs ys) = do
-  xys <- zipM xs ys
-  guardMsg "Fun-C : eq-premise missing" $ L.all (\ (x_, y_) -> S.member (x_ === y_) lft) xys
-  guardMsg "Fun-C : premise missing" $ S.member (Rel r xs) lft
-  guardMsg "Fun-C : conclusion missing" $ S.member (Rel r ys) rgt
-verify k lft rgt (NotT' f p) = do
-  guard (S.member (Not f) lft) <|> error "NotT'-fail"
-  verify k lft (S.insert f rgt) p
-verify k lft rgt (NotF' f p) = do
-  guard (S.member (Not f) rgt) <|> eb ("NotF'-fail\nCannot find hyp : " <> ppSignForm (False, Not f) <> "\nFrom :\n" <> ppSetNl ppForm rgt)
-  verify k (S.insert f lft) rgt p
-verify k lft rgt (OrT' gls) = do
-  let fs = L.map fst gls
-  guard (S.member (Or fs) lft) <|> eb ("OrT'-fail : " <> ppForm (Or fs))
-  mapM_ (verifyLftGoal k lft rgt) gls
-verify k lft rgt (OrF' fs gs p) = do
-  guard (sublist gs fs && S.member (Or fs) rgt) <|> error "OrF'-fail"
-  verify k lft (L.foldl (flip S.insert) rgt gs) p
-verify k lft rgt (AndT' fs gs p) = do
-  guard (sublist gs fs) <|> error "AndT'-fail : not subset"
-  guard (S.member (And fs) lft) <|> ev "AndT'-fail : " (And fs) lft rgt
-  verify k (L.foldl (flip S.insert) lft gs) rgt p
-verify k lft rgt (AndF' gls) = do
-  let fs = L.map fst gls
-  guard (S.member (And fs) rgt) <|> ev "AndF'-fail" (And fs) lft rgt
-  mapM_ (verifyRgtGoal k lft rgt) gls
-verify k lft rgt (ImpT' f g p q) = do
-  guard (S.member (Imp f g) lft) <|> ev "ImpT'-fail" (f ==> g) lft rgt
-  verify k lft (S.insert f rgt) p
-  verify k (S.insert g lft) rgt q
-
-verify k lft rgt (ImpFA' f g p) = do
-  guard (S.member (Imp f g) rgt) <|> error "ImpFA'-fail"
-  verify k (S.insert f lft) rgt p
-
-verify k lft rgt (ImpFC' f g p) = do
-  guard (S.member (Imp f g) rgt) <|> error "ImpFC'-fail"
-  verify k lft (S.insert g rgt) p
-
-verify k lft rgt (IffF' f g p q) = do
-  guard (S.member (Iff f g) rgt) <|> ev "IffF'-fail" (f <=> g) lft rgt
-  verify k lft (S.insert (Imp f g) rgt) p
-  verify k lft (S.insert (Imp g f) rgt) q
-verify k lft rgt (IffTO' f g p) = do
-  guard (S.member (Iff f g) lft) <|> ev "IffTO'-fail : " (f <=> g) lft rgt
-  verify k (S.insert (Imp f g) lft) rgt p
-verify k lft rgt (IffTR' f g p) = do
-  guard (S.member (f <=> g) lft) <|> ev "IffTR'-fail : " (f <=> g) lft rgt
-  verify k (S.insert (Imp g f) lft) rgt p
-verify k lft rgt (FaT' vxs f p) = do
-  let vs = L.map fst vxs
-  guard (S.member (Fa vs f) lft) <|> ev "FaT'-fail : " (Fa vs f) lft rgt
-  verify k (S.insert (substForm vxs f) lft) rgt p
-verify k lft rgt (FaF' vs m f p) = do
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "FaF'-fail : cannot zip"
-  guard (k <= m && S.member (Fa vs f) rgt) <|> ev "FaF'-fail" (Fa vs f) lft rgt
-  verify k' lft (S.insert (substForm vxs f) rgt) p
-verify k lft rgt (ExT' vs m f p) = do
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "ExT'-fail"
-  guard (k <= m && S.member (Ex vs f) lft) <|> error "ExT'-fail"
-  verify k' (S.insert (substForm vxs f) lft) rgt p
-verify k lft rgt (ExF' vxs f p) = do
-  let vs = L.map fst vxs
-  guard (S.member (Ex vs f) rgt) <|> error "ExF'-fail"
-  verify k lft (S.insert (substForm vxs f) rgt) p
-verify k lft rgt (Cut' f p0 p1) = do
-  verify k lft (S.insert f rgt) p0
-  verify k (S.insert f lft) rgt p1
-verify k lft rgt (Mrk s p) = verify k lft rgt p
 
 checkStelab :: Set Form -> Stelab -> IO Form
 checkStelab sq (InfStep g p nm) = do
-  pb $ "Checking stelab : " <> ft nm <> "\n"
+  pb $ "Checking inf-stelab : " <> ft nm <> "\n"
   verify 0 sq (S.singleton g) p
   return g
 checkStelab sq (DefStep f g p nm) = do
-  pb $ "Checking stelab : " <> ft nm <> "\n"
+  pb $ "Checking def-stelab : " <> ft nm <> "\n"
   guard $ isRelD f
   verify 0 (S.singleton f) (S.singleton g) p
   return g
 checkStelab sq (AoCStep xs f g p nm) = do
-  pb $ "Checking stelab : " <> ft nm <> "\n"
+  pb $ "Checking aoc-stelab : " <> ft nm <> "\n"
   isAoC' xs f
+  pb $ "f : " <> ppForm f <> "\n"
+  pb $ "g : " <> ppForm g <> "\n"
   verify 0 (S.singleton f) (S.singleton g) p
   return g
 
@@ -284,13 +181,21 @@ infer r fs g = et $ "No inference : " <> r
 elab :: NTF -> Step -> IO Stelab
 elab s (n, "file", [m], g) = do
   f <- cast (HM.lookup m s)
+  -- pb $ "Formula " <> ft m <> " : " <> ppForm f <> "\n"
+  -- pb $ "Formula " <> ft n <> " : " <> ppForm g <> "\n"
   p <- orig f g
+  -- pb "Orig success!\n"
   return $ InfStep g p n
 elab _ (n, "predicate_definition_introduction", [], g) = relDef n g
 elab _ (n, "avatar_definition", [], g) = relDef n g
 elab s (n, "choice_axiom", [], g) = do
   (xs, f) <- normalizeAoC g
   p <- orig f g
+  
+  pt "VERIFYING AOC!!!\n"
+  verify 0 (S.singleton f) (S.singleton g) p
+  pt "AOC VERIFIED!!!\n"
+
   return $ AoCStep xs f g p n
 elab s (n, "avatar_sat_refutation", ns, g) = do
   fs <- mapM (`lookupM` s) ns
@@ -305,6 +210,7 @@ stelabIO :: Bool -> (NTF, Set Form) -> Step -> IO ((NTF, Set Form), Stelab) -- t
 stelabIO vb (nsq, sq) af@(n, _, _, f) = do
   when vb $ print $ "Elaborating step = " <> n
   e <- elab nsq af
+  pb "Elaborated!!!\n"
   return ((HM.insert n f nsq, S.insert f sq), e)
 
 stepsToStelabs :: Bool -> NTF -> Set Form -> [Step] -> IO [Stelab]
@@ -466,7 +372,7 @@ range _ 0 = []
 range k m = k : range (k + 1) (m - 1)
 
 stitch :: SFTN -> NodeInfo -> [Stelab] -> IO Proof
-stitch sftn ni@(nm, True, Or []) [] = return (OrT_ ni nm [])
+stitch sftn ni@(nm, True, Or []) [] = mark 20 >> return (OrT_ ni nm [])
 stitch _ _ [] = error "Last signed formula of branch is not a T-bot"
 stitch sftn ni (InfStep g prf cmt : slbs) = do 
   let loc = (cmt, [], 0)
@@ -482,19 +388,26 @@ stitch sftn ni (DefStep f g p cmt : slbs) = do
   return $ RelD_ ni $ Cut_ (locText loc, True, f) pf pt
 
 stitch sftn ni (AoCStep xs f g prf_g cmt : slbs) = do 
+  mark 0
   (vs, fa) <- breakAoC f
+  mark 1
   nxfs <- singleAoCs 0 (cmt <> "_AoCs_") xs vs fa
+  mark 2
   let locf = (cmt <> "_AoC", [], 0)
   let nmf = cmt <> "_AoC"
   let locg = (cmt, [], 0)
   let nmg = cmt
   prf_f <- proveAoC nxfs f
+  mark 3
   let sftn_fs = foldl (\ sftn_ (nm_, _, f_) -> HM.insert (True, f_) nm_ sftn_) sftn nxfs
   pf <- deliteral' sftn_fs locf (False, f) prf_f
+  mark 4
   let sftn_f = HM.insert (True, f) nmf sftn
   pg <- deliteral' sftn_f locg (False, g) prf_g
+  mark 5
   let sftn_fg = HM.insert (True, g) nmg sftn_f
   pt <- stitch sftn_fg (cmt, True, g) slbs
+  mark 6
   return $ stitchAoCs ni nxfs pf (Cut_ (nmf, True, f) pg pt)
 
 stitchAoCs :: NodeInfo -> [(Text, Term, Form)] -> Proof -> Proof -> Proof
@@ -533,14 +446,10 @@ proveAoC' _ _ _ _ = mzero
 
 proveAoC :: [(Text, Term, Form)] -> Form -> IO Prf
 proveAoC nxfs (Fa vs f) = do 
-  mark 10
   k <- lastSkolemIdx nxfs
-  mark 11
   let (_, vxs) = varPars (k + 1) vs
   (Imp fa fc) <- return $ substForm vxs f
-  mark 12
   p <- proveAoC' vxs nxfs fa fc
-  mark 13
   return $ FaF' vs (k + 1) f (impFAC fa fc p)
 proveAoC nxfs (Imp fa fc) = do
   p <- proveAoC' [] nxfs fa fc
@@ -592,10 +501,10 @@ deliteral' sftn loc (b, f) prf = do
   -- pt "Branch after insert :\n"
   -- pb $ ppInter "\n" $ L.map (\ (sf_, nm_) ->  ppSignForm sf_ <> " ----- " <> ft nm_ <> "\n") $ HM.toList sftn'
 
-  -- pt "\n-----------------------------------------------------------\n"
-  -- pb "Proof :\n"
-  -- pb $ ppPrf 5 prf
-  -- pt "\n-----------------------------------------------------------\n\n\n\n"
+  pt "\n-----------------------------------------------------------\n"
+  pb "Proof :\n"
+  pb $ ppPrf 5 prf
+  pt "\n-----------------------------------------------------------\n\n\n\n"
 
   deliteral sftn' loc (b, f) prf
 
@@ -698,8 +607,11 @@ deliteral sftn loc (b, h) (IffF' f g p q) = do
   return $ IffF_ (locText loc, b, h) nm p' q'
 
 deliteral sftn loc (b, h) (IffTO' f g p) = do
+  mark 100
   nm <- cast $ HM.lookup (True, Iff f g) sftn 
+  mark 101
   p' <- deliteral' sftn (extLoc loc) (True, Imp f g) p 
+  mark 102
   return $ IffTO_ (locText loc, b, h) nm p' 
 
 deliteral sftn loc (b, h) (IffTR' f g p) = do
@@ -773,13 +685,14 @@ linearize (Open_ ni) = [(ni, Open, Nothing)]
 elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO [Elab]
 elaborate vb ntf sf ftn stps = do
   slbs <- stepsToStelabs vb ntf sf stps
-  -- checkStelabs sf slbs
+  mark 0
+  checkStelabs sf slbs
   let slbs' = L.map (removeMultiStep . desingle) slbs
-  -- checkStelabs sf slbs'
+  checkStelabs sf slbs'
   slbs'' <- indexStelabs 0 HM.empty slbs'
-  -- checkStelabs sf slbs''
+  checkStelabs sf slbs''
   proof <- stitch ftn ("root", True, top) slbs''
-  -- checkStelabs sf slbs''
+  checkStelabs sf slbs''
   return $ linearize proof
 
 checkStelabs :: Set Form -> [Stelab] -> IO ()

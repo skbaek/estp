@@ -20,18 +20,18 @@ ppLrat :: Lrat -> Builder
 ppLrat (Del k ks) = ppInt k  <> ". Del " <> ppInter " " (L.map ppInt ks)
 ppLrat (Add k fs ms) = ppInt k  <> ". Add " <> ppInter " " (L.map ppForm fs) <> ", Using : " <> ppInter  " " (L.map ppInt ms)
 
--- ppMapping :: (Text, Term) -> Builder
--- ppMapping (t, x) = t <> " |-> " <> ppTerm x
+ppMapping :: (Text, Term) -> Builder
+ppMapping (t, x) = ft t <> " |-> " <> ppTerm x
 
--- ppVmap :: (Text, Text) -> Builder
--- ppVmap (v, w) = v <> " <-|-> " <> w
--- 
+ppVmap :: (Text, Text) -> Builder
+ppVmap (v, w) = ft $  v <> " <-|-> " <> w
+
 -- ppVM :: VM -> Builder
 -- ppVM gm = ppListNl (\ (v, x) -> v <> " |-> " <> ppTerm x) (HM.toList gm)
--- 
--- ppVR :: VR -> Builder
--- ppVR (vw, _) = ppListNl ppVmap (HM.toList vw)
--- 
+
+ppVR :: VR -> Builder
+ppVR (vw, _) = ppListNl ppVmap (HM.toList vw)
+
 -- ppVCAux :: HM.Map Text (Set Text) -> Builder
 -- ppVCAux vw = ppListNl (\ (v_, ws_) -> v_ <> " |-> " <> ppList id (S.toList ws_)) (HM.toList vw)
 -- 
@@ -168,14 +168,16 @@ ppPrfCore k (EqR' x) = ["Eq-R : " <> ppTerm x]
 ppPrfCore k (EqT' x y z) = ["Eq-T?"]
 ppPrfCore k (FaT' vxs f p) =
   let (vs, xs) = unzip vxs in
-  ("Fa-L : " <> ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
+  ("Fa-L : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
 ppPrfCore k (ExF' vxs f p) =
   let (vs, xs) = unzip vxs in
-  ("Ex-R : " <> ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
+  ("Ex-R : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
 ppPrfCore k (FaF' vs m f p) = 
-  "Fa-R : " <> ppForm (Fa vs f) : L.map pad (ppPrfCore (k - 1) p)
+  let (_, vxs) = varPars m vs in
+  ("Fa-R : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
 ppPrfCore k (ExT' vs m f p) = 
-  "Ex-L : " <> ppForm (Ex vs f) : L.map pad (ppPrfCore (k - 1) p)
+  let (_, vxs) = varPars m vs in
+  ("Ex-L : " : L.map (pad . ppMapping) vxs) ++  pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
 ppPrfCore k Open' = ["Open!"]
 
 -- ppTake :: Int -> (a -> Builder) -> a -> Builder
@@ -218,7 +220,22 @@ fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
 fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
 fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]
 
--- ppEP :: EP -> Builder
+ppPath :: Path -> Builder 
+ppPath (NewRel _ _) = "rel"
+ppPath (NewFun _ _) = "fun"
+ppPath NewEq = "eq"
+ppPath (NewFa _) = "fa"
+ppPath (NewEx _) = "ex"
+ppPath NewImpL = "imp-l"
+ppPath NewImpR = "imp-r"
+ppPath NewIffL = "iff-l"
+ppPath NewIffR = "iff-r"
+ppPath (NewOr _ _) = "or"
+ppPath (NewAnd _ _) = "and"
+ppPath NewNot = "not"
+
+ppSig :: Sig -> Builder
+ppSig = ppHM (ppList ppPath) ppInt 
 -- ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
 
 -- ppSide :: Side -> Builder
@@ -235,9 +252,13 @@ ppInf (EqS nm0 nm1) = ppApp "eqs" [ft nm0, ft nm1]
 ppInf (EqT nm0 nm1 nm2) = ppApp "eqt" [ft nm0, ft nm1, ft nm2]
 ppInf (NotT nh nc) = ppApp "nott" [ft nh, ft nc]
 ppInf (NotF nh nc) = ppApp "notf" [ft nh, ft nc]
+
+ppInf (OrT nh []) = ppApp "bott" [ft nh]
 ppInf (OrT nh ns) = ppApp "ort" [ft nh, ppList ft ns]
 ppInf (OrF nh k nc) =  ppApp "orf"  [ft nh, ppInt k, ft nc]
+
 ppInf (AndT nh k nc) = ppApp "andt" [ft nh, ppInt k, ft nc]
+ppInf (AndF nh []) = ppApp "topf" [ft nh]
 ppInf (AndF nh ns) = ppApp "andf" [ft nh, ppList ft ns]
 
 ppInf (ImpT nh n0 n1) = ppApp "impt" [ft nh, ft n0, ft n1]
@@ -277,3 +298,6 @@ ppStep (n, r, ns, f) =
   ft r <> " :: " <>
   ppList ft ns <> " :: " <> 
   ppForm f <> "\n"
+
+ppNL :: (a -> Builder) -> (a -> Builder)
+ppNL p x = p x <> "\n"
