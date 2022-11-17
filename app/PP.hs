@@ -32,11 +32,11 @@ ppVmap (v, w) = ft $  v <> " <-|-> " <> w
 ppVR :: VR -> Builder
 ppVR (vw, _) = ppListNl ppVmap (HM.toList vw)
 
--- ppVCAux :: HM.Map Text (Set Text) -> Builder
--- ppVCAux vw = ppListNl (\ (v_, ws_) -> v_ <> " |-> " <> ppList id (S.toList ws_)) (HM.toList vw)
--- 
--- ppVC :: VC -> Builder
--- ppVC (vws, wvs) = ppVCAux vws <> "-------------------------------------\n" <> ppVCAux wvs
+ppVCAux :: HM.Map Text (Set Text) -> Builder
+ppVCAux vw = ppListNl (\ (v_, ws_) -> ft v_ <> " |-> " <> ppList ft (S.toList ws_)) (HM.toList vw)
+
+ppVC :: VC -> Builder
+ppVC (vws, wvs) = ppVCAux vws <> "-------------------------------------\n" <> ppVCAux wvs
 
 -- ft :: Data.Text.Internal.Lazy.Text -> Builder
 
@@ -96,6 +96,19 @@ ppForm (Imp f g) = "(" <> ppForm f <> " => " <> ppForm g <> ")"
 ppForm (Iff f g) = "(" <> ppForm f <> " <=> " <> ppForm g <> ")"
 ppForm (Fa vs f) = "! " <> ppList ft vs <> " : " <> ppForm f
 ppForm (Ex vs f) = "? " <> ppList ft vs <> " : " <> ppForm f
+
+-- ppForm' :: Form -> Builder
+-- ppForm' (Eq t s) = "(" <> ppTerm t <> " = " <> ppTerm s <> ")"
+-- ppForm' (Rel r xs) = ppFunct r <> ppArgs (L.map ppTerm xs)
+-- ppForm' (Not f) = "~ " <> ppForm' f
+-- ppForm' (And []) = "$true"
+-- ppForm' (Or  []) = "$false"
+-- ppForm' (And fs) = "(" <> ppInter " & " (L.map ppForm' fs) <> ")"
+-- ppForm' (Or  fs) = "(" <> ppInter " | " (L.map ppForm' fs) <> ")"
+-- ppForm' (Imp f g) = "(" <> ppForm' f <> " => " <> ppForm' g <> ")"
+-- ppForm' (Iff f g) = "(" <> ppForm' f <> " <=> " <> ppForm' g <> ")"
+-- ppForm' (Fa vs f) = "! " <> ppList ft vs <> " : " <> ppForm' f
+-- ppForm' (Ex vs f) = "? " <> ppList ft vs <> " : " <> ppForm' f
 
 ppFormNl :: Form -> Builder
 ppFormNl f = ppInter "\n" (ppFormNlCore f) <> "\n"

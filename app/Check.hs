@@ -231,7 +231,6 @@ check vb k bch (AndF_ _ nm prfs) = do
   mapM2 (check_ vb k bch . (False,)) fs prfs
   skip
 check vb k bch (RelD_ _ prf) = do 
-  pb $ "k at Rel-D : " <> ppInt k <> "\n"
   let (True, f) = rootSignForm prf
   k' <- checkRelD k f
   check_ vb k' bch (True, f) prf
@@ -409,7 +408,8 @@ verify k lft rgt (FaT' vxs f p) = do
 verify k lft rgt (FaF' vs m f p) = do
   let (k', xs) = listPars m vs
   vxs <- zipM vs xs <|> error "FaF'-fail : cannot zip"
-  guard (k <= m && S.member (Fa vs f) rgt) <|> ev "FaF'-fail" (Fa vs f) lft rgt
+  guard (k <= m) <|> ev "FaF'-fail (index used too large)" (Fa vs f) lft rgt
+  guard (S.member (Fa vs f) rgt) <|> ev "FaF'-fail (missing premise)" (Fa vs f) lft rgt
   verify k' lft (S.insert (substForm vxs f) rgt) p
 verify k lft rgt (ExT' vs m f p) = do
   let (k', xs) = listPars m vs

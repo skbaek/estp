@@ -10,11 +10,13 @@ import Lem
 import PP
 import Check (verify)
 
+import Data.Text.Lazy.Builder (Builder)
+
 import Data.List as L (length, null, map, find, foldl, any, filter, concatMap, concat, all, (\\))
 import Data.Text.Lazy as T (Text, unpack)
 import Data.Set as S
-  ( Set, empty, isSubsetOf, toList, union, intersection, (\\), null, 
-    fromList, member, delete, difference, disjoint, insert, singleton )
+  ( Set, empty, isSubsetOf, toList, union, intersection, (\\), null, size,
+    fromList, member, delete, difference, disjoint, insert, singleton, elemAt )
 import Data.Map as HM
   ( Map, toList, fromList, empty, lookup, insert, isSubmapOf, map, filterWithKey, findWithDefault, mapWithKey,
     alter, foldrWithKey, notMember )
@@ -666,8 +668,8 @@ cutIff f g pfg p = Cut' (f <=> g) pfg $ Cut' g (iffMP f g) p
 
 nubIndexForm :: Form -> Int
 nubIndexForm (Not f) = nubIndexForm f
-nubIndexForm (Or fs) = maximum $ L.map nubIndexForm fs
-nubIndexForm (And fs) = maximum $ L.map nubIndexForm fs
+nubIndexForm (Or fs) = maximum $ 0 : L.map nubIndexForm fs
+nubIndexForm (And fs) = maximum $ 0 : L.map nubIndexForm fs
 nubIndexForm (Imp f g) = maximum $ L.map nubIndexForm [f, g]
 nubIndexForm (Iff f g) = maximum $ L.map nubIndexForm [f, g]
 nubIndexForm (Fa vs f) = maximum $ nubIndexForm f : L.map nubIndexVar vs
@@ -941,22 +943,43 @@ mapSearch vm fs gs = do
   zs <- cast $ getShortList zss
   first (\ (vm_, fs_) -> mapSearch vm_ fs_ gs) zs
 
-origSearchMB :: VC -> [(Form, Form)] -> Maybe VC
-origSearchMB vc [] = return vc
-origSearchMB vc fgs = do
-  let zss = L.map (origForkAux True vc) (plucks fgs)
-  zs <- cast $ getShortList zss
-  first (uncurry origSearchMB) zs
+-- origSearchMB :: VC -> [(Form, Form)] -> Maybe VC
+-- origSearchMB vc [] = return vc
+-- origSearchMB vc fgs = do
+--   let zss = L.map (origForkAux True vc) (plucks fgs)
+--   zs <- cast $ getShortList zss
+--   first (uncurry origSearchMB) zs
+
+foob :: (Form, Form) -> Builder 
+foob (f, g) = ppFormNl f <> "\n<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>\n" <> ppFormNl g <> "\n"
+
+ppZ :: [(Form, Form)] -> Builder
+ppZ = ppListNl foob
+
+ppZS :: [(VC, [(Form, Form)])] -> Builder
+ppZS = ppListNl (ppZ . snd) 
+
+ppZSS :: [[(VC, [(Form, Form)])]] -> Builder
+ppZSS = ppListNl (barf . ppZS) 
+
+barf :: Builder -> Builder
+barf = ("\n==============================================================\n" <>)
 
 origSearch :: Bool -> Int -> VC -> [(Form, Form)] -> IO VC
 origSearch md dt vc [] = return vc
 origSearch md dt vc fgs = do
   -- M.when (dt `rem` 1000 == 0) $ pt $ "Search depth = " <> ppInt dt <> "\n"
-  -- pt "\n==============================================================\n" 
+  -- pb "Function entry:\n" 
+  -- "\n==============================================================\n" 
+  -- mapM_ (pb . foob) fgs
+  -- pt "\n\n\n"
+
   -- pt $ "Search depth = " <> ppInt dt <> "\n"
   -- pt $ ppSearchState vc fgs
   let zss = L.map (origForkAux md vc) (plucks fgs)
+  -- pb $ "ZSS : " <> ppZSS zss <> "\n"
   zs <- cast $ getShortList zss
+  -- pb $ "ZS size : " <> ppInt (L.length zs) <> "\n"
   first (uncurry $ origSearch md (dt + 1)) zs
 
 super :: Term -> Term -> Dir -> [Form] -> SST -> IO (Term, Term, Dir, VM)
@@ -1075,6 +1098,25 @@ origFork False vc (And fs, And gs)
     L.map (\ (f_, fs_, g_, gs_) -> (vc, [(f_, g_), (And fs_, And gs_)])) l
 origFork md vc _ = []
 
+pickPair :: (Text, Set Text) -> Maybe (Text, Text)
+pickPair (v, ws) = do 
+  guard $ 1 < S.size ws 
+  return (v, S.elemAt 0 ws)
+
+unconstPair :: VC -> Maybe (Text, Text)
+unconstPair (vw, _) = first pickPair $ HM.toList vw
+
+pruneVC :: VC -> VC
+pruneVC vc = 
+  case unconstPair vc of 
+    Just (x, y) -> 
+      case conVar x y vc of 
+        Just vc' -> pruneVC vc' 
+        _ -> error "cannot constrain with pair"
+    _ -> vc
+
+
+
 vcToVrAux :: HM.Map Text (Set Text) -> HM.Map Text Text
 vcToVrAux vws = do
   let vwss = HM.toList vws
@@ -1171,26 +1213,24 @@ conTerm vm x y = do
   guard (x == y) -- "Cannot ground pair\n" <> ppTerm x <> "\n" <> ppTerm y <> "\n"
   return vm
 
--- orig :: Form -> Form -> IO Prf
--- orig f g 
+orig :: Form -> Form -> IO Prf
+orig f g = failAsm 30000000 (origCore f g)
+
 --   | f == g = return $ Id' f
 --   | otherwise = do
 --     p <- failAsm 60000000 (porig 0 f g)
 --     return $ Cut' (f <=> g) p $ iffMP f g
 
-orig :: Form -> Form -> IO Prf
-orig f g 
+origCore :: Form -> Form -> IO Prf
+origCore f g 
   | f == g = return $ Id' f
   | otherwise = do
     (f', g', pf) <- origPrep f g
     cvc <- makeVC f' g'
     vc <- origSearch True 0 cvc [(f', g')]
-    let vr = vcToVr vc
-    p <- porg' vr 0 f' g'
-
-    verify 0 S.empty (S.singleton (f' <=> g')) p
-
-    let vr = vcToVr vc
+    let vr = vcToVr $ pruneVC vc
+    p <- porg' vr 0 f' g' <|> error "porg-failure"
+    verify 0 S.empty (S.singleton (f' <=> g')) p 
     return $ Cut' (f <=> g) (pf p) $ iffMP f g
 
 failAsm :: Int -> IO Prf -> IO Prf
@@ -1199,6 +1239,9 @@ failAsm k pf = do
   case rst of 
     Just p -> return p 
     _ -> return Open' 
+
+constraint :: Set Text -> Set Text -> Map Text (Set Text)
+constraint vs ws = L.foldl (\ m_ v_ -> HM.insert v_ ws m_) HM.empty (S.toList vs)
 
 origSearchTimed :: Int -> Bool -> VC -> Form -> Form -> IO VC
 origSearchTimed tm md vc f g = do
@@ -1214,17 +1257,23 @@ origSearchTimed tm md vc f g = do
 makeVC :: Form -> Form -> IO VC
 makeVC f g = do
   let vs = formVars f
-  pb $ "f : " <> ppForm f <> "\n"
   let ws = formVars g
-  pb $ "g : " <> ppForm g <> "\n"
-  let fsgs = formSigs HM.empty [] f
-  let gsgs = formSigs HM.empty [] g
-  let fm = groupByTextKey fsgs
-  let gm = groupByTextKey gsgs
-  let vswss = mergeBySigs fm gm
-  -- pt $ ppListNl (\ (vs_, ws_) -> ppList id vs_ <> " <-|-> " <> ppList id ws_) vswss 
-  -- et "todo"
-  foldM (\ vc_ (vs_, ws_) -> cast (conVars vs_ ws_ vc_)) (initVC vs ws) vswss
+  return (constraint vs ws, constraint ws vs)
+
+-- makeVC :: Form -> Form -> IO VC
+-- makeVC f g = do
+--   let vs = formVars f
+--   let ws = formVars g
+--   let fsgs = formSigs HM.empty [] f
+--   let gsgs = formSigs HM.empty [] g
+--   let fm = groupByTextKey fsgs
+--   let gm = groupByTextKey gsgs
+--   pb $ "f : " <> ppForm f <> "\n"
+--   pb $ "g : " <> ppForm g <> "\n"
+--   let vswss = mergeBySigs fm gm
+--   -- pt $ ppListNl (\ (vs_, ws_) -> ppList id vs_ <> " <-|-> " <> ppList id ws_) vswss 
+--   -- et "todo"
+--   foldM (\ vc_ (vs_, ws_) -> cast (conVars vs_ ws_ vc_)) (initVC vs ws) vswss
 
 formSigs :: Sigs -> [PrePath] -> Form -> Sigs
 formSigs sg pts (Eq x y) = do
@@ -1309,7 +1358,7 @@ mergeBySigs fm gm =
           if L.length vs_ == L.length ws
           then ((vs_, ws) :)
           else et "Cannot merge sigs : 0"
-        _ -> eb ("Signature present in only one map : " <> ppSig sg_) )
+        _ -> eb ("Signature present in only one map,\nVS : " <> ppList ft vs_ <> "\nSig : " <> ppSig sg_ <> "\nOther Sigs :\n" <> ppHM ppSig (ppList ft) gm) )
     [] fm
 
 uniqVars :: [Form] -> Bool
@@ -1339,34 +1388,51 @@ rnPrep f g
     pg <- prn 0 g' g -- pfrn : |- f <=> f'
     return (f', g', \ p_ -> iffsTrans [(f, pf), (f', p_), (g', pg)] g)
 
-dneConcPrep :: Form -> Form -> IO (Form, Prf -> Prf)
-dneConcPrep f (Not (Not g)) = 
-  return (g, \ p_ -> iffsTrans [(f, p_), (g, iffNotNot g)] (Not (Not g)))
-dneConcPrep _ g = return (g, id)
+-- dneConcPrep :: Form -> Form -> IO (Form, Prf -> Prf)
+-- dneConcPrep f (Not (Not g)) = 
+--   return (g, \ p_ -> iffsTrans [(f, p_), (g, iffNotNot g)] (Not (Not g)))
+-- dneConcPrep f g = return (g, id)
 
-dnePrep :: Form -> Form -> IO (Form, Prf -> Prf)
+dnePrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
+dnePrep f (Not (Not g)) 
+  | dne f == f = 
+    return (f, g, \ p_ -> iffsTrans [(f, p_), (g, iffNotNot g)] (Not (Not g)))
+  | otherwise = do
+    let f' = dne f 
+    p <- pdne 0 f f'
+    return (f', g, \ p_ -> iffsTrans [(f, p), (f', p_), (g, iffNotNot g)] (Not (Not g)))
 dnePrep f g
-  | dne f == f = return (f, id)
+  | dne f == f = return (f, g, id)
   | otherwise = do 
     let f' = dne f 
     p <- pdne 0 f f'
-    return (f', \ p_ -> iffsTrans [(f, p), (f', p_)] g)
+    return (f', g, \ p_ -> iffsTrans [(f, p), (f', p_)] g)
 
-flatPrep :: Form -> Form -> IO (Form, Prf -> Prf)
+flatPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
 flatPrep f g 
-  | fltn f == f = return (f, id)
-  | otherwise = do 
+  | fltn f == f && fltn g == g = return (f, g, id)
+  | fltn f /= f && fltn g == g = do
     let f' = fltn f 
     p <- pfl 0 f f'
-    return (f', \ p_ -> Mrk "flat-prep" $ iffsTrans [(f, p), (f', p_)] g)
+    return (f', g, \ p_ -> iffsTrans [(f, p), (f', p_)] g)
+  | fltn f == f && fltn g /= g = do
+    let g' = fltn g 
+    p <- pfl 0 g g'
+    return (f, g', \ p_ -> iffsTrans [(f, p_), (g', Cut' (g <=> g') p (iffSym g g'))] g)
+  | otherwise = do 
+    let f' = fltn f 
+    let g' = fltn g 
+    pf <- pfl 0 f f'
+    pg <- pfl 0 g g'
+    return (f', g', \ p_ -> iffsTrans [(f, pf), (f', p_), (g', Cut' (g <=> g') pg (iffSym g g'))] g)
 
 origPrep :: Form -> Form -> IO (Form, Form, Prf -> Prf)
 origPrep f g = do
-  (f', g', pf0) <- rnPrep f g  
-  (f'', pf1) <- dnePrep f' g'
-  (f''', pf2) <- flatPrep f'' g'
-  (g'', pf3) <- dneConcPrep f''' g'
-  return (f''', g'', pf0 . pf1 . pf2 . pf3)
+  (f0, g0, pf0) <- rnPrep f g  
+  (f1, g1, pf1) <- dnePrep f0 g0
+  (f2, g2, pf2) <- flatPrep f1 g1
+  -- (g'', pf3) <- dneConcPrep f''' g'
+  return (f2, g2, pf0 . pf1 . pf2)
 
 conAuxAux :: Text -> Set Text -> Text -> Set Text -> Set Text
 conAuxAux v wso w vs =
@@ -1444,12 +1510,13 @@ porig k f g
      (f, g) -> mzero 
 
 porg' :: VR -> Int -> Form -> Form -> IO Prf
-porg' vm k f g = do
-  p <- porg vm k f g 
-  pb $ "Verifying equivalence...\n  f : " <> ppForm f <> "\n  g : " <> ppForm g  <> "\nVR : " <> ppVR vm <> "\nPrf:\n" <> ppPrf 15 p
-
-  verify 0 S.empty (S.singleton (f <=> g)) p 
-  return p
+porg' vr k f g = do
+  -- pb $ "VR :\n" <> ppVR vr <> "\n"
+  -- p <- porg vr k f g 
+  -- -- pb $ "\n\nVerifying equivalence...\n  f : " <> ppForm f <> "\n  g : " <> ppForm g  <> "\nVR : " <> ppVR vm <> "\nPrf:\n" <> ppPrf 15 p
+  -- -- verify 0 S.empty (S.singleton (f <=> g)) p 
+  -- return p
+  porg vr k f g 
 
 porg :: VR -> Int -> Form -> Form -> IO Prf
 porg vm k f g 
@@ -1498,7 +1565,7 @@ porg vm k f g
        let fp = substForm vws f
        let fp' = substForm wxs fp
        p <- porg' vm k' fp' g'
-       Cut' (Fa ws $ fp <=> g) (FaF' ws k (fp <=> g) p) <$> genFaIffToExIffEx vm k vs f ws g
+       Cut' (Fa ws $ fp <=> g) (FaF' ws k (fp <=> g) p) <$> genFaIffToExIffEx (Fa ws $ fp <=> g) vm k vs f ws g
      (f, g) -> mzero 
 
 uvm :: Int -> VR -> Form -> Form -> IO Prf

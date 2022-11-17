@@ -7,13 +7,13 @@ import Types
 import Basic
 import PP 
 import Prove 
-import Lem (impFAC)
+import Lem (impFAC, impToOrNot, rDefLemma1)
 import Sat (sat)
 import Expand (stelabsToElabs)
 import Check (isRelD, verify)
 
 import Data.List as L (all, map, foldl, length, reverse, findIndex, concatMap, mapAccumL, elemIndex)
-import Data.Map as HM (insert, lookup, Map, empty, toList)
+import Data.Map as HM (insert, lookup, Map, empty, toList, member, notMember)
 import Data.Set as S (Set, insert, singleton, toList, member)
 import Data.Text.Lazy as T (Text, intercalate)
 import Data.Text.Lazy.Builder (Builder)
@@ -128,19 +128,17 @@ removeMultiStepPrf Open' = Open'
 
 checkStelab :: Set Form -> Stelab -> IO Form
 checkStelab sq (InfStep g p nm) = do
-  pb $ "Checking inf-stelab : " <> ft nm <> "\n"
+  -- pb $ "Checking inf-stelab : " <> ft nm <> "\n"
   verify 0 sq (S.singleton g) p
   return g
 checkStelab sq (DefStep f g p nm) = do
-  pb $ "Checking def-stelab : " <> ft nm <> "\n"
+  -- pb $ "Checking def-stelab : " <> ft nm <> "\n"
   guard $ isRelD f
   verify 0 (S.singleton f) (S.singleton g) p
   return g
 checkStelab sq (AoCStep xs f g p nm) = do
-  pb $ "Checking aoc-stelab : " <> ft nm <> "\n"
+  -- pb $ "Checking aoc-stelab : " <> ft nm <> "\n"
   isAoC' xs f
-  pb $ "f : " <> ppForm f <> "\n"
-  pb $ "g : " <> ppForm g <> "\n"
   verify 0 (S.singleton f) (S.singleton g) p
   return g
 
@@ -175,8 +173,37 @@ infer "avatar_split_clause" (f : fs) g    = avatarSplit fs f g
 infer "unused_predicate_definition_removal" [f] g = updr 0 f g
 infer "avatar_contradiction_clause" [f] g = efactor (Just True) f g
 infer "skolemisation" (f : fs) g = skolemize fs 0 f g
+infer "usedef" [f] g = usedef f g 
 infer r fs g = et $ "No inference : " <> r
 
+unsnoc :: [a] -> Maybe ([a], a)
+unsnoc [] = mzero
+unsnoc [x] = return ([], x)
+unsnoc (x : xs) = DBF.first (x :) <$> unsnoc xs
+
+usedef' :: Form -> Form -> IO Prf
+usedef' (Iff f g) (Or [g', Not f']) = do
+  guard $ f == f' && g == g'
+  return $ IffTO' f g $ impToOrNot f g  
+usedef' (Iff f (Or gs)) (Or gsf) = do
+  (gs', Not f') <- cast $ unsnoc gsf
+  guardMsg "defniendum mismatch" $ f == f'
+  guardMsg "defniens mismatch" $ gs == gs'
+  return $ rDefLemma1 f gs gsf
+usedef' f g 
+  | f == g = return $ Id' f
+  | otherwise = eb $ "Cannot use def\n" <> "f : " <> ppForm f <> "\ng : " <> ppForm g <> "\n"
+
+usedef :: Form -> Form -> IO Prf
+usedef (Fa vs f) (Fa ws g) = do 
+  let (_, xs) = listPars 0 ws
+  vxs <- zipM vs xs
+  wxs <- zipM ws xs
+  let f' = substForm vxs f 
+  let g' = substForm wxs g
+  p <- usedef' f' g' 
+  return $ FaF' ws 0 g $ FaT' vxs f p
+usedef f g = usedef' f g 
 
 elab :: NTF -> Step -> IO Stelab
 elab s (n, "file", [m], g) = do
@@ -184,18 +211,12 @@ elab s (n, "file", [m], g) = do
   -- pb $ "Formula " <> ft m <> " : " <> ppForm f <> "\n"
   -- pb $ "Formula " <> ft n <> " : " <> ppForm g <> "\n"
   p <- orig f g
-  -- pb "Orig success!\n"
   return $ InfStep g p n
 elab _ (n, "predicate_definition_introduction", [], g) = relDef n g
 elab _ (n, "avatar_definition", [], g) = relDef n g
 elab s (n, "choice_axiom", [], g) = do
   (xs, f) <- normalizeAoC g
   p <- orig f g
-  
-  pt "VERIFYING AOC!!!\n"
-  verify 0 (S.singleton f) (S.singleton g) p
-  pt "AOC VERIFIED!!!\n"
-
   return $ AoCStep xs f g p n
 elab s (n, "avatar_sat_refutation", ns, g) = do
   fs <- mapM (`lookupM` s) ns
@@ -210,7 +231,6 @@ stelabIO :: Bool -> (NTF, Set Form) -> Step -> IO ((NTF, Set Form), Stelab) -- t
 stelabIO vb (nsq, sq) af@(n, _, _, f) = do
   when vb $ print $ "Elaborating step = " <> n
   e <- elab nsq af
-  pb "Elaborated!!!\n"
   return ((HM.insert n f nsq, S.insert f sq), e)
 
 stepsToStelabs :: Bool -> NTF -> Set Form -> [Step] -> IO [Stelab]
@@ -235,13 +255,11 @@ indexStelabs k mp (InfStep f p tx : slbs) = do
   return $ InfStep (indexForm mp f) (indexPrf k mp p) tx : slbs'
 indexStelabs k mp (DefStep f g p tx : slbs) = do
   let r = definedRel f 
+  guardMsg "Cannot re-index existing functor" $ HM.notMember r mp
   let mp' = HM.insert r k mp 
   let f' = indexForm mp' f 
   let g' = indexForm mp' g 
   let p' = indexPrf (k + 1) mp' p 
-  pt "New map :\n"
-  pb $ ppHM ppFunct ppInt mp'
-  pt "\n\n\n"
   slbs' <- indexStelabs (k + 1) mp' slbs 
   return $ DefStep f' g' p' tx : slbs'
 indexStelabs k mp (AoCStep xs f g p tx : slbs) = do
@@ -253,7 +271,10 @@ indexStelabs k mp (AoCStep xs f g p tx : slbs) = do
   return $ AoCStep xs' f' g' p' tx : slbs'
 
 indexAoCStep :: (Int, HM.Map Funct Int) -> Term -> ((Int, HM.Map Funct Int), Term)
-indexAoCStep (k, mp) (Fun (Reg tx) xs) = ((k + 1, HM.insert (Reg tx) k mp), Fun (Idx k) xs)
+indexAoCStep (k, mp) (Fun (Reg tx) xs) = 
+  if HM.member (Reg tx) mp
+  then et "Cannot re-index existing functor"
+  else ((k + 1, HM.insert (Reg tx) k mp), Fun (Idx k) xs)
 indexAoCStep (k, mp) x =  error "cannot get functor text"
 
 indexPrf :: Int -> HM.Map Funct Int -> Prf -> Prf
@@ -372,7 +393,7 @@ range _ 0 = []
 range k m = k : range (k + 1) (m - 1)
 
 stitch :: SFTN -> NodeInfo -> [Stelab] -> IO Proof
-stitch sftn ni@(nm, True, Or []) [] = mark 20 >> return (OrT_ ni nm [])
+stitch sftn ni@(nm, True, Or []) [] = return (OrT_ ni nm [])
 stitch _ _ [] = error "Last signed formula of branch is not a T-bot"
 stitch sftn ni (InfStep g prf cmt : slbs) = do 
   let loc = (cmt, [], 0)
@@ -388,26 +409,19 @@ stitch sftn ni (DefStep f g p cmt : slbs) = do
   return $ RelD_ ni $ Cut_ (locText loc, True, f) pf pt
 
 stitch sftn ni (AoCStep xs f g prf_g cmt : slbs) = do 
-  mark 0
   (vs, fa) <- breakAoC f
-  mark 1
   nxfs <- singleAoCs 0 (cmt <> "_AoCs_") xs vs fa
-  mark 2
   let locf = (cmt <> "_AoC", [], 0)
   let nmf = cmt <> "_AoC"
   let locg = (cmt, [], 0)
   let nmg = cmt
   prf_f <- proveAoC nxfs f
-  mark 3
   let sftn_fs = foldl (\ sftn_ (nm_, _, f_) -> HM.insert (True, f_) nm_ sftn_) sftn nxfs
   pf <- deliteral' sftn_fs locf (False, f) prf_f
-  mark 4
   let sftn_f = HM.insert (True, f) nmf sftn
   pg <- deliteral' sftn_f locg (False, g) prf_g
-  mark 5
   let sftn_fg = HM.insert (True, g) nmg sftn_f
   pt <- stitch sftn_fg (cmt, True, g) slbs
-  mark 6
   return $ stitchAoCs ni nxfs pf (Cut_ (nmf, True, f) pg pt)
 
 stitchAoCs :: NodeInfo -> [(Text, Term, Form)] -> Proof -> Proof -> Proof
@@ -501,10 +515,10 @@ deliteral' sftn loc (b, f) prf = do
   -- pt "Branch after insert :\n"
   -- pb $ ppInter "\n" $ L.map (\ (sf_, nm_) ->  ppSignForm sf_ <> " ----- " <> ft nm_ <> "\n") $ HM.toList sftn'
 
-  pt "\n-----------------------------------------------------------\n"
-  pb "Proof :\n"
-  pb $ ppPrf 5 prf
-  pt "\n-----------------------------------------------------------\n\n\n\n"
+  -- pt "\n-----------------------------------------------------------\n"
+  -- pb "Proof :\n"
+  -- pb $ ppPrf 5 prf
+  -- pt "\n-----------------------------------------------------------\n\n\n\n"
 
   deliteral sftn' loc (b, f) prf
 
@@ -607,11 +621,8 @@ deliteral sftn loc (b, h) (IffF' f g p q) = do
   return $ IffF_ (locText loc, b, h) nm p' q'
 
 deliteral sftn loc (b, h) (IffTO' f g p) = do
-  mark 100
   nm <- cast $ HM.lookup (True, Iff f g) sftn 
-  mark 101
   p' <- deliteral' sftn (extLoc loc) (True, Imp f g) p 
-  mark 102
   return $ IffTO_ (locText loc, b, h) nm p' 
 
 deliteral sftn loc (b, h) (IffTR' f g p) = do
@@ -685,14 +696,13 @@ linearize (Open_ ni) = [(ni, Open, Nothing)]
 elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO [Elab]
 elaborate vb ntf sf ftn stps = do
   slbs <- stepsToStelabs vb ntf sf stps
-  mark 0
-  checkStelabs sf slbs
+  -- checkStelabs sf slbs
   let slbs' = L.map (removeMultiStep . desingle) slbs
-  checkStelabs sf slbs'
+  -- checkStelabs sf slbs'
   slbs'' <- indexStelabs 0 HM.empty slbs'
-  checkStelabs sf slbs''
+  -- checkStelabs sf slbs''
   proof <- stitch ftn ("root", True, top) slbs''
-  checkStelabs sf slbs''
+  -- checkStelabs sf slbs''
   return $ linearize proof
 
 checkStelabs :: Set Form -> [Stelab] -> IO ()

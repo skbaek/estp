@@ -262,6 +262,31 @@ faIffToExIffEx'' k vs f ws g = do
     (ExT' vs k f $ ExF' wxs g $ FaT' wxs (f'' <=> g) $ iffMP f' g') 
     (ExT' ws k g $ ExF' vxs f $ FaT' wxs (f'' <=> g) $ iffMPR f' g')
 
+-- ! ws (f[vw] <=> g) |- (? vs f) <=> (? ws g)
+genFaIffToExIffEx :: Form -> VR -> Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
+genFaIffToExIffEx rfp (vw, wv) k vs f ws g = do
+  let (_, vxs) = varPars k vs 
+  let (_, wxs) = varPars k ws 
+  vxs' <- mapM (cast . findEqvInst vw wxs) vs
+  wxs' <- mapM (cast . findEqvInst wv vxs) ws
+  let f' = substForm vxs f 
+  let g' = substForm wxs g 
+  let f'' = substForm vxs' f 
+  let g'' = substForm wxs' g 
+  vws <- mapM (pairWithVR' (vw, wv)) vs 
+  -- let fp = appVrForm (vw, wv) f
+  let fp = substForm vws f
+
+  --guardMsg "Reconstructed fp does not match" $ rfp == Fa ws (fp <=> g) 
+  --guardMsg "f[vxs] != f''" $ f' == substForm wxs fp
+--
+  --guardMsg "Reconstructed f' does not match" $ f' == substForm wxs fp
+  --guardMsg "Reconstructed f'' does not match" $ f'' == substForm wxs' fp
+
+
+  return $ iffRFull (Ex vs f) (Ex ws g) 
+    (ExT' vs k f $ ExF' wxs' g $ FaT' wxs' (fp <=> g) $ iffMP  f' g'') 
+    (ExT' ws k g $ ExF' vxs' f $ FaT' wxs  (fp <=> g) $ iffMPR f'' g')
 
 -- ! ws (f[vs |=> ws] <=> g) |- (! vs f) <=> (! ws g)
 faIffToFaIffFa'' :: Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
@@ -315,36 +340,19 @@ genFaIffToFaIffFa (vw, wv) k vs f ws g = do
     (FaF' ws k g $ FaT' vxs' f $ FaT' wxs  (fp <=> g) $ iffMP  f'' g' ) 
     (FaF' vs k f $ FaT' wxs' g $ FaT' wxs' (fp <=> g) $ iffMPR f'  g'')
 
--- ! ws (f' <=> g) |- (? vs f) <=> (? ws g)
-genFaIffToExIffEx' :: Int -> [Text] -> [Term] -> Form -> Form -> [Text] -> [Term] -> Form -> IO Prf
-genFaIffToExIffEx' k vs xs f fr ws ys g = do 
-  vxs <- zipM vs xs
-  wys <- zipM ws ys
-  let f' = substForm vxs f 
-  let fr' = substForm wys f 
-  let g' = substForm wys g 
-  guardMsg "Substitution mismatch" $ f' == fr'
-  return $ iffRFull (Ex vs f) (Ex ws g) 
-    (ExT' vs k f $ ExF' wxs' g $ FaT' wxs' (fp <=> g) $ iffMP  f'' g' ) 
-    (ExT' ws k g $ ExF' vxs' f $ FaT' wxs  (fp <=> g) $ iffMPR f'  g'')
+-- -- ! ws (f' <=> g) |- (? vs f) <=> (? ws g)
+-- genFaIffToExIffEx' :: Int -> [Text] -> [Term] -> Form -> Form -> [Text] -> [Term] -> Form -> IO Prf
+-- genFaIffToExIffEx' k vs xs f fr ws ys g = do 
+--   vxs <- zipM vs xs
+--   wys <- zipM ws ys
+--   let f' = substForm vxs f 
+--   let fr' = substForm wys f 
+--   let g' = substForm wys g 
+--   guardMsg "Substitution mismatch" $ f' == fr'
+--   return $ iffRFull (Ex vs f) (Ex ws g) 
+--     (ExT' vs k f $ ExF' wxs' g $ FaT' wxs' (fp <=> g) $ iffMP  f'' g' ) 
+--     (ExT' ws k g $ ExF' vxs' f $ FaT' wxs  (fp <=> g) $ iffMPR f'  g'')
 
--- ! ws (f[vw] <=> g) |- (? vs f) <=> (? ws g)
-genFaIffToExIffEx :: VR -> Int -> [Text] -> Form -> [Text] -> Form -> IO Prf
-genFaIffToExIffEx (vw, wv) k vs f ws g = do
-  let (_, vxs) = varPars k vs 
-  let (_, wxs) = varPars k ws 
-  vxs' <- mapM (cast . findEqvInst vw wxs) vs
-  wxs' <- mapM (cast . findEqvInst wv vxs) ws
-  let f' = substForm vxs f 
-  let g' = substForm wxs g 
-  let f'' = substForm vxs' f 
-  let g'' = substForm wxs' g 
-  -- let fp = appVrForm (vw, wv) f
-  vws <- mapM (pairWithVR' (vw, wv)) vs 
-  let fp = substForm vws f
-  return $ iffRFull (Ex vs f) (Ex ws g) 
-    (ExT' vs k f $ ExF' wxs' g $ FaT' wxs' (fp <=> g) $ iffMP  f'' g' ) 
-    (ExT' ws k g $ ExF' vxs' f $ FaT' wxs  (fp <=> g) $ iffMPR f'  g'')
 
 -- faFaIff k vs ws f : |- ! vs (! ws f) <=> ! (vs ++ ws) f
 faFaIff :: Int -> [Text] -> [Text] -> Form -> Prf

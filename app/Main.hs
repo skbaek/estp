@@ -5,6 +5,7 @@
 {-# HLINT ignore "Use foldl" #-}
 {-# HLINT ignore "Use second" #-}
 {-# HLINT ignore "Use list comprehension" #-}
+{-# HLINT ignore "Use infix" #-}
 
 module Main where
 
@@ -25,7 +26,7 @@ import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
 import System.Environment ( getArgs )
-import Data.List as L ( map, foldl, all, concat, reverse, length, any, filter, delete )
+import Data.List as L ( map, foldl, all, concat, reverse, length, any, filter, delete, isPrefixOf, stripPrefix )
 import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
 import Data.Text.Lazy.Builder (Builder)
 import Data.Set as S ( empty, insert, member, singleton, toList, Set )
@@ -33,9 +34,7 @@ import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey, size, 
 import Data.Text.Lazy.IO as TIO ( hPutStrLn, hPutStr, writeFile )
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode) )
-
-putAF :: AF -> IO ()
-putAF af = pb $ fmtAF af <> "\n"
+-- import Data.Strings (strStartsWith) 
 
 addHyp :: (NTF, Set Form) -> AF -> (NTF, Set Form)
 addHyp (nsq, sq) (n, _, f, _) = (HM.insert n f nsq, S.insert f sq)
@@ -285,38 +284,52 @@ hypsSteps verbose tptp tstp = do
   when verbose $ mapM_ (pb . ppStep) stps
   return (ntf, sf, ftn, stps)
 
-
 writeElab :: String -> [Elab] -> IO ()
 writeElab nm efs = do
   let output = tlt $ ppInter "\n" $ L.map ppElab efs
   Prelude.putStrLn $ "Writing Elab : " <> nm
   TIO.writeFile nm output
 
+
 isVar :: Term -> Bool
 isVar (Var _) = True
 isVar _ = False
 
-dev :: [String] -> IO ()
--- dev (tptp : flags)
---   | "quick" `elem` flags = do
---      afs <- parsePreName tptp
---      let k = L.length afs
---      pb $ ppInt k <> " annotated pre-formulas parsed.\n"
---   | otherwise = do
---      afs <- parseName tptp
---      let k = L.length afs
---      pb $ ppInt k <> " annotated formulas parsed.\n"
-dev _ = et "invalid args"
-
--- ppFM :: HM.Map EP (Form, Bool, Int) -> Builder
--- ppFM fm = ppListNl (\ (ep_, (f_, pl_, _)) -> ppEP ep_ <> " : " <> ppSignForm (f_, pl_)) $ HM.toList fm
--- 
--- ppHM :: (a -> Builder) -> (b -> Builder) -> HM.Map a b -> Builder
--- ppHM f g m = ppListNl (\ (x_, y_) -> f x_ <> " : " <> g y_) $ HM.toList m
-
 ps :: String -> IO ()
 ps = Prelude.putStr
+
+afName :: AF -> Text
+afName (n, _, _, _) = n
+
+isExtraAF :: Text -> Bool
+isExtraAF ('e' :> _) = True
+isExtraAF _ = False
   
+breakExtra :: Text -> IO Int
+breakExtra ('e' :> tx) = cast $ readInt tx
+breakExtra _ = mzero
+
+redefine :: [Int] -> AF -> IO AF
+redefine ks ('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],
+  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) = do 
+    k <- cast $ readInt tx
+    guard (k `elem` ks)
+    return ("f" <> tx, lang, g, Just (Gfun "inference" [Gfun "usedef" [], Glist [], Glist [Gfun ("e" <> tlt (ppInt k)) []]], Nothing)) 
+redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
+  Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) = do
+    k <- cast $ readInt tx
+    -- pb $ "Is it in list? : " <> ppInt k <> "\n"
+    -- guard (k `elem` ks)
+    -- return ("f" <> tx, lang, g, Just (Gfun "inference" [Gfun "usedef" [], Glist [], Glist [Gfun ("e" <> tlt (ppInt k)) []]], Nothing)) 
+    guard (k `notElem` ks)
+    return af
+redefine _ af = return af
+
+--     return (n, "avatar_definition", [], g)
+-- afToStep (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
+--   txs <- cast (mapM gFunFunctor l)
+--   return (n, "avatar_sat_refutation", txs, g)
+
 mainArgs :: [String] -> IO ()
 -- mainArgs ("elab" : args) = elaborate args
 mainArgs ("elab" : tptp : tstp : estp : flags) = do 
@@ -328,6 +341,19 @@ mainArgs ("check" : tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
   (bch, prf) <- branchProof vb tptp estp
   check vb 0 bch prf
+mainArgs ("dev" : tstp : _) = 
+  if isPrefixOf "/home/sk/tstp/alt/" tstp
+    then do 
+      probName <- cast $ stripPrefix "/home/sk/tstp/alt/" tstp
+      ps $ "Alt solution : " <> tstp <> "\n"
+      afs <- parseName tstp 
+      let nms = L.filter isExtraAF (L.map afName afs)
+      ks <- mapM breakExtra nms
+      pb $ ppList ppInt ks  
+      afs' <- mapM (redefine ks) afs
+      let output = tlt $ ppInter "\n" $ L.map ((<> ".") . fmtAF) afs'
+      TIO.writeFile ("./newalt/" ++ probName)  output
+    else skip
 mainArgs _ = et "Invalid main args"
 
 main :: IO ()

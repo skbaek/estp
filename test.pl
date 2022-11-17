@@ -49,11 +49,11 @@ check(FLAGS, NUM, (NAME, TPTP, _)) :-
   format(string(CHK_CMD), "cabal run :all -- check ~w ~w ~w", [TPTP, ESTP, FLAGS_STR]), 
   shell(CHK_CMD, 0), nl.
 
-dev(FLAGS, NUM, (NAME, TPTP, _)) :- 
-  write("---------------------------------------------------------------------------"), 
+dev(FLAGS, _, (_, _, TSTP)) :- 
+  % write("---------------------------------------------------------------------------"), 
   atomics_to_string(FLAGS, " ", FLAGS_STR),
-  format("Problem ~w : ~w", [NUM, NAME]), nl, nl,
-  format(string(CHK_CMD), "cabal run :all -- dev ~w ~w", [TPTP, FLAGS_STR]), 
+  % format("Problem ~w : ~w", [NUM, NAME]), nl, nl,
+  format(string(CHK_CMD), "cabal run :all -- dev ~w ~w", [TSTP, FLAGS_STR]), 
   shell(CHK_CMD, 0), nl.
 
 parse_drop_take(DROP_ARG, TAKE_ARG, DROP, TUPS) :- 
@@ -73,4 +73,7 @@ main(['check', DROP_ARG, TAKE_ARG | FLAGS]) :-
 
 main(['dev', DROP_ARG, TAKE_ARG | FLAGS]) :-
   parse_drop_take(DROP_ARG, TAKE_ARG, DROP, TUPS), 
-  imap(dev(FLAGS), DROP, TUPS).
+  include(is_alt, TUPS, ALT_TUPS),
+  imap(dev(FLAGS), DROP, ALT_TUPS).
+
+is_alt((_, _, STR)) :- atom_concat('/home/sk/tstp/alt/', _, STR).

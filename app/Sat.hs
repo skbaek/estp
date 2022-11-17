@@ -177,4 +177,6 @@ sat fs = do
   runCommand "rm temp.*" >>= waitForProcess
   let lns = L.map T.words $ T.lines t
   lrs <- cast $ mapM (textsToLrat as) lns
-  lratsPrf (lratCtx 1 fs) lrs 
+  p <- lratsPrf (lratCtx 1 fs) lrs 
+  pt "\nSAT step success!\n"
+  return p
