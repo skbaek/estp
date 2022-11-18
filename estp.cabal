@@ -16,7 +16,7 @@ executable estp
     -- -fprof-auto
     -- -prof
     -- "-with-rtsopts=-N -p -s -h -i0.1"
-  other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove, Elab, Expand, Check
+  other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove, Elab, Check
   -- other-extensions:
   build-depends:    
     base ^>=4.14.3.0,

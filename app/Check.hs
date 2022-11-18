@@ -315,7 +315,7 @@ check vb k bch (ExF_ _ nm xs prf) = do
   vxs <- zipM vs xs 
   let f' = substForm vxs f
   check_ vb k bch (False, f') prf
-check _ _ _ (Open_ _) = skip
+check _ _ _ (Open_ _) = error "Open-detected" -- skip
 
 {- Verification -}
 

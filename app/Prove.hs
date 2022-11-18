@@ -1243,17 +1243,6 @@ failAsm k pf = do
 constraint :: Set Text -> Set Text -> Map Text (Set Text)
 constraint vs ws = L.foldl (\ m_ v_ -> HM.insert v_ ws m_) HM.empty (S.toList vs)
 
-origSearchTimed :: Int -> Bool -> VC -> Form -> Form -> IO VC
-origSearchTimed tm md vc f g = do
-  pt $ "Search mode : " <> (if md then "deep" else "quick") <> "\n"
-  pb $ "Search time : " <> ppInt tm <> " ms\n"
-  rst <- timeout tm (origSearch md 0 vc [(f, g)])
-  case rst of 
-    Just vc' -> return vc' 
-    _ -> do 
-      pt "Search timed out, changing strat...\n"
-      origSearchTimed (tm * 2) (not md) vc f g
-
 makeVC :: Form -> Form -> IO VC
 makeVC f g = do
   let vs = formVars f

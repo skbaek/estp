@@ -12,14 +12,14 @@ module Main where
 import Types
 import Basic
 import PP
-import Parse ( parseName, parsePreName, decimal, parseForm, univClose, conjecturize, estpToElabs, tstpToSteps,
-  functor, parse )
+import Parse ( parseName, parsePreName, decimal, parseForm, univClose,
+  conjecturize, estpToElabs, tstpToSteps, functor, parse )
 import Sat ( sat )
 import Lem
 import Norm
 import Prove
 import Elab (elaborate)
-import Expand (stelabsToElabs)
+-- import Expand (stelabsToElabs)
 import Check (check)
 
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
@@ -115,50 +115,6 @@ prfHasAsm (ExF' _ _ p) = prfHasAsm p
 prfHasAsm (Mrk _ p) = prfHasAsm p
 prfHasAsm Open' = True
 
--- elabHasAsm :: Stelab -> Bool
--- elabHasAsm (InfStep _ p _) = prfHasAsm p
--- elabHasAsm (DefStep _ _ p _) = prfHasAsm p
--- elabHasAsm (AoCStep _ _ _ p _) = prfHasAsm p
-
--- elabHasSjt :: Stelab -> Bool
--- elabHasSjt (InfStep _ p _)     = prfHasSjt p
--- elabHasSjt (RelD' _ _ _ p _) = prfHasSjt p
--- elabHasSjt (AoC' _ _ _ p _)  = prfHasSjt p
--- 
--- prfHasSjt :: Prf -> Bool
--- prfHasSjt (Id' _) = False
--- prfHasSjt (EqR' _) = False
--- prfHasSjt (EqS' _ _) = False
--- prfHasSjt EqT'  {} = False
--- prfHasSjt FunC' {} = False
--- prfHasSjt RelC' {} = False
--- prfHasSjt (Cut f p0 p1) = prfHasSjt p0 || prfHasSjt p1
--- prfHasSjt (ImpFA' _ _ p) = prfHasSjt p
--- prfHasSjt (ImpFC' _ _ p) = prfHasSjt p
--- prfHasSjt (IffTO' _ _ p) = prfHasSjt p
--- prfHasSjt (IffTR' _ _ p) = prfHasSjt p
--- prfHasSjt (ImpT' _ _ p0 p1) = prfHasSjt p0 || prfHasSjt p1
--- prfHasSjt (IffF' _ _ p0 p1) = prfHasSjt p0 || prfHasSjt p1
--- prfHasSjt (OrT' fps) = L.any (prfHasSjt . snd) fps
--- prfHasSjt (AndF' fps) = L.any (prfHasSjt . snd) fps
--- prfHasSjt (OrF' _ _ p) = prfHasSjt p
--- prfHasSjt (AndT' _ _ p) = prfHasSjt p
--- prfHasSjt (NotT' _ p) = prfHasSjt p
--- prfHasSjt (NotF' _ p) = prfHasSjt p
--- prfHasSjt (FaT' _ _ p) = prfHasSjt p
--- prfHasSjt (FaF' _ _ _ p) = prfHasSjt p
--- prfHasSjt (ExT' _ _ _ p) = prfHasSjt p
--- prfHasSjt (ExF' _ _ p) = prfHasSjt p
--- prfHasSjt (Mrk _ p) = prfHasSjt p
--- prfHasSjt Asm = True
--- 
-
--- efForm :: Elab -> Form
--- efForm (_, _, f, _, _, _) = f
-
--- efEP :: Elab -> EP
--- efEP (ep, _, _, _, _, _) = ep
-
 stepHyps :: Step -> [Text]
 stepHyps (_, _, ns, _) = ns
 
@@ -192,17 +148,6 @@ infHyps (ExF n _ _) = [n]
 infHyps (RelD _) = []
 infHyps (AoC _ _) = []
 infHyps Open = []
-   
--- nodeElabs :: Bool -> String -> String -> IO (Nodes, [Elab])
--- nodeElabs vb tptp estp = do
---   pt $ "TPTP : " <> pack tptp <> "\n"
---   pafs <- parsePreName tptp
---   pt $ "ESTP : " <> pack estp <> "\n"
---   efs <- estpToElabs estp 
---   let ahns = foldl (\ ns_ -> foldl (flip S.insert) ns_ . efHyps) S.empty efs
---   let _nds = L.foldl (addToNodes ahns) HM.empty pafs
---   let nds = L.foldl (\ mp_ (ep_, pl_, f_, k_, _, _) -> HM.insert (tlt $ ppEP ep_) (f_, pl_, k_) mp_) _nds efs
---   return (nds, efs)
 
 assemble' :: HM.Map Text Elab -> Elab -> IO Proof
 assemble' mp (ni, Id nt nf, _) = return $ Id_ ni nt nf
@@ -334,12 +279,19 @@ mainArgs :: [String] -> IO ()
 -- mainArgs ("elab" : args) = elaborate args
 mainArgs ("elab" : tptp : tstp : estp : flags) = do 
   let vb = "silent" `notElem` flags
+  when vb $ pt "Reading problem and solution...\n"
   (ntf, sf, ftn, stps) <- hypsSteps vb tptp tstp
+  when vb $ pt "Elaborating solution...\n"
   elbs <- elaborate vb ntf sf ftn stps
+  when vb $ pt "Writing solution...\n"
   writeElab estp elbs
 mainArgs ("check" : tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
+  -- when vb $ pt "Reading TPTP and ESTP files...\n"
+  pt "Reading TPTP and ESTP files...\n"
   (bch, prf) <- branchProof vb tptp estp
+  -- when vb $ pt "Checking ESTP solution...\n"
+  pt "Checking ESTP solution...\n"
   check vb 0 bch prf
 mainArgs ("dev" : tstp : _) = 
   if isPrefixOf "/home/sk/tstp/alt/" tstp

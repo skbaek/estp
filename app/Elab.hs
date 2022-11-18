@@ -9,7 +9,7 @@ import PP
 import Prove 
 import Lem (impFAC, impToOrNot, rDefLemma1)
 import Sat (sat)
-import Expand (stelabsToElabs)
+-- import Expand (stelabsToElabs)
 import Check (isRelD, verify)
 
 import Data.List as L (all, map, foldl, length, reverse, findIndex, concatMap, mapAccumL, elemIndex)
@@ -693,6 +693,13 @@ linearize (RelD_ ni p) = (ni, RelD (proofRN p), Nothing) : linearize p
 linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p), Nothing) : linearize p
 linearize (Open_ ni) = [(ni, Open, Nothing)]
 
+checkStelabs :: Set Form -> [Stelab] -> IO ()
+checkStelabs sf [] = return ()
+checkStelabs sf (slb : slbs) = do 
+  g <- checkStelab sf slb 
+  let sf' = S.insert g sf 
+  checkStelabs sf' slbs
+
 elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO [Elab]
 elaborate vb ntf sf ftn stps = do
   slbs <- stepsToStelabs vb ntf sf stps
@@ -704,13 +711,3 @@ elaborate vb ntf sf ftn stps = do
   proof <- stitch ftn ("root", True, top) slbs''
   -- checkStelabs sf slbs''
   return $ linearize proof
-
-checkStelabs :: Set Form -> [Stelab] -> IO ()
-checkStelabs sf [] = return ()
-checkStelabs sf (slb : slbs) = do 
-  g <- checkStelab sf slb 
-  let sf' = S.insert g sf 
-  checkStelabs sf' slbs
-
--- checkStelab sq f e <|> et ("precheck fail : " <> n)
-   -- stelabsToElabs ntf slbs
