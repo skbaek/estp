@@ -33,7 +33,7 @@ import Data.Set as S ( empty, insert, member, singleton, toList, Set )
 import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey, size, fromList )
 import Data.Text.Lazy.IO as TIO ( hPutStrLn, hPutStr, writeFile )
 import Data.Bifunctor as DBF (first, second, bimap)
-import System.IO as SIO ( openFile, hClose, IOMode(WriteMode) )
+import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, withFile )
 -- import Data.Strings (strStartsWith) 
 
 addHyp :: (NTF, Set Form) -> AF -> (NTF, Set Form)
@@ -206,11 +206,13 @@ elabName ((nm, _, _), _, _) = nm
 
 branchProof :: Bool -> String -> String -> IO (Branch, Proof)
 branchProof vb tptp estp = do 
+  pt "Perusing TPTP file...\n"
   pafs <- parsePreName tptp
   elbs <- estpToElabs estp
   let ahns = L.foldl (\ ns_ -> foldl (flip S.insert) ns_ . elabHyps) S.empty elbs
   let bch = L.foldl (addToBranch ahns) HM.empty pafs
   let elbsMap = HM.fromList $ L.map (\ elb_ -> (elabName elb_, elb_)) elbs
+  pt "Constructing proof tree...\n"
   prf <- assemble elbsMap "root"
   return (bch, prf)
 
@@ -231,10 +233,9 @@ hypsSteps verbose tptp tstp = do
 
 writeElab :: String -> [Elab] -> IO ()
 writeElab nm efs = do
-  let output = tlt $ ppInter "\n" $ L.map ppElab efs
   Prelude.putStrLn $ "Writing Elab : " <> nm
+  let output = tlt $ ppInter "\n" $ L.map ppElab efs
   TIO.writeFile nm output
-
 
 isVar :: Term -> Bool
 isVar (Var _) = True
@@ -270,13 +271,7 @@ redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_defini
     return af
 redefine _ af = return af
 
---     return (n, "avatar_definition", [], g)
--- afToStep (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
---   txs <- cast (mapM gFunFunctor l)
---   return (n, "avatar_sat_refutation", txs, g)
-
 mainArgs :: [String] -> IO ()
--- mainArgs ("elab" : args) = elaborate args
 mainArgs ("elab" : tptp : tstp : estp : flags) = do 
   let vb = "silent" `notElem` flags
   when vb $ pt "Reading problem and solution...\n"
@@ -288,7 +283,6 @@ mainArgs ("elab" : tptp : tstp : estp : flags) = do
 mainArgs ("check" : tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
   -- when vb $ pt "Reading TPTP and ESTP files...\n"
-  pt "Reading TPTP and ESTP files...\n"
   (bch, prf) <- branchProof vb tptp estp
   -- when vb $ pt "Checking ESTP solution...\n"
   pt "Checking ESTP solution...\n"

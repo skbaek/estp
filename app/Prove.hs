@@ -27,6 +27,7 @@ import qualified Data.Bifunctor as DBF
 import Data.Tuple (swap)
 import System.Timeout (timeout)
 import Debug.Trace (trace)
+import Data.Time.Clock 
 
 andRs :: [(Form, Prf)] -> Form -> IO Prf
 andRs fps (And fs) = AndF' <$> mapM (\ f_ -> (f_,) <$> andRs fps f_) fs
@@ -965,22 +966,21 @@ ppZSS = ppListNl (barf . ppZS)
 barf :: Builder -> Builder
 barf = ("\n==============================================================\n" <>)
 
-origSearch :: Bool -> Int -> VC -> [(Form, Form)] -> IO VC
-origSearch md dt vc [] = return vc
-origSearch md dt vc fgs = do
-  -- M.when (dt `rem` 1000 == 0) $ pt $ "Search depth = " <> ppInt dt <> "\n"
-  -- pb "Function entry:\n" 
-  -- "\n==============================================================\n" 
-  -- mapM_ (pb . foob) fgs
-  -- pt "\n\n\n"
+-- jtype NDT = NominalDiffTime
 
-  -- pt $ "Search depth = " <> ppInt dt <> "\n"
-  -- pt $ ppSearchState vc fgs
-  let zss = L.map (origForkAux md vc) (plucks fgs)
-  -- pb $ "ZSS : " <> ppZSS zss <> "\n"
-  zs <- cast $ getShortList zss
-  -- pb $ "ZS size : " <> ppInt (L.length zs) <> "\n"
-  first (uncurry $ origSearch md (dt + 1)) zs
+origTimeLimit :: NominalDiffTime
+origTimeLimit = 10
+
+origSearch :: UTCTime -> Bool -> Int -> VC -> [(Form, Form)] -> IO (Maybe VC)
+origSearch _ md dt vc [] = return (Just vc)
+origSearch t0 md dt vc fgs = do
+  t <- getCurrentTime
+  let df = diffUTCTime t t0
+  if df < origTimeLimit
+  then let zss = L.map (origForkAux md vc) (plucks fgs) in
+       do zs <- cast $ getShortList zss
+          first (uncurry $ origSearch t0 md (dt + 1)) zs
+  else return Nothing
 
 super :: Term -> Term -> Dir -> [Form] -> SST -> IO (Term, Term, Dir, VM)
 super x y dr hs (vm , [], [], []) = do
@@ -1213,32 +1213,40 @@ conTerm vm x y = do
   guard (x == y) -- "Cannot ground pair\n" <> ppTerm x <> "\n" <> ppTerm y <> "\n"
   return vm
 
-orig :: Form -> Form -> IO Prf
-orig f g = failAsm 30000000 (origCore f g)
+-- orig :: Form -> Form -> IO Prf
+-- orig f g = do 
+--   pt "initiating orig. This shouldn't take more than 10 seconds...\n"
+--   p <- failAsm 10000000 (origCore f g)
+--   pt "orig returning proof.\n"
+--   return p
 
 --   | f == g = return $ Id' f
 --   | otherwise = do
 --     p <- failAsm 60000000 (porig 0 f g)
 --     return $ Cut' (f <=> g) p $ iffMP f g
 
-origCore :: Form -> Form -> IO Prf
-origCore f g 
+orig :: Form -> Form -> IO Prf
+orig f g 
   | f == g = return $ Id' f
   | otherwise = do
     (f', g', pf) <- origPrep f g
     cvc <- makeVC f' g'
-    vc <- origSearch True 0 cvc [(f', g')]
-    let vr = vcToVr $ pruneVC vc
-    p <- porg' vr 0 f' g' <|> error "porg-failure"
-    verify 0 S.empty (S.singleton (f' <=> g')) p 
-    return $ Cut' (f <=> g) (pf p) $ iffMP f g
+    t0 <- getCurrentTime
+    mvc <- origSearch t0 True 0 cvc [(f', g')]
+    case mvc of 
+      Just vc -> 
+        do let vr = vcToVr $ pruneVC vc
+           p <- porg' vr 0 f' g' <|> error "porg-failure"
+           verify 0 S.empty (S.singleton (f' <=> g')) p 
+           return $ Cut' (f <=> g) (pf p) $ iffMP f g
+      _ -> pt "Orig timeout!\n" >> return Open'
 
-failAsm :: Int -> IO Prf -> IO Prf
-failAsm k pf = do
-  rst <- timeout k (pf <|> return Open')
-  case rst of 
-    Just p -> return p 
-    _ -> return Open' 
+-- failAsm :: Int -> IO Prf -> IO Prf
+-- failAsm k pf = do
+--   rst <- timeout k (pf <|> return Open')
+--   case rst of 
+--     Just p -> return p 
+--     _ -> return Open' 
 
 constraint :: Set Text -> Set Text -> Map Text (Set Text)
 constraint vs ws = L.foldl (\ m_ v_ -> HM.insert v_ ws m_) HM.empty (S.toList vs)

@@ -844,8 +844,11 @@ unsq _ = mzero
 --   return (k, l)
 
 estpToElabs :: String -> IO [Elab]
-estpToElabs estp = parseName estp >>= mapM afToEf
-
+estpToElabs estp = do 
+  pt "Reading ESTP file...\n"
+  xs <- parseName estp 
+  pt "Transcribing AFs to EFs...\n"
+  mapM afToEf xs
 
 afToStep :: AF -> IO Step
 afToStep (n, _, g, Just (Gfun "file" [_, Gfun m []], _)) = return (n, "file", [m], g)

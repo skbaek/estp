@@ -24,7 +24,6 @@ import Data.Bifunctor as DBF (first, second, bimap)
 import Norm (fltn)
 import GHC.Stack (pushCallStack)
 
-
 rfsj :: Form -> Form
 rfsj (Not f) = Not $ rfsj f
 rfsj (Imp f g) = Imp (rfsj f) (rfsj g)

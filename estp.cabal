@@ -24,6 +24,7 @@ executable estp
     hashable,
     containers,
     text,
+    time,
     Unique,
     process,
     strings
