@@ -649,7 +649,9 @@ parseForm tx =
 
 parseName :: String -> IO [AF]
 parseName n = do
+  pt "Reading file as text...\n"
   t <- TIO.readFile n
+  pt "Parsing the text read...\n"
   case parse ign t of
     Just (i,s) -> parseText s
     _ -> ioError $ userError "Read filename, but failed to parse content"

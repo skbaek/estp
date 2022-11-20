@@ -376,16 +376,18 @@ indexFunctor mp f =
     Just k -> Idx k 
     _ -> f
 
-type Loc = (Text, [Int], Int)
+-- type Loc = (Text, [Int], Int)
+type Loc = (Text, [(Int, Int)], Int)
+
+pathText :: (Int, Int) -> Text
+pathText (k, m) = "_" <> tlt (ppInt k) <> "_" <> tlt (ppInt m)
 
 locText :: Loc -> Text
-locText (tx, ks, k) = tx <> "_" <> T.intercalate "_" (L.map (tlt . ppInt) $ L.reverse ks) <> "_" <> tlt (ppInt k)
+locText (tx, ks, k) = tx <> T.intercalate "" (L.map pathText $ L.reverse ks) <> "_" <> tlt (ppInt k)
 
-extLoc :: Loc -> Loc
-extLoc (tx, ks, k) = (tx, ks, k + 1)
-
-forkLoc :: Loc -> Int -> Loc
-forkLoc (tx, ks, k) m = (tx, m : ks, 0)
+extLoc :: Loc -> Int -> Loc
+extLoc (tx, ks, k) 0 = (tx, ks, k + 1)
+extLoc (tx, ks, k) m = (tx, (k, m) : ks, 0)
 
 range :: Int -> Int -> [Int]
 range _ 0 = []
@@ -401,7 +403,7 @@ stitch sftn ni (InfStep g prf cmt : slbs) = do
   return $ Cut_ ni proofL proofR
 stitch sftn ni (DefStep f g p cmt : slbs) = do 
   let loc = (cmt, [], 0)
-  let loc' = extLoc loc
+  let loc' = extLoc loc 0
   let sftn' = HM.insert (True, f) (locText loc) sftn
   pf <- deliteral' sftn' loc' (False, g) p
   pt <- stitch (HM.insert (True, g) cmt sftn') (cmt, True, g) slbs
@@ -428,11 +430,6 @@ stitchAoCs ni [] pf pr = Cut_ ni pf pr
 stitchAoCs ni ((nm, x, f) : nxfs) pf pr = 
   let p = stitchAoCs (nm, True, f) nxfs pf pr in
   AoC_ ni x p 
-  -- return $ pprf $ Cut_ ni' pf (Cut_ (locText loc'', True, f) pg pt)
---   let loc' = extLoc loc
---   pf <- deliteral' sftn' loc' (False, g) p
---   pt <- stitch (HM.insert (True, g) cmt sftn') (cmt, True, g) slbs
---   return $ AoC_ (nm, b, h) xs $ Cut_ (locText loc, True, f) pf pt
 
 lastSkolemIdx :: [(Text, Term, Form)] -> IO Int
 lastSkolemIdx [] = mzero
@@ -556,13 +553,13 @@ deliteral sftn loc (b, h) (RelC' r xs ys) = do
   return $ RelC_ (locText loc, b, h) nms nt nf
 
 deliteral sftn loc (b, h) (NotT' f p) = do
-  let loc' = extLoc loc
+  let loc' = extLoc loc 0
   nm <- cast $ HM.lookup (True, Not f) sftn 
   p' <- deliteral' sftn loc' (False, f) p 
   return $ NotT_ (locText loc, b, h) nm p'
 
 deliteral sftn loc (b, h) (NotF' f p) = do
-  let loc' = extLoc loc
+  let loc' = extLoc loc 0
   nm <- cast $ HM.lookup (False, Not f) sftn 
   p' <- deliteral' sftn loc' (True, f) p 
   return $ NotF_ (locText loc, b, h) nm p'
@@ -571,11 +568,11 @@ deliteral sftn loc (b, h) (OrT' fps) = do
   let (fs, _) = unzip fps
   nm <- cast $ HM.lookup  (True, Or fs) sftn 
   let ks = range 0 $ L.length fps
-  ps' <- mapM2 (\ k_ (f_, p_) -> deliteral' sftn (forkLoc loc k_) (True, f_) p_) ks fps
+  ps' <- mapM2 (\ k_ (f_, p_) -> deliteral' sftn (extLoc loc k_) (True, f_) p_) ks fps
   return $ OrT_ (locText loc, b, h) nm ps'
 
 deliteral sftn loc (b, h) (OrF' fs [f] p) = do
-  let loc' = extLoc loc
+  let loc' = extLoc loc 0
   nm <- cast $ HM.lookup (False, Or fs) sftn 
   p' <- deliteral' sftn loc' (False, f) p 
   k <- cast $ elemIndex f fs
@@ -583,7 +580,7 @@ deliteral sftn loc (b, h) (OrF' fs [f] p) = do
 deliteral sftn loc (b, h) (OrF' fs gs p) = eb $ "single residue : " <> ppForm (Or gs)
 
 deliteral sftn loc (b, h) (AndT' fs [f] p) = do
-  let loc' = extLoc loc
+  let loc' = extLoc loc 0
   nm <- cast $ HM.lookup (True, And fs) sftn 
   p' <- deliteral' sftn loc' (True, f) p 
   k <- cast $ elemIndex f fs
@@ -594,72 +591,72 @@ deliteral sftn loc (b, h) (AndF' fps) = do
   let (fs, _) = unzip fps
   let ks = range 0 $ L.length fps
   nm <- cast $ HM.lookup  (False, And fs) sftn 
-  ps' <- mapM2 (\ k_ (f_, p_) -> deliteral' sftn (forkLoc loc k_) (False, f_) p_) ks fps
+  ps' <- mapM2 (\ k_ (f_, p_) -> deliteral' sftn (extLoc loc k_) (False, f_) p_) ks fps
   return $ AndF_ (locText loc, b, h) nm ps'
 
 deliteral sftn loc (b, h) (ImpT' f g p q) = do
   nm <- cast $ HM.lookup (True, Imp f g) sftn 
-  p' <- deliteral' sftn (forkLoc loc 0) (False, f) p 
-  q' <- deliteral' sftn (forkLoc loc 1) (True, g) q 
+  p' <- deliteral' sftn (extLoc loc 0) (False, f) p 
+  q' <- deliteral' sftn (extLoc loc 1) (True, g) q 
   return $ ImpT_ (locText loc, b, h) nm p' q'
 
 deliteral sftn loc (b, h) (ImpFA' f g p) = do
   nm <- cast $ HM.lookup  (False, Imp f g) sftn 
-  p' <- deliteral' sftn (extLoc loc) (True, f) p 
+  p' <- deliteral' sftn (extLoc loc 0) (True, f) p 
   return $ ImpFA_ (locText loc, b, h) nm p' 
 
 deliteral sftn loc (b, h) (ImpFC' f g p) = do
   nm <- cast $ HM.lookup  (False, Imp f g) sftn 
-  p' <- deliteral' sftn (extLoc loc) (False, g) p 
+  p' <- deliteral' sftn (extLoc loc 0) (False, g) p 
   return $ ImpFC_ (locText loc, b, h) nm p' 
 
 deliteral sftn loc (b, h) (IffF' f g p q) = do
   nm <- cast $ HM.lookup (False, Iff f g) sftn 
-  p' <- deliteral' sftn (forkLoc loc 0) (False, Imp f g) p 
-  q' <- deliteral' sftn (forkLoc loc 1) (False, Imp g f) q 
+  p' <- deliteral' sftn (extLoc loc 0) (False, Imp f g) p 
+  q' <- deliteral' sftn (extLoc loc 1) (False, Imp g f) q 
   return $ IffF_ (locText loc, b, h) nm p' q'
 
 deliteral sftn loc (b, h) (IffTO' f g p) = do
   nm <- cast $ HM.lookup (True, Iff f g) sftn 
-  p' <- deliteral' sftn (extLoc loc) (True, Imp f g) p 
+  p' <- deliteral' sftn (extLoc loc 0) (True, Imp f g) p 
   return $ IffTO_ (locText loc, b, h) nm p' 
 
 deliteral sftn loc (b, h) (IffTR' f g p) = do
   nm <- cast $ HM.lookup (True, Iff f g) sftn 
-  p' <- deliteral' sftn (extLoc loc) (True, Imp g f) p 
+  p' <- deliteral' sftn (extLoc loc 0) (True, Imp g f) p 
   return $ IffTR_ (locText loc, b, h) nm p' 
 
 deliteral sftn loc (b, h) (FaT' vxs f p) = do
   let (vs, xs) = unzip vxs 
   nm <- cast $ HM.lookup (True, Fa vs f) sftn 
   let f' = substForm vxs f
-  p' <- deliteral' sftn (extLoc loc) (True, f') p 
+  p' <- deliteral' sftn (extLoc loc 0) (True, f') p 
   return $ FaT_ (locText loc, b, h) nm xs p'
 
 deliteral sftn loc (b, h) (FaF' vs m f p) = do
   nm <- cast $ HM.lookup (False, Fa vs f) sftn -- <> eb ("Cannot find hyp:\n" <> ppSignForm (False, Fa vs f)) 
   let (_, vxs) = varPars m vs 
   let f' = substForm vxs f
-  p' <- deliteral' sftn (extLoc loc) (False, f') p 
+  p' <- deliteral' sftn (extLoc loc 0) (False, f') p 
   return $ FaF_ (locText loc, b, h) nm m p'
 
 deliteral sftn loc (b, h) (ExT' vs m f p) = do
   nm <- cast $ HM.lookup (True, Ex vs f) sftn 
   let (_, vxs) = varPars m vs 
   let f' = substForm vxs f
-  p' <- deliteral' sftn (extLoc loc) (True, f') p 
+  p' <- deliteral' sftn (extLoc loc 0) (True, f') p 
   return $ ExT_ (locText loc, b, h) nm m p'
 
 deliteral sftn loc (b, h) (ExF' vxs f p) = do
   let (vs, xs) = unzip vxs 
   nm <- cast $ HM.lookup (False, Ex vs f) sftn 
   let f' = substForm vxs f
-  p' <- deliteral' sftn (extLoc loc) (False, f') p 
+  p' <- deliteral' sftn (extLoc loc 0) (False, f') p 
   return $ ExF_ (locText loc, b, h) nm xs p'
 
 deliteral sftn loc (b, h) (Cut' f p q) = do
-  p' <- deliteral' sftn (forkLoc loc 0) (False, f) p 
-  q' <- deliteral' sftn (forkLoc loc 1) (True, f) q 
+  p' <- deliteral' sftn (extLoc loc 1) (False, f) p 
+  q' <- deliteral' sftn (extLoc loc 0) (True, f) q 
   return $ Cut_ (locText loc, b, h) p' q'
   
 deliteral sftn loc (b, h) (Mrk s p) = deliteral sftn loc (b, h) p
