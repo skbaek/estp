@@ -33,7 +33,7 @@ import Data.Set as S ( empty, insert, member, singleton, toList, Set )
 import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey, size, fromList )
 import Data.Text.Lazy.IO as TIO ( hPutStrLn, hPutStr, writeFile )
 import Data.Bifunctor as DBF (first, second, bimap)
-import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, withFile )
+import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
 -- import Data.Strings (strStartsWith) 
 
 addHyp :: (NTF, Set Form) -> AF -> (NTF, Set Form)
@@ -231,11 +231,14 @@ hypsSteps verbose tptp tstp = do
   when verbose $ mapM_ (pb . ppStep) stps
   return (ntf, sf, ftn, stps)
 
-writeElab :: String -> [Elab] -> IO ()
-writeElab nm efs = do
-  Prelude.putStrLn $ "Writing Elab : " <> nm
-  let output = tlt $ ppInter "\n" $ L.map ppElab efs
-  TIO.writeFile nm output
+writeElab :: Handle -> Elab -> IO ()
+writeElab hndl elb = TIO.hPutStr hndl $ tlt $ ppElab elb
+
+-- writeElab :: String -> [Elab] -> IO ()
+-- writeElab nm efs = do
+--   Prelude.putStrLn $ "Writing Elab : " <> nm
+--   let output = tlt $ ppInter "\n" $ L.map ppElab efs
+--   TIO.writeFile nm output
 
 isVar :: Term -> Bool
 isVar (Var _) = True
@@ -278,8 +281,12 @@ mainArgs ("elab" : tptp : tstp : estp : flags) = do
   (ntf, sf, ftn, stps) <- hypsSteps vb tptp tstp
   when vb $ pt "Elaborating solution...\n"
   elbs <- elaborate vb ntf sf ftn stps
+
+  -- writeElab estp elbs
+  hndl <- openFile estp WriteMode
   when vb $ pt "Writing solution...\n"
-  writeElab estp elbs
+  mapM_ (writeElab hndl) elbs
+
 mainArgs ("check" : tptp : estp : flags) = do
   let vb = "silent" `notElem` flags
   -- when vb $ pt "Reading TPTP and ESTP files...\n"
