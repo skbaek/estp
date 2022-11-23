@@ -314,3 +314,82 @@ ppStep (n, r, ns, f) =
 
 ppNL :: (a -> Builder) -> (a -> Builder)
 ppNL p x = p x <> "\n"
+
+
+-- Serialization
+
+serInt :: Int -> Builder
+serInt k = ppInt k <> "."
+
+serText :: Text -> Builder
+serText tx = ft tx <> "."
+
+serSign :: Bool -> Builder
+serSign True = "T"
+serSign False = "F"
+
+serList :: (a -> Builder) -> [a] -> Builder
+serList _ [] = "."
+serList s (x : xs) = "," <> s x <> serList s xs
+
+serFunct :: Funct -> Builder
+serFunct (Reg t) = serText t
+serFunct (Idx k) = "#" <> serInt k
+
+serTerm :: Term -> Builder
+serTerm (Var v) = "$" <> serText v
+serTerm (Fun f xs) = "@" <> serFunct f <> serList serTerm xs
+
+serForm :: Form -> Builder
+serForm (Eq x y) = "=" <> serTerm x <> serTerm y
+serForm (Rel r xs) = "@" <> serFunct r <> serList serTerm xs
+serForm (Not f) = "~" <> serForm f
+serForm (And fs) = "&" <> serList serForm fs
+serForm (Or fs)  = "|" <> serList serForm fs
+serForm (Imp f g) = ">" <> serForm f <> serForm g
+serForm (Iff f g) = "^" <> serForm f <> serForm g
+serForm (Fa vs f) = "!" <> serList serText vs <> serForm f
+serForm (Ex vs f) = "?" <> serList serText vs <> serForm f
+
+serNodeName :: NodeInfo -> Builder
+serNodeName (nm, _, _) = serText nm 
+
+serProof' :: Proof -> Builder
+serProof' p = ft (proofRN p) <> serProof p
+
+serSignForm :: (Bool, Form) -> Builder
+serSignForm (b, f) = serSign b <> serForm f
+
+serProof :: Proof -> Builder
+serProof (Id_ _ nt nf) = "I" <> serText nt <> serText nf
+serProof (Cut_ _ pf pt) = 
+  case (proofRSF pf, proofRSF pt) of 
+    ((False, f), (True, f')) -> 
+      if f == f' 
+        then "C" <> serForm f <> serProof pf <> serProof pt
+        else error "Cut formulas do not match"
+    _ -> error "Cut formulas do not have correct signs"
+serProof (RelD_ _ p) = "D" <> serSignForm (proofRSF p) <> serProof p
+serProof (AoC_ _ x p) = "A" <> serTerm x <> serSignForm (proofRSF p) <> serProof p  
+serProof (Open_ _) = "O" 
+serProof (FunC_ _ nts nf) = "F" <> serList serText nts <> serText nf
+serProof (RelC_ _ nts nt nf) = "R" <> serList serText nts <> serText nt <> serText nf
+serProof (EqR_ ni nf) = "=R" <>  serText nf
+serProof (EqS_ ni nt nf) = "=S" <>  serText nt <> serText nf
+serProof (EqT_ ni nxy nyz nxz) = "=T" <>  serText nxy <> serText nyz <> serText nxz
+serProof (NotT_ ni nm p) = "~T" <> serText nm <> serProof p
+serProof (NotF_ ni nm p) = "~F" <> serText nm <> serProof p
+serProof (OrT_ ni nm ps) = "|T" <>  serText nm <> serList serProof ps
+serProof (OrF_ ni nm k p) = "|F" <>  serText nm <> serInt k <> serProof p
+serProof (AndT_ ni nm k p) = "&T" <>  serText nm <> serInt k <> serProof p
+serProof (AndF_ ni nm ps) = "&F" <>  serText nm <> serList serProof ps
+serProof (ImpT_ ni nm pa pc) = ">T" <>  serText nm <> serProof pa <> serProof pc
+serProof (ImpFA_ ni nm p) = ">FA" <>  serText nm <> serProof p
+serProof (ImpFC_ ni nm p) = ">FC" <>  serText nm <> serProof p
+serProof (IffTO_ ni nm p) = "^TO" <>  serText nm <> serProof p
+serProof (IffTR_ ni nm p) = "^TR" <>  serText nm <> serProof p
+serProof (IffF_ ni nm po pr) = "^F" <>  serText nm <> serProof po <> serProof pr
+serProof (FaT_ ni nm xs p) = "!T" <>  serText nm <> serList serTerm xs <> serProof p
+serProof (FaF_ ni nm k p) = "!F" <>  serText nm <> serInt k <> serProof p
+serProof (ExT_ ni nm k p) = "?T" <>  serText nm <> serInt k <> serProof p
+serProof (ExF_ ni nm xs p) = "?F" <>  serText nm <> serList serTerm xs <> serProof p

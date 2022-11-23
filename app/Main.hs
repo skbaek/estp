@@ -20,7 +20,7 @@ import Norm
 import Prove
 import Elab (elaborate)
 -- import Expand (stelabsToElabs)
-import Check (check)
+import Check (check, getText, getList)
 
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
@@ -28,10 +28,11 @@ import Control.Applicative ( Alternative((<|>)) )
 import System.Environment ( getArgs )
 import Data.List as L ( map, foldl, all, concat, reverse, length, any, filter, delete, isPrefixOf, stripPrefix )
 import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
+import Data.Text.Lazy.IO as TIO
+    ( readFile, hPutStrLn, hPutStr, writeFile )
 import Data.Text.Lazy.Builder (Builder)
-import Data.Set as S ( empty, insert, member, singleton, toList, Set )
+import Data.Set as S ( empty, insert, member, singleton, toList, fromList, Set, union, unions )
 import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey, size, fromList )
-import Data.Text.Lazy.IO as TIO ( hPutStrLn, hPutStr, writeFile )
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
 -- import Data.Strings (strStartsWith) 
@@ -40,36 +41,36 @@ addHyp :: (NTF, Set Form) -> AF -> (NTF, Set Form)
 addHyp (nsq, sq) (n, _, f, _) = (HM.insert n f nsq, S.insert f sq)
 
 addToNodes :: Set Text -> Nodes -> PreAF -> Nodes
-addToNodes ahns nds (CnfAF nm rl tx) 
-  | S.member nm ahns = 
+addToNodes ahns nds (CnfAF nm rl tx)
+  | S.member nm ahns =
     let f = (conjecturize rl $ univClose $ parseForm tx) in
     HM.insert nm (f, True, 0) nds
   | otherwise = nds
-addToNodes ahns nds (FofAF nm rl tx) 
-  | S.member nm ahns = 
+addToNodes ahns nds (FofAF nm rl tx)
+  | S.member nm ahns =
     let f = (conjecturize rl $ parseForm tx) in
     HM.insert nm (f, True, 0) nds
   | otherwise = nds
 
 addToBranch :: Set Text -> Branch -> PreAF -> Branch
-addToBranch ahns bch (CnfAF n r tx)  
+addToBranch ahns bch (CnfAF n r tx)
   | S.member n ahns =
       let f = (conjecturize r $ univClose $ parseForm tx) in
       HM.insert n (True, f) bch
   | otherwise = bch
-addToBranch ahns bch (FofAF n r tx) 
+addToBranch ahns bch (FofAF n r tx)
   | S.member n ahns =
       let f = (conjecturize r $ parseForm tx) in
       HM.insert n (True, f) bch
   | otherwise = bch
 
 addToHyps :: Set Text -> (NTF, Set Form, SFTN) -> PreAF -> (NTF, Set Form, SFTN)
-addToHyps ahns hyp@(ntf, sf, ftn) (CnfAF n r tx)  
+addToHyps ahns hyp@(ntf, sf, ftn) (CnfAF n r tx)
   | S.member n ahns =
       let f = (conjecturize r $ univClose $ parseForm tx) in
       (HM.insert n f ntf, S.insert f sf, HM.insert (True, f) n ftn)
   | otherwise = hyp
-addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx) 
+addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx)
   | S.member n ahns =
       let f = (conjecturize r $ parseForm tx) in
       (HM.insert n f ntf, S.insert f sf, HM.insert (True, f) n ftn)
@@ -167,7 +168,7 @@ assemble' mp (ni, NotF nh nc, _) = NotF_ ni nh <$> assemble mp nc
 
 assemble' mp (ni, OrT nh ncs, _) = do
   ps <- mapM (assemble mp) ncs
-  return $ OrT_ ni nh ps 
+  return $ OrT_ ni nh ps
 assemble' mp (ni, OrF nh k nc, _) = OrF_ ni nh k <$> assemble mp nc
 assemble' mp (ni, AndT nh k nc, _) = AndT_ ni nh k <$> assemble mp nc
 assemble' mp (ni, AndF nh ncs, _) = do
@@ -197,15 +198,21 @@ assemble' mp (ni, RelD nc, _) = RelD_ ni <$> assemble mp nc
 assemble' mp (ni, AoC xs nc, _) = AoC_ ni xs <$> assemble mp nc
 
 assemble' mp (ni, Open, _) = return $ Open_ ni
-  
+
 assemble :: HM.Map Text Elab -> Text -> IO Proof
 assemble mp nm = cast (HM.lookup nm mp) >>= assemble' mp
 
 elabName :: Elab -> Text
 elabName ((nm, _, _), _, _) = nm
 
+readCstp :: String -> IO ([Text], Text)
+readCstp cstp = do
+  tx <- TIO.readFile cstp
+  cast $ parse (getList getText) tx
+
+
 branchProof :: Bool -> String -> String -> IO (Branch, Proof)
-branchProof vb tptp estp = do 
+branchProof vb tptp estp = do
   pt "Perusing TPTP file...\n"
   pafs <- parsePreName tptp
   elbs <- estpToElabs estp
@@ -231,14 +238,44 @@ hypsSteps verbose tptp tstp = do
   when verbose $ mapM_ (pb . ppStep) stps
   return (ntf, sf, ftn, stps)
 
-writeElab :: Handle -> Elab -> IO ()
-writeElab hndl elb = TIO.hPutStr hndl $ tlt $ ppElab elb
+writeElab :: String -> [Elab] -> IO ()
+writeElab nm efs = do
+  Prelude.putStrLn $ "Writing Elab : " <> nm
+  let output = tlt $ ppInter "\n" $ L.map ppElab efs
+  TIO.writeFile nm output
 
--- writeElab :: String -> [Elab] -> IO ()
--- writeElab nm efs = do
---   Prelude.putStrLn $ "Writing Elab : " <> nm
---   let output = tlt $ ppInter "\n" $ L.map ppElab efs
---   TIO.writeFile nm output
+proofNames :: Proof -> Set Text
+proofNames (Id_ _ nt nf) = S.fromList [nt, nf]
+proofNames (Cut_ _ pf pt) = S.union (proofNames pf) (proofNames pt)
+proofNames (FunC_ _ nts nf) = S.fromList (nf : nts)
+proofNames (RelC_ _ nts nt nf) = S.fromList (nt : nf : nts)
+proofNames (EqR_ _ nf) = S.fromList [nf]
+proofNames (EqS_ _ nt nf) = S.fromList [nt, nf]
+proofNames (EqT_ _ nxy nyz nxz) = S.fromList [nxy, nyz, nxz]
+proofNames (NotT_ _ nm p) = S.insert nm $ proofNames p
+proofNames (NotF_ _ nm p) = S.insert nm $ proofNames p
+proofNames (OrT_ _ nm ps) = S.insert nm $ S.unions $ L.map proofNames ps
+proofNames (OrF_ _ nm _ p) = S.insert nm $ proofNames p
+proofNames (AndT_ _ nm _ p) = S.insert nm $ proofNames p
+proofNames (AndF_ _ nm ps) = S.insert nm $ S.unions $ L.map proofNames ps
+proofNames (ImpT_ _ nm pa pc) = S.insert nm $ S.union (proofNames pa) (proofNames pc)
+proofNames (ImpFA_ _ nm p) = S.insert nm $ proofNames p
+proofNames (ImpFC_ _ nm p) = S.insert nm $ proofNames p
+proofNames (IffTO_ _ nm p) = S.insert nm $ proofNames p
+proofNames (IffTR_ _ nm p) = S.insert nm $ proofNames p
+proofNames (IffF_ _ nm po pr) = S.insert nm $ S.union (proofNames po) (proofNames pr)
+proofNames (FaT_ _ nm _ p) = S.insert nm $ proofNames p
+proofNames (FaF_ _ nm _ p) = S.insert nm $ proofNames p
+proofNames (ExT_ _ nm _ p) = S.insert nm $ proofNames p
+proofNames (ExF_ _ nm _ p) = S.insert nm $ proofNames p
+proofNames (RelD_ _ p) = proofNames p
+proofNames (AoC_ _ _ p) = proofNames p
+proofNames (Open_ _) = S.empty
+
+writeProof :: String -> Proof -> IO ()
+writeProof nm prf = do
+  Prelude.putStrLn $ "Writing proof : " <> nm
+  TIO.writeFile nm $ tlt $ serList ft (S.toList $ proofNames prf) <> serProof prf
 
 isVar :: Term -> Bool
 isVar (Var _) = True
@@ -253,17 +290,17 @@ afName (n, _, _, _) = n
 isExtraAF :: Text -> Bool
 isExtraAF ('e' :> _) = True
 isExtraAF _ = False
-  
+
 breakExtra :: Text -> IO Int
 breakExtra ('e' :> tx) = cast $ readInt tx
 breakExtra _ = mzero
 
 redefine :: [Int] -> AF -> IO AF
 redefine ks ('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],
-  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) = do 
+  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) = do
     k <- cast $ readInt tx
     guard (k `elem` ks)
-    return ("f" <> tx, lang, g, Just (Gfun "inference" [Gfun "usedef" [], Glist [], Glist [Gfun ("e" <> tlt (ppInt k)) []]], Nothing)) 
+    return ("f" <> tx, lang, g, Just (Gfun "inference" [Gfun "usedef" [], Glist [], Glist [Gfun ("e" <> tlt (ppInt k)) []]], Nothing))
 redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
   Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) = do
     k <- cast $ readInt tx
@@ -275,34 +312,37 @@ redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_defini
 redefine _ af = return af
 
 mainArgs :: [String] -> IO ()
-mainArgs ("elab" : tptp : tstp : estp : flags) = do 
+mainArgs ("elab" : tptp : tstp : estp : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ pt "Reading problem and solution...\n"
   (ntf, sf, ftn, stps) <- hypsSteps vb tptp tstp
   when vb $ pt "Elaborating solution...\n"
-  elbs <- elaborate vb ntf sf ftn stps
-
+  -- elbs <- elaborate vb ntf sf ftn stps
+  prf <- elaborate vb ntf sf ftn stps
+  when vb $ pt "Writing proof...\n"
   -- writeElab estp elbs
-  hndl <- openFile estp WriteMode
-  when vb $ pt "Writing solution...\n"
-  mapM_ (writeElab hndl) elbs
+  writeProof estp prf
 
-mainArgs ("check" : tptp : estp : flags) = do
+mainArgs ("check" : tptp : cstp : flags) = do
   let vb = "silent" `notElem` flags
-  -- when vb $ pt "Reading TPTP and ESTP files...\n"
-  (bch, prf) <- branchProof vb tptp estp
-  -- when vb $ pt "Checking ESTP solution...\n"
-  pt "Checking ESTP solution...\n"
-  check vb 0 bch prf
-mainArgs ("dev" : tstp : _) = 
+  (nms, prfTx) <- readCstp cstp
+  pb $ ppListNl ft nms
+  error "todo"
+  -- -- when vb $ pt "Reading TPTP and ESTP files...\n"
+  -- (bch, prf) <- branchProof vb tptp estp
+  -- -- when vb $ pt "Checking ESTP solution...\n"
+  -- pt "Checking ESTP solution...\n"
+  -- check vb 0 bch prf
+
+mainArgs ("dev" : tstp : _) =
   if isPrefixOf "/home/sk/tstp/alt/" tstp
-    then do 
+    then do
       probName <- cast $ stripPrefix "/home/sk/tstp/alt/" tstp
       ps $ "Alt solution : " <> tstp <> "\n"
-      afs <- parseName tstp 
+      afs <- parseName tstp
       let nms = L.filter isExtraAF (L.map afName afs)
       ks <- mapM breakExtra nms
-      pb $ ppList ppInt ks  
+      pb $ ppList ppInt ks
       afs' <- mapM (redefine ks) afs
       let output = tlt $ ppInter "\n" $ L.map ((<> ".") . fmtAF) afs'
       TIO.writeFile ("./newalt/" ++ probName)  output

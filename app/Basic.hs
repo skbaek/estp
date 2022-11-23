@@ -602,9 +602,12 @@ ppNat k = ppNat (k `div` 10) <> ppNat (k `rem` 10)
 ppInt :: Int -> Builder
 ppInt k = if k < 0 then "-" <> ppNat (- k) else ppNat k
 
-skip :: IO ()
+skip :: (Monad m) => m ()
 skip = return ()
 
+complementary :: SignForm -> SignForm -> Bool
+complementary (True, f) (False, g) = f == g 
+complementary _ _ = False
 
 proofRootNode :: Proof -> NodeInfo
 proofRootNode (Id_ ni nt nf) = ni
