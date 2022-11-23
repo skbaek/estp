@@ -696,7 +696,7 @@ checkStelabs sf (slb : slbs) = do
   let sf' = S.insert g sf 
   checkStelabs sf' slbs
 
-elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO [Elab]
+elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO Proof  -- [Elab]
 elaborate vb ntf sf ftn stps = do
   slbs <- stepsToStelabs vb ntf sf stps
   -- checkStelabs sf slbs
@@ -704,6 +704,6 @@ elaborate vb ntf sf ftn stps = do
   -- checkStelabs sf slbs'
   slbs'' <- indexStelabs 0 HM.empty slbs'
   -- checkStelabs sf slbs''
-  proof <- stitch ftn ("root", True, top) slbs''
+  stitch ftn ("root", True, top) slbs''
   -- checkStelabs sf slbs''
-  return $ linearize proof
+  -- return $ linearize proof

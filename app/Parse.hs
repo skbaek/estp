@@ -6,13 +6,15 @@ import Types
 import Basic -- ( et, cast, readInt, unquote )
 
 import Data.Text.Lazy as T
-    ( cons, drop, isPrefixOf, length, null, pack, uncons, unsnoc, Text, unpack, take, splitAt, splitOn )
+    ( cons, drop, isPrefixOf, length, null, pack, uncons, unsnoc, Text, unpack, take, splitAt, splitOn, break )
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
 import Data.List (elem, foldl, map, sortBy, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
-import Data.Text.Lazy.IO as TIO
+import Data.Text.Lazy.IO as TIO ( readFile )
 import System.Environment (getEnv, unsetEnv)
 import Control.Monad as M ( MonadPlus(mzero) )
+import Data.Map as HM (lookup, insert)
+import Data.Functor ((<&>))
 
 newtype Parser a = Parser { parse :: Text -> Maybe (a, Text) }
 
@@ -27,9 +29,6 @@ bind p f = Parser $ \ s ->
 
 unit :: a -> Parser a
 unit a = Parser (\s -> Just (a,s))
-
-skip :: Parser ()
-skip = unit ()
 
 instance Functor Parser where
   fmap f (Parser cs) = Parser $ \ s ->
@@ -633,6 +632,8 @@ parseText t =
         sfx <- parseText s
         return (pfx ++ sfx)
     _ -> et ("Failed to parse input : " <> t)
+
+
 
 parsePreName :: String -> IO [PreAF]
 parsePreName n = do
