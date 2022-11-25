@@ -703,7 +703,7 @@ elaborate vb ntf sf ftn stps = do
   let slbs' = L.map (removeMultiStep . desingle) slbs
   -- checkStelabs sf slbs'
   slbs'' <- indexStelabs 0 HM.empty slbs'
-  -- checkStelabs sf slbs''
+  checkStelabs sf slbs''
   stitch ftn ("root", True, top) slbs''
   -- checkStelabs sf slbs''
   -- return $ linearize proof

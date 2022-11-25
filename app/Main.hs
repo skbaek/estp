@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use foldr" #-}
 {-# HLINT ignore "Use foldl" #-}
@@ -18,9 +19,9 @@ import Sat ( sat )
 import Lem
 import Norm
 import Prove
-import Elab (elaborate)
+import Elab (elaborate, linearize)
 -- import Expand (stelabsToElabs)
-import Check (check, getText, getList)
+import Check (check, getText, getList, pcheck)
 
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
@@ -32,7 +33,7 @@ import Data.Text.Lazy.IO as TIO
     ( readFile, hPutStrLn, hPutStr, writeFile )
 import Data.Text.Lazy.Builder (Builder)
 import Data.Set as S ( empty, insert, member, singleton, toList, fromList, Set, union, unions )
-import Data.Map as HM ( Map, empty, insert, lookup, toList, foldrWithKey, size, fromList )
+import Data.Map as HM (Map, map, empty, insert, lookup, toList, foldrWithKey, size, fromList)
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
 -- import Data.Strings (strStartsWith) 
@@ -210,6 +211,10 @@ readCstp cstp = do
   tx <- TIO.readFile cstp
   cast $ parse (getList getText) tx
 
+readTptp :: [Text] -> String -> IO Branch
+readTptp nms tptp = do
+  pafs <- parsePreName tptp
+  return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
 
 branchProof :: Bool -> String -> String -> IO (Branch, Proof)
 branchProof vb tptp estp = do
@@ -275,7 +280,7 @@ proofNames (Open_ _) = S.empty
 writeProof :: String -> Proof -> IO ()
 writeProof nm prf = do
   Prelude.putStrLn $ "Writing proof : " <> nm
-  TIO.writeFile nm $ tlt $ serList ft (S.toList $ proofNames prf) <> serProof prf
+  TIO.writeFile nm $ tlt $ serList serText (S.toList $ proofNames prf) <> serProof prf
 
 isVar :: Term -> Bool
 isVar (Var _) = True
@@ -319,15 +324,22 @@ mainArgs ("elab" : tptp : tstp : estp : flags) = do
   when vb $ pt "Elaborating solution...\n"
   -- elbs <- elaborate vb ntf sf ftn stps
   prf <- elaborate vb ntf sf ftn stps
-  when vb $ pt "Writing proof...\n"
-  -- writeElab estp elbs
+  when vb $ pt "Writing proof : \n"
+  -- pb $ ppListNl ppElab (linearize prf) <> "\n"
+  -- pb "checking before output...\n"
+  -- check vb 0 (HM.map (True,) ntf) prf
   writeProof estp prf
 
 mainArgs ("check" : tptp : cstp : flags) = do
   let vb = "silent" `notElem` flags
+  when vb $ ps $ "Reading ESTP : " ++ cstp ++ " ...\n"
   (nms, prfTx) <- readCstp cstp
-  pb $ ppListNl ft nms
-  error "todo"
+  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
+  bch <- readTptp nms tptp
+  case parse (pcheck vb 0 bch True (And [])) prfTx of
+    Just ((), rem) -> guard (T.null rem)
+    _ -> et "check failure" 
+
   -- -- when vb $ pt "Reading TPTP and ESTP files...\n"
   -- (bch, prf) <- branchProof vb tptp estp
   -- -- when vb $ pt "Checking ESTP solution...\n"

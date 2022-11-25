@@ -346,7 +346,7 @@ pnm k (Fa vs f) _g
           (Fa ws f <=> Fa ws g, faIffToFaIffFa ws k f g) ] $
         iffTrans (Fa vs f) (Fa ws f) (Fa ws g)
   | otherwise = do
-    pb $ "Variables " <> ppList ft vs <> " do not occur in " <> ppForm _g <> "\n"
+    -- pb $ "Variables " <> ppList ft vs <> " do not occur in " <> ppForm _g <> "\n"
     p <- pnm k f _g
     return $ cuts [(Fa vs f <=> f, bloatFaIff k vs f), (f <=> _g, p)] $ iffTrans (Fa vs f) f _g
 pnm k (Ex vs f) _g

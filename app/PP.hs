@@ -119,7 +119,7 @@ ppFormNlCore f@(Rel _ _) = [ppForm f]
 ppFormNlCore (Not f) = "~" : L.map pad (ppFormNlCore f)
 ppFormNlCore (And []) = ["$true"]
 ppFormNlCore (Or  []) = ["$false"]
-ppFormNlCore (And fs) = "/\\" : L.map pad (L.concatMap ppFormNlCore fs) 
+ppFormNlCore (And fs) = "/\\" : L.map pad (L.concatMap ppFormNlCore fs)
 ppFormNlCore (Or  fs) = "\\/" : L.map pad (L.concatMap ppFormNlCore fs)
 ppFormNlCore (Imp f g) = "==>" : L.map pad (ppFormNlCore f ++ ppFormNlCore g)
 ppFormNlCore (Iff f g) = "<=>" : L.map pad (ppFormNlCore f ++ ppFormNlCore g)
@@ -185,10 +185,10 @@ ppPrfCore k (FaT' vxs f p) =
 ppPrfCore k (ExF' vxs f p) =
   let (vs, xs) = unzip vxs in
   ("Ex-R : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (FaF' vs m f p) = 
+ppPrfCore k (FaF' vs m f p) =
   let (_, vxs) = varPars m vs in
   ("Fa-R : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (ExT' vs m f p) = 
+ppPrfCore k (ExT' vs m f p) =
   let (_, vxs) = varPars m vs in
   ("Ex-L : " : L.map (pad . ppMapping) vxs) ++  pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
 ppPrfCore k Open' = ["Open!"]
@@ -233,7 +233,7 @@ fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
 fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
 fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]
 
-ppPath :: Path -> Builder 
+ppPath :: Path -> Builder
 ppPath (NewRel _ _) = "rel"
 ppPath (NewFun _ _) = "fun"
 ppPath NewEq = "eq"
@@ -248,7 +248,7 @@ ppPath (NewAnd _ _) = "and"
 ppPath NewNot = "not"
 
 ppSig :: Sig -> Builder
-ppSig = ppHM (ppList ppPath) ppInt 
+ppSig = ppHM (ppList ppPath) ppInt
 -- ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
 
 -- ppSide :: Side -> Builder
@@ -306,10 +306,10 @@ ppSignForm (True, f) = "[T] " <> ppForm f
 ppSignForm (False, f) = "[F] " <> ppForm f
 
 ppStep :: Step -> Builder
-ppStep (n, r, ns, f) = 
+ppStep (n, r, ns, f) =
   ft n <> " :: " <>
   ft r <> " :: " <>
-  ppList ft ns <> " :: " <> 
+  ppList ft ns <> " :: " <>
   ppForm f <> "\n"
 
 ppNL :: (a -> Builder) -> (a -> Builder)
@@ -352,44 +352,53 @@ serForm (Fa vs f) = "!" <> serList serText vs <> serForm f
 serForm (Ex vs f) = "?" <> serList serText vs <> serForm f
 
 serNodeName :: NodeInfo -> Builder
-serNodeName (nm, _, _) = serText nm 
+serNodeName (nm, _, _) = serText nm
 
-serProof' :: Proof -> Builder
-serProof' p = ft (proofRN p) <> serProof p
+serProof :: Proof -> Builder
+serProof p = serText (proofRN p) <> serProof' p
 
 serSignForm :: (Bool, Form) -> Builder
 serSignForm (b, f) = serSign b <> serForm f
 
-serProof :: Proof -> Builder
-serProof (Id_ _ nt nf) = "I" <> serText nt <> serText nf
-serProof (Cut_ _ pf pt) = 
-  case (proofRSF pf, proofRSF pt) of 
-    ((False, f), (True, f')) -> 
-      if f == f' 
+bconcat :: [Builder] -> Builder
+bconcat = L.foldr (<>) "" 
+
+serProof' :: Proof -> Builder
+serProof' (Id_ _ nt nf) = "I" <> serText nt <> serText nf
+serProof' (Cut_ _ pf pt) =
+  case (proofRSF pf, proofRSF pt) of
+    ((False, f), (True, f')) ->
+      if f == f'
         then "C" <> serForm f <> serProof pf <> serProof pt
         else error "Cut formulas do not match"
     _ -> error "Cut formulas do not have correct signs"
-serProof (RelD_ _ p) = "D" <> serSignForm (proofRSF p) <> serProof p
-serProof (AoC_ _ x p) = "A" <> serTerm x <> serSignForm (proofRSF p) <> serProof p  
-serProof (Open_ _) = "O" 
-serProof (FunC_ _ nts nf) = "F" <> serList serText nts <> serText nf
-serProof (RelC_ _ nts nt nf) = "R" <> serList serText nts <> serText nt <> serText nf
-serProof (EqR_ ni nf) = "=R" <>  serText nf
-serProof (EqS_ ni nt nf) = "=S" <>  serText nt <> serText nf
-serProof (EqT_ ni nxy nyz nxz) = "=T" <>  serText nxy <> serText nyz <> serText nxz
-serProof (NotT_ ni nm p) = "~T" <> serText nm <> serProof p
-serProof (NotF_ ni nm p) = "~F" <> serText nm <> serProof p
-serProof (OrT_ ni nm ps) = "|T" <>  serText nm <> serList serProof ps
-serProof (OrF_ ni nm k p) = "|F" <>  serText nm <> serInt k <> serProof p
-serProof (AndT_ ni nm k p) = "&T" <>  serText nm <> serInt k <> serProof p
-serProof (AndF_ ni nm ps) = "&F" <>  serText nm <> serList serProof ps
-serProof (ImpT_ ni nm pa pc) = ">T" <>  serText nm <> serProof pa <> serProof pc
-serProof (ImpFA_ ni nm p) = ">FA" <>  serText nm <> serProof p
-serProof (ImpFC_ ni nm p) = ">FC" <>  serText nm <> serProof p
-serProof (IffTO_ ni nm p) = "^TO" <>  serText nm <> serProof p
-serProof (IffTR_ ni nm p) = "^TR" <>  serText nm <> serProof p
-serProof (IffF_ ni nm po pr) = "^F" <>  serText nm <> serProof po <> serProof pr
-serProof (FaT_ ni nm xs p) = "!T" <>  serText nm <> serList serTerm xs <> serProof p
-serProof (FaF_ ni nm k p) = "!F" <>  serText nm <> serInt k <> serProof p
-serProof (ExT_ ni nm k p) = "?T" <>  serText nm <> serInt k <> serProof p
-serProof (ExF_ ni nm xs p) = "?F" <>  serText nm <> serList serTerm xs <> serProof p
+serProof' (RelD_ _ p) = 
+ case proofRSF p of 
+  (True, f) -> "D" <> serForm f <> serProof p
+  _ -> error "F-signed definition"
+serProof' (AoC_ _ x p) = 
+ case proofRSF p of 
+  (True, f) -> "A" <> serTerm x <> serForm f <> serProof p
+  _ -> error "F-signed choice axiom instance"
+serProof' (Open_ _) = "O"
+serProof' (FunC_ _ nts nf) = "F" <> serList serText nts <> serText nf
+serProof' (RelC_ _ nts nt nf) = "R" <> serList serText nts <> serText nt <> serText nf
+serProof' (EqR_ ni nf) = "=R" <>  serText nf
+serProof' (EqS_ ni nt nf) = "=S" <>  serText nt <> serText nf
+serProof' (EqT_ ni nxy nyz nxz) = "=T" <>  serText nxy <> serText nyz <> serText nxz
+serProof' (NotT_ ni nm p) = "~T" <> serText nm <> serProof p
+serProof' (NotF_ ni nm p) = "~F" <> serText nm <> serProof p
+serProof' (OrT_ ni nm ps) = "|T" <>  serText nm <> bconcat (L.map serProof ps)
+serProof' (OrF_ ni nm k p) = "|F" <>  serText nm <> serInt k <> serProof p
+serProof' (AndT_ ni nm k p) = "&T" <>  serText nm <> serInt k <> serProof p
+serProof' (AndF_ ni nm ps) = "&F" <>  serText nm <> bconcat (L.map serProof ps)
+serProof' (ImpT_ ni nm pa pc) = ">T" <>  serText nm <> serProof pa <> serProof pc
+serProof' (ImpFA_ ni nm p) = ">FA" <> serText nm <> serProof p
+serProof' (ImpFC_ ni nm p) = ">FC" <> serText nm <> serProof p
+serProof' (IffTO_ ni nm p) = "^TO" <> serText nm <> serProof p
+serProof' (IffTR_ ni nm p) = "^TR" <> serText nm <> serProof p
+serProof' (IffF_ ni nm po pr) = "^F" <>  serText nm <> serProof po <> serProof pr
+serProof' (FaT_ ni nm xs p) = "!T" <>  serText nm <> serList serTerm xs <> serProof p
+serProof' (FaF_ ni nm k p) = "!F" <>  serText nm <> serInt k <> serProof p
+serProof' (ExT_ ni nm k p) = "?T" <>  serText nm <> serInt k <> serProof p
+serProof' (ExF_ ni nm xs p) = "?F" <>  serText nm <> serList serTerm xs <> serProof p
