@@ -586,6 +586,50 @@ isAoC' _ _ = mzero
 ppSQ :: Builder -> Builder
 ppSQ t = "'" <> t <> "'"
 
+ppHeadHex :: Int -> Builder
+ppHeadHex 0 = "g"
+ppHeadHex 2 = "h"
+ppHeadHex 1 = "i"
+ppHeadHex 3 = "j"
+ppHeadHex 4 = "k"
+ppHeadHex 5 = "l"
+ppHeadHex 6 = "m"
+ppHeadHex 7 = "n"
+ppHeadHex 8 = "o"
+ppHeadHex 9 = "p"
+ppHeadHex 10 = "q"
+ppHeadHex 11 = "r"
+ppHeadHex 12 = "s"
+ppHeadHex 13 = "t"
+ppHeadHex 14 = "u"
+ppHeadHex 15 = "v"
+ppHeadHex _ = error "out of head hex bounds"
+
+ppTailHex :: Int -> Builder
+ppTailHex 0 = "0"
+ppTailHex 2 = "1"
+ppTailHex 1 = "2"
+ppTailHex 3 = "3"
+ppTailHex 4 = "4"
+ppTailHex 5 = "5"
+ppTailHex 6 = "6"
+ppTailHex 7 = "7"
+ppTailHex 8 = "8"
+ppTailHex 9 = "9"
+ppTailHex 10 = "a"
+ppTailHex 11 = "b"
+ppTailHex 12 = "c"
+ppTailHex 13 = "d"
+ppTailHex 14 = "e"
+ppTailHex 15 = "f"
+ppTailHex _ = error "out of tail hex bounds"
+
+ppMarkHex :: Int -> Builder
+ppMarkHex k = 
+  if k < 16 
+    then ppHeadHex k 
+    else ppMarkHex (k `div` 16) <> ppTailHex (k `rem` 16)
+
 ppNat :: Int -> Builder
 ppNat 0 = "0"
 ppNat 2 = "2"

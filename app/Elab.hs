@@ -379,11 +379,14 @@ indexFunctor mp f =
 -- type Loc = (Text, [Int], Int)
 type Loc = (Text, [(Int, Int)], Int)
 
-pathText :: (Int, Int) -> Text
-pathText (k, m) = "_" <> tlt (ppInt k) <> "_" <> tlt (ppInt m)
+ppFork :: (Int, Int) -> Builder
+ppFork (k, m) = ppMarkHex k <> ppMarkHex m
+
+ppLoc :: Loc -> Builder
+ppLoc (tx, ks, k) = ft tx <> bconcat (L.map ppFork $ L.reverse ks) <> ppMarkHex k
 
 locText :: Loc -> Text
-locText (tx, ks, k) = tx <> T.intercalate "" (L.map pathText $ L.reverse ks) <> "_" <> tlt (ppInt k)
+locText = tlt . ppLoc
 
 extLoc :: Loc -> Int -> Loc
 extLoc (tx, ks, k) 0 = (tx, ks, k + 1)
@@ -404,10 +407,10 @@ stitch sftn ni (InfStep g prf cmt : slbs) = do
 stitch sftn ni (DefStep f g p cmt : slbs) = do 
   let loc = (cmt, [], 0)
   let loc' = extLoc loc 0
-  let sftn' = HM.insert (True, f) (locText loc) sftn
+  let sftn' = HM.insert (True, f) (tlt $ ppLoc loc) sftn
   pf <- deliteral' sftn' loc' (False, g) p
   pt <- stitch (HM.insert (True, g) cmt sftn') (cmt, True, g) slbs
-  return $ RelD_ ni $ Cut_ (locText loc, True, f) pf pt
+  return $ RelD_ ni $ Cut_ (tlt (ppLoc loc), True, f) pf pt
 
 stitch sftn ni (AoCStep xs f g prf_g cmt : slbs) = do 
   (vs, fa) <- breakAoC f

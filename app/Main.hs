@@ -1,6 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use foldr" #-}
 {-# HLINT ignore "Use foldl" #-}
@@ -317,7 +316,7 @@ redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_defini
 redefine _ af = return af
 
 mainArgs :: [String] -> IO ()
-mainArgs ("elab" : tptp : tstp : estp : flags) = do
+mainArgs ("elab" : tptp : tstp : cstp : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ pt "Reading problem and solution...\n"
   (ntf, sf, ftn, stps) <- hypsSteps vb tptp tstp
@@ -328,7 +327,7 @@ mainArgs ("elab" : tptp : tstp : estp : flags) = do
   -- pb $ ppListNl ppElab (linearize prf) <> "\n"
   -- pb "checking before output...\n"
   -- check vb 0 (HM.map (True,) ntf) prf
-  writeProof estp prf
+  writeProof cstp prf
 
 mainArgs ("check" : tptp : cstp : flags) = do
   let vb = "silent" `notElem` flags
@@ -339,6 +338,12 @@ mainArgs ("check" : tptp : cstp : flags) = do
   case parse (pcheck vb 0 bch True (And [])) prfTx of
     Just ((), rem) -> guard (T.null rem)
     _ -> et "check failure" 
+
+-- mainArgs ("compress" : tptp : cstp : flags) = do
+--   _
+-- 
+-- mainArgs ("extract" : tptp : cstp : flags) = do
+--   _
 
   -- -- when vb $ pt "Reading TPTP and ESTP files...\n"
   -- (bch, prf) <- branchProof vb tptp estp
