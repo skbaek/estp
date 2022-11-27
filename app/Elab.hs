@@ -204,24 +204,24 @@ usedef (Fa vs f) (Fa ws g) = do
   return $ FaF' ws 0 g $ FaT' vxs f p
 usedef f g = usedef' f g 
 
-elab :: NTF -> Step -> IO Stelab
-elab s (n, "file", [m], g) = do
+elabStep :: NTF -> Step -> IO Stelab
+elabStep s (n, "file", [m], g) = do
   f <- cast (HM.lookup m s)
   -- pb $ "Formula " <> ft m <> " : " <> ppForm f <> "\n"
   -- pb $ "Formula " <> ft n <> " : " <> ppForm g <> "\n"
   p <- orig f g
   return $ InfStep g p n
-elab _ (n, "predicate_definition_introduction", [], g) = relDef n g
-elab _ (n, "avatar_definition", [], g) = relDef n g
-elab s (n, "choice_axiom", [], g) = do
+elabStep _ (n, "predicate_definition_introduction", [], g) = relDef n g
+elabStep _ (n, "avatar_definition", [], g) = relDef n g
+elabStep s (n, "choice_axiom", [], g) = do
   (xs, f) <- normalizeAoC g
   p <- orig f g
   return $ AoCStep xs f g p n
-elab s (n, "avatar_sat_refutation", ns, g) = do
+elabStep s (n, "avatar_sat_refutation", ns, g) = do
   fs <- mapM (`lookupM` s) ns
   p <- sat fs
   return $ InfStep g p n
-elab s (n, r, ns, g) = do
+elabStep s (n, r, ns, g) = do
   fs <- mapM (`lookupM` s) ns
   p <- infer r fs g
   return $ InfStep g p n
@@ -229,7 +229,7 @@ elab s (n, r, ns, g) = do
 stelabIO :: Bool -> (NTF, Set Form) -> Step -> IO ((NTF, Set Form), Stelab) -- todo : eliminate checking during Stelab-IO
 stelabIO vb (nsq, sq) af@(n, _, _, f) = do
   when vb $ print $ "Elaborating step = " <> n
-  e <- elab nsq af
+  e <- elabStep nsq af
   return ((HM.insert n f nsq, S.insert f sq), e)
 
 stepsToStelabs :: Bool -> NTF -> Set Form -> [Step] -> IO [Stelab]
@@ -699,14 +699,12 @@ checkStelabs sf (slb : slbs) = do
   let sf' = S.insert g sf 
   checkStelabs sf' slbs
 
-elaborate :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO Proof  -- [Elab]
-elaborate vb ntf sf ftn stps = do
+elab :: Bool -> NTF -> Set Form -> SFTN -> [Step] -> IO Proof  -- [Elab]
+elab vb ntf sf ftn stps = do
   slbs <- stepsToStelabs vb ntf sf stps
   -- checkStelabs sf slbs
   let slbs' = L.map (removeMultiStep . desingle) slbs
   -- checkStelabs sf slbs'
   slbs'' <- indexStelabs 0 HM.empty slbs'
-  checkStelabs sf slbs''
-  stitch ftn ("root", True, top) slbs''
   -- checkStelabs sf slbs''
-  -- return $ linearize proof
+  stitch ftn ("root", True, top) slbs''

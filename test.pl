@@ -33,13 +33,16 @@ parse_test(NUM, (NAME, TPTP, TSTP)) :-
   format(string(CMD), "~~/projects/hstp/dist-newstyle/build/x86_64-linux/ghc-8.10.7/hstp-0.1.0.0/x/hstp/build/hstp/hstp", [TPTP, TSTP]),
   shell(CMD, 0), nl.
 
+delete_file_if_exists(FILE) :- exists_file(FILE) -> delete_file(FILE) ; true.
+
 elab(FLAGS, NUM, (NAME, TPTP, TSTP)) :- 
   write("---------------------------------------------------------------------------"), 
   atomics_to_string(FLAGS, " ", FLAGS_STR),
   format(string(ESTP), "$ESTP/proofs/~w.estp", [NAME]), nl, nl,
   format("Problem ~w : ~w", [NUM, NAME]), nl, nl,
   format(string(ELB_CMD), "cabal run :all -- elab ~w ~w ~w ~w", [TPTP, TSTP, ESTP, FLAGS_STR]), 
-  shell(ELB_CMD, 0), nl.
+  shell(ELB_CMD, RST), nl,
+  delete_if_fail(RST, ESTP).
 
 check(FLAGS, NUM, (NAME, TPTP, _)) :- 
   write("---------------------------------------------------------------------------"), 
@@ -48,6 +51,9 @@ check(FLAGS, NUM, (NAME, TPTP, _)) :-
   format("Problem ~w : ~w", [NUM, NAME]), nl, nl,
   format(string(CHK_CMD), "cabal run :all -- check ~w ~w ~w", [TPTP, ESTP, FLAGS_STR]), 
   shell(CHK_CMD, 0), nl.
+
+delete_if_fail(0, _) :- !.
+delete_if_fail(_, ESTP) :- delete_file_if_exists(ESTP).
 
 dev(FLAGS, _, (_, _, TSTP)) :- 
   % write("---------------------------------------------------------------------------"), 

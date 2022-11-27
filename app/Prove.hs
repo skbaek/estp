@@ -944,30 +944,6 @@ mapSearch vm fs gs = do
   zs <- cast $ getShortList zss
   first (\ (vm_, fs_) -> mapSearch vm_ fs_ gs) zs
 
--- origSearchMB :: VC -> [(Form, Form)] -> Maybe VC
--- origSearchMB vc [] = return vc
--- origSearchMB vc fgs = do
---   let zss = L.map (origForkAux True vc) (plucks fgs)
---   zs <- cast $ getShortList zss
---   first (uncurry origSearchMB) zs
-
-foob :: (Form, Form) -> Builder 
-foob (f, g) = ppFormNl f <> "\n<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>\n" <> ppFormNl g <> "\n"
-
-ppZ :: [(Form, Form)] -> Builder
-ppZ = ppListNl foob
-
-ppZS :: [(VC, [(Form, Form)])] -> Builder
-ppZS = ppListNl (ppZ . snd) 
-
-ppZSS :: [[(VC, [(Form, Form)])]] -> Builder
-ppZSS = ppListNl (barf . ppZS) 
-
-barf :: Builder -> Builder
-barf = ("\n==============================================================\n" <>)
-
--- jtype NDT = NominalDiffTime
-
 origTimeLimit :: NominalDiffTime
 origTimeLimit = 10
 
@@ -1212,18 +1188,6 @@ conTerm vm (Fun f xs) (Fun g ys) = do
 conTerm vm x y = do
   guard (x == y) -- "Cannot ground pair\n" <> ppTerm x <> "\n" <> ppTerm y <> "\n"
   return vm
-
--- orig :: Form -> Form -> IO Prf
--- orig f g = do 
---   pt "initiating orig. This shouldn't take more than 10 seconds...\n"
---   p <- failAsm 10000000 (origCore f g)
---   pt "orig returning proof.\n"
---   return p
-
---   | f == g = return $ Id' f
---   | otherwise = do
---     p <- failAsm 60000000 (porig 0 f g)
---     return $ Cut' (f <=> g) p $ iffMP f g
 
 orig :: Form -> Form -> IO Prf
 orig f g 
@@ -1508,11 +1472,6 @@ porig k f g
 
 porg' :: VR -> Int -> Form -> Form -> IO Prf
 porg' vr k f g = do
-  -- pb $ "VR :\n" <> ppVR vr <> "\n"
-  -- p <- porg vr k f g 
-  -- -- pb $ "\n\nVerifying equivalence...\n  f : " <> ppForm f <> "\n  g : " <> ppForm g  <> "\nVR : " <> ppVR vm <> "\nPrf:\n" <> ppPrf 15 p
-  -- -- verify 0 S.empty (S.singleton (f <=> g)) p 
-  -- return p
   porg vr k f g 
 
 porg :: VR -> Int -> Form -> Form -> IO Prf

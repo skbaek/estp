@@ -18,10 +18,11 @@ import Sat ( sat )
 import Lem
 import Norm
 import Prove
-import Elab (elaborate, linearize)
+import Elab (elab, linearize)
 -- import Expand (stelabsToElabs)
 import Check (check, getText, getList, pcheck)
 
+import System.Timeout (timeout)
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
@@ -215,18 +216,18 @@ readTptp nms tptp = do
   pafs <- parsePreName tptp
   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
 
-branchProof :: Bool -> String -> String -> IO (Branch, Proof)
-branchProof vb tptp estp = do
-  pt "Perusing TPTP file...\n"
-  pafs <- parsePreName tptp
-  elbs <- estpToElabs estp
-  let ahns = L.foldl (\ ns_ -> foldl (flip S.insert) ns_ . elabHyps) S.empty elbs
-  let bch = L.foldl (addToBranch ahns) HM.empty pafs
-  let elbsMap = HM.fromList $ L.map (\ elb_ -> (elabName elb_, elb_)) elbs
-  pt "Constructing proof tree...\n"
-  prf <- assemble elbsMap "root"
-  return (bch, prf)
-
+-- branchProof :: Bool -> String -> String -> IO (Branch, Proof)
+-- branchProof vb tptp estp = do
+--   pt "Perusing TPTP file...\n"
+--   pafs <- parsePreName tptp
+--   elbs <- estpToElabs estp
+--   let ahns = L.foldl (\ ns_ -> foldl (flip S.insert) ns_ . elabHyps) S.empty elbs
+--   let bch = L.foldl (addToBranch ahns) HM.empty pafs
+--   let elbsMap = HM.fromList $ L.map (\ elb_ -> (elabName elb_, elb_)) elbs
+--   pt "Constructing proof tree...\n"
+--   prf <- assemble elbsMap "root"
+--   return (bch, prf)
+-- 
 hypsSteps :: Bool -> String -> String -> IO (NTF, Set Form, SFTN, [Step])
 hypsSteps verbose tptp tstp = do
   pafs <- parsePreName tptp
@@ -276,6 +277,11 @@ proofNames (RelD_ _ p) = proofNames p
 proofNames (AoC_ _ _ p) = proofNames p
 proofNames (Open_ _) = S.empty
 
+-- writeOpenProof :: String -> IO ()
+-- writeOpenProof nm = do
+--   Prelude.putStrLn $ "Writing open proof : " <> nm
+--   TIO.writeFile nm $ tlt $ serList serText [] <> serProof (Open_ ("root", True, top))
+
 writeProof :: String -> Proof -> IO ()
 writeProof nm prf = do
   Prelude.putStrLn $ "Writing proof : " <> nm
@@ -308,26 +314,23 @@ redefine ks ('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "predicate_defini
 redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
   Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) = do
     k <- cast $ readInt tx
-    -- pb $ "Is it in list? : " <> ppInt k <> "\n"
-    -- guard (k `elem` ks)
-    -- return ("f" <> tx, lang, g, Just (Gfun "inference" [Gfun "usedef" [], Glist [], Glist [Gfun ("e" <> tlt (ppInt k)) []]], Nothing)) 
     guard (k `notElem` ks)
     return af
 redefine _ af = return af
 
-mainArgs :: [String] -> IO ()
-mainArgs ("elab" : tptp : tstp : cstp : flags) = do
-  let vb = "silent" `notElem` flags
+elaborate :: Bool -> String -> String -> String -> IO ()
+elaborate vb tptp tstp cstp = do
   when vb $ pt "Reading problem and solution...\n"
   (ntf, sf, ftn, stps) <- hypsSteps vb tptp tstp
   when vb $ pt "Elaborating solution...\n"
-  -- elbs <- elaborate vb ntf sf ftn stps
-  prf <- elaborate vb ntf sf ftn stps
+  prf <- elab vb ntf sf ftn stps
   when vb $ pt "Writing proof : \n"
-  -- pb $ ppListNl ppElab (linearize prf) <> "\n"
-  -- pb "checking before output...\n"
-  -- check vb 0 (HM.map (True,) ntf) prf
   writeProof cstp prf
+
+mainArgs :: [String] -> IO ()
+mainArgs ("elab" : tptp : tstp : cstp : flags) = do
+  (Just ()) <- timeout 60000000 (elaborate ("silent" `notElem` flags) tptp tstp cstp) 
+  skip
 
 mainArgs ("check" : tptp : cstp : flags) = do
   let vb = "silent" `notElem` flags
