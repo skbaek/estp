@@ -9,7 +9,7 @@ maintainer:         seulkeebaek@gmail.com
 extra-source-files: CHANGELOG.md
 
 library
-  exposed-modules: Types, Basic, PP, Parse, Check
+  exposed-modules: Types, Basic, PP, Parse
   build-depends:    
     base ^>=4.14.3.0,
     hashmap,
@@ -27,7 +27,7 @@ executable estp
   main-is:          Main.hs
   ghc-options:
     -O2
-  other-modules: Types, Basic, PP, Parse, Check
+  other-modules: Types, Basic, PP, Parse
   build-depends:    
     base ^>=4.14.3.0,
     hashmap,

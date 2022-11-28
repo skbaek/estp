@@ -16,7 +16,7 @@ import Data.Text.Lazy.Builder as B (Builder, fromLazyText, toLazyText)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
   fromListWithKey, delete, findWithDefault, singleton )
-import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions )
+import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions, size )
 import Control.Monad as M (MonadPlus, mzero, foldM, guard)
 import Control.Monad.Fail as MF (MonadFail, fail)
 -- import Control.Monad.Plus as MP 
@@ -690,3 +690,78 @@ proofRSF :: Proof -> (Bool, Form)
 proofRSF p = 
   case proofRootNode p of 
     (_, b, f) -> (b, f)
+
+functIdxLT :: Int -> Funct -> Bool
+functIdxLT k (Reg _) = True
+functIdxLT k (Idx m) = m < k
+
+termIdxLT :: Int -> Term -> Bool
+termIdxLT _ (Var _) = True
+termIdxLT k (Fun f xs) = functIdxLT k f && L.all (termIdxLT k) xs 
+
+formIdxLT :: Int -> Form -> Bool
+formIdxLT k (Eq x y) = termIdxLT k x && termIdxLT k y
+formIdxLT k (Rel r xs) = functIdxLT k r && L.all (termIdxLT k) xs 
+formIdxLT k (Not f) = formIdxLT k f
+formIdxLT k (Or fs) = L.all (formIdxLT k) fs
+formIdxLT k (And fs) = L.all (formIdxLT k) fs
+formIdxLT k (Imp f g) = formIdxLT k f && formIdxLT k g
+formIdxLT k (Iff f g) = formIdxLT k f && formIdxLT k g
+formIdxLT k (Fa _ f) = formIdxLT k f 
+formIdxLT k (Ex _ f) = formIdxLT k f 
+
+checkRelD :: Int -> Form -> Maybe Int
+checkRelD k (Fa vs (Iff (Rel (Idx m) xs) f)) = do 
+  guard $ k <= m
+  ws <- cast $ mapM breakVar xs
+  guard $ sublist ws vs
+  guard $ isGndForm ws f
+  guard $ formIdxLT k f
+  return $ m + 1
+checkRelD k (Iff (Rel (Idx m) []) f) = do 
+  guard $ k <= m
+  guard $ isGndForm [] f
+  guard $ formIdxLT k f
+  return $ m + 1
+checkRelD _ _ = mzero
+
+distintList :: (Ord a) => [a] -> Bool
+distintList xs = S.size (S.fromList xs) == L.length xs
+
+checkSkolemTerm :: [Text] -> Int -> Term -> Maybe Int
+checkSkolemTerm vs k (Var _) = mzero
+checkSkolemTerm vs k (Fun (Reg _) _) = mzero
+checkSkolemTerm vs k (Fun (Idx m) xs) = do
+  guard $ k <= m
+  ws <- cast $ mapM breakVar xs
+  guard $ sublist ws vs
+  return $ m + 1
+
+checkAoC :: Int -> Term -> Form -> Maybe Int
+checkAoC k x (Fa vs (Imp (Ex [w] f) g)) = do
+  guard $ distintList (w : vs)
+  k' <- checkSkolemTerm vs k x 
+  guard $ substForm [(w, x)] f == g
+  return k'
+checkAoC k x (Fa vs (Imp (Ex (w : ws) f) g)) = do
+  guard $ distintList (w : ws ++ vs)
+  k' <- checkSkolemTerm vs k x 
+  guard $ substForm [(w, x)] (Ex ws f) == g
+  return k'
+
+checkAoC k x (Imp (Ex [w] f) g) = do
+  k' <- checkSkolemTerm [] k x
+  guard $ substForm [(w, x)] f == g
+  return k'
+
+checkAoC k x (Imp (Ex (w : ws) f) g) = do
+  guard $ distintList (w : ws)
+  k' <- checkSkolemTerm [] k x
+  guard $ substForm [(w, x)] (Ex ws f) == g
+  return k'
+checkAoC k xs _ = mzero
+
+
+breakTrueEq :: (Bool, Form) -> Maybe (Term, Term)
+breakTrueEq (True, Eq x y) = Just (x, y)
+breakTrueEq _ = mzero

@@ -13,15 +13,16 @@ import Types
 import Basic
 import PP
 import Parse ( parseName, parsePreName, decimal, parseForm, univClose,
-  conjecturize, estpToElabs, tstpToSteps, functor, parse )
-import Check (check, getText, getList, pcheck)
+  conjecturize, estpToElabs, tstpToSteps, functor, parse, pcheck, getText, getList )
+-- import Check (check)
 
 import System.Timeout (timeout)
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
 import System.Environment ( getArgs )
-import Data.List as L ( map, foldl, all, concat, reverse, length, any, filter, delete, isPrefixOf, stripPrefix )
+import Data.List as L 
+  ( map, foldl, all, concat, reverse, length, any, filter, delete, isPrefixOf, stripPrefix, concatMap )
 import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
 import Data.Text.Lazy.IO as TIO
     ( readFile, hPutStrLn, hPutStr, writeFile )
@@ -297,7 +298,7 @@ redefine _ af = return af
 
 mainArgs ("check" : tptp : cstp : flags) = do
   let vb = "silent" `notElem` flags
-  when vb $ ps $ "Reading ESTP : " ++ cstp ++ " ...\n"
+  when vb $ ps $ "Reading CSTP : " ++ cstp ++ " ...\n"
   (nms, prfTx) <- readCstp cstp
   when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
   bch <- readTptp nms tptp
@@ -305,11 +306,29 @@ mainArgs ("check" : tptp : cstp : flags) = do
     Just ((), rem) -> guard (T.null rem)
     _ -> et "check failure" 
 
--- mainArgs ("compress" : tptp : cstp : flags) = do
---   _
+mainArgs ("extract" : cstp : estp : flags) = do
+  -- (_, tx) <- readCstp cstp
+  -- (prf, rem) <- cast $ parse proof tx 
+  -- guard $ T.null rem
+  -- TIO.writeFile estp $ tlt $ ppList ppElab (linearize prf)
+  error "todo"
+ 
+-- mainArgs ("compress" : estp : cstp : flags) = do
+--   let vb = "silent" `notElem` flags
 -- 
--- mainArgs ("extract" : tptp : cstp : flags) = do
 --   _
+
+
+-- pcheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
+-- pcheck vb k bch sgn f = do 
+--   when vb $ trace "Getting node name...\n" skip
+--   nm <- getText 
+--   when vb $ trace ("Node name : " ++ unpack nm ++ "\n") skip
+--   let bch' = HM.insert nm (sgn, f) bch
+--   r <- getRule <|> error "cannot read rule"
+--   when vb $ trace ("Rule : " ++ T.unpack r ++ "\n") skip
+--   pcheck' vb k bch' r
+
 
   -- -- when vb $ pt "Reading TPTP and ESTP files...\n"
   -- (bch, prf) <- branchProof vb tptp estp
@@ -331,6 +350,37 @@ mainArgs ("dev" : tstp : _) =
       TIO.writeFile ("./newalt/" ++ probName)  output
     else skip
 mainArgs _ = et "Invalid main args"
+
+
+linearize :: Proof -> [Elab]
+linearize (Id_ ni nt nf) = [(ni, Id nt nf, Nothing)]
+linearize (Cut_ ni p q) = (ni, Cut (proofRN p) (proofRN q), Nothing) : linearize p ++ linearize q
+linearize (FunC_ ni xs nm) = [(ni, FunC xs nm, Nothing)]
+linearize (RelC_ ni xs nt nf) = [(ni, RelC xs nt nf, Nothing)]
+linearize (EqR_ ni nm) = [(ni, EqR nm, Nothing)]
+linearize (EqS_ ni nt nf) = [(ni, EqS nt nf, Nothing)]
+linearize (EqT_ ni nxy nyz nxz) = [(ni, EqT nxy nyz nxz, Nothing)]
+linearize (NotT_ ni nm p) = (ni, NotT nm (proofRN p), Nothing) : linearize p
+linearize (NotF_ ni nm p) = (ni, NotF nm (proofRN p), Nothing) : linearize p
+linearize (OrT_ ni nm ps) = (ni, OrT nm (L.map proofRN ps), Nothing) : L.concatMap linearize ps
+linearize (OrF_ ni nm k p) = (ni, OrF nm k (proofRN p), Nothing) : linearize p
+linearize (AndT_ ni nm k p) = (ni, AndT nm k (proofRN p), Nothing) : linearize p
+linearize (AndF_ ni nm ps) = (ni, AndF nm (L.map proofRN ps), Nothing) : L.concatMap linearize ps
+linearize (ImpT_ ni nm p q) = (ni, ImpT nm (proofRN p) (proofRN q), Nothing) : linearize p ++ linearize q
+linearize (ImpFA_ ni nm p) = (ni, ImpFA nm (proofRN p), Nothing) : linearize p
+linearize (ImpFC_ ni nm p) = (ni, ImpFC nm (proofRN p), Nothing) : linearize p
+linearize (IffTO_ ni nm p) = (ni, IffTO nm (proofRN p), Nothing) : linearize p
+linearize (IffTR_ ni nm p) = (ni, IffTR nm (proofRN p), Nothing) : linearize p
+linearize (IffF_ ni nm p q) = (ni, IffF nm (proofRN p) (proofRN q), Nothing) : linearize p ++ linearize q
+linearize (FaT_ ni nm xs p) = (ni, FaT nm xs (proofRN p), Nothing) : linearize p
+linearize (FaF_ ni nm k p) = (ni, FaF nm k (proofRN p), Nothing) : linearize p
+linearize (ExT_ ni nm k p) = (ni, ExT nm k (proofRN p), Nothing) : linearize p
+linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p), Nothing) : linearize p
+linearize (RelD_ ni p) = (ni, RelD (proofRN p), Nothing) : linearize p
+linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p), Nothing) : linearize p
+linearize (Open_ ni) = [(ni, Open, Nothing)]
+-- extract :: Handle -> Text -> IO ()
+-- extract hndl tx = _
 
 main :: IO ()
 main = getArgs >>= mainArgs
