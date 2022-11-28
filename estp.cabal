@@ -8,11 +8,26 @@ maintainer:         seulkeebaek@gmail.com
 
 extra-source-files: CHANGELOG.md
 
+library
+  exposed-modules: Types, Basic, PP, Parse, Check
+  build-depends:    
+    base ^>=4.14.3.0,
+    hashmap,
+    hashable,
+    containers,
+    text,
+    time,
+    Unique,
+    process,
+    strings
+  hs-source-dirs:   app
+  default-language: Haskell2010
+
 executable estp
   main-is:          Main.hs
   ghc-options:
     -O2
-  other-modules: Types, Basic, PP, Parse, Sat, Lem, Norm, Prove, Elab, Check
+  other-modules: Types, Basic, PP, Parse, Check
   build-depends:    
     base ^>=4.14.3.0,
     hashmap,
