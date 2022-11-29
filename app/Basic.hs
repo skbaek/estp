@@ -761,7 +761,34 @@ checkAoC k x (Imp (Ex (w : ws) f) g) = do
   return k'
 checkAoC k xs _ = mzero
 
-
 breakTrueEq :: (Bool, Form) -> Maybe (Term, Term)
 breakTrueEq (True, Eq x y) = Just (x, y)
 breakTrueEq _ = mzero
+
+rootNode :: Proof -> NodeInfo 
+rootNode (Id_ ni _ _) = ni
+rootNode (Cut_ ni _ _) = ni
+rootNode (FunC_ ni _ _) = ni
+rootNode (RelC_ ni _ _ _) = ni
+rootNode (EqR_ ni _) = ni
+rootNode (EqS_ ni _ _) = ni
+rootNode (EqT_ ni _ _ _) = ni
+rootNode (NotT_ ni _ _) = ni
+rootNode (NotF_ ni _ _) = ni
+rootNode (OrT_ ni _ _) = ni
+rootNode (OrF_ ni _ _ _) = ni
+rootNode (AndT_ ni _ _ _) = ni
+rootNode (AndF_ ni _ _) = ni
+rootNode (ImpT_ ni _ _ _) = ni
+rootNode (ImpFA_ ni _ _) = ni
+rootNode (ImpFC_ ni _ _) = ni
+rootNode (IffTO_ ni _ _) = ni
+rootNode (IffTR_ ni _ _) = ni
+rootNode (IffF_ ni _ _ _) = ni
+rootNode (FaT_ ni _ _ _) = ni
+rootNode (FaF_ ni _ _ _) = ni
+rootNode (ExT_ ni _ _ _) = ni
+rootNode (ExF_ ni _ _ _) = ni
+rootNode (RelD_ ni _) = ni
+rootNode (AoC_ ni _ _) = ni
+rootNode (Open_ ni) = ni

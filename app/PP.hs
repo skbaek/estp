@@ -5,6 +5,7 @@ module PP where
 import Basic
 import Data.List as L
 import Data.Text.Lazy as T ( concat, intercalate, pack, Text, length, take )
+import Data.Text.Lazy.IO as TIO (writeFile)
 import qualified Data.Text.Lazy as TL (toStrict, intercalate)
 import Data.Text.Lazy.Builder as B (Builder, singleton, fromLazyText, toLazyText)
 -- import qualified Data.Text.Lazy.Builder.Int as B
@@ -27,9 +28,6 @@ ppMapping (t, x) = ft t <> " |-> " <> ppTerm x
 
 ppVmap :: (Text, Text) -> Builder
 ppVmap (v, w) = ft $  v <> " <-|-> " <> w
-
--- ppVM :: VM -> Builder
--- ppVM gm = ppListNl (\ (v, x) -> v <> " |-> " <> ppTerm x) (HM.toList gm)
 
 ppVR :: VR -> Builder
 ppVR (vw, _) = ppListNl ppVmap (HM.toList vw)
@@ -99,19 +97,6 @@ ppForm (Iff f g) = "(" <> ppForm f <> " <=> " <> ppForm g <> ")"
 ppForm (Fa vs f) = "! " <> ppList ft vs <> " : " <> ppForm f
 ppForm (Ex vs f) = "? " <> ppList ft vs <> " : " <> ppForm f
 
--- ppForm' :: Form -> Builder
--- ppForm' (Eq t s) = "(" <> ppTerm t <> " = " <> ppTerm s <> ")"
--- ppForm' (Rel r xs) = ppFunct r <> ppArgs (L.map ppTerm xs)
--- ppForm' (Not f) = "~ " <> ppForm' f
--- ppForm' (And []) = "$true"
--- ppForm' (Or  []) = "$false"
--- ppForm' (And fs) = "(" <> ppInter " & " (L.map ppForm' fs) <> ")"
--- ppForm' (Or  fs) = "(" <> ppInter " | " (L.map ppForm' fs) <> ")"
--- ppForm' (Imp f g) = "(" <> ppForm' f <> " => " <> ppForm' g <> ")"
--- ppForm' (Iff f g) = "(" <> ppForm' f <> " <=> " <> ppForm' g <> ")"
--- ppForm' (Fa vs f) = "! " <> ppList ft vs <> " : " <> ppForm' f
--- ppForm' (Ex vs f) = "? " <> ppList ft vs <> " : " <> ppForm' f
-
 ppFormNl :: Form -> Builder
 ppFormNl f = ppInter "\n" (ppFormNlCore f) <> "\n"
 
@@ -134,21 +119,11 @@ ppForms fs = ppInter "\n" $ L.map ppForm fs
 ppObj :: [Form] -> Form -> Builder
 ppObj fs g = ppForms fs <> "\n---------------------------------------------------------------------\n" <> ppForm g <> "\n"
 
--- ppSeq :: Seq -> Builder
--- ppSeq s = ppList ppForm $ S.toList s
-
 ppGterm :: Gterm -> Builder
 ppGterm (Gfun f ts) = ft f <> ppArgs (L.map ppGterm ts)
 ppGterm (Glist ts) = ppList id $ L.map ppGterm ts
 ppGterm (Gnum k) = ppInt k
 ppGterm (Gvar v) = ft v
-
--- ppAnt :: Ant -> Builder
--- ppAnt Nothing = ""
--- ppAnt (Just t) = ppGterm t
-
--- ppAF :: AF -> String
--- ppAF (n, r, f, a) = printf "%s :: %s :: %s :: %s" n r (tlt $ ppForm f) "" -- (tlt $ ppAnt a)
 
 ppEq :: (Term, Term) -> Builder
 ppEq (x, y) = ppForm (Eq x y)
@@ -195,20 +170,6 @@ ppPrfCore k (ExT' vs m f p) =
   ("Ex-L : " : L.map (pad . ppMapping) vxs) ++  pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
 ppPrfCore k Open' = ["Open!"]
 
--- ppTake :: Int -> (a -> Builder) -> a -> Builder
--- ppTake k f x =
---   let t = f x in
---   let l = T.length t in
---   if l <= k
---   then t
---   else T.take k t <> "..."
--- 
--- ppTakeEq :: Int -> (Form, Form) -> Builder
--- ppTakeEq k (f, g) = ppTake k ppForm f <> " <-|-> " <> ppTake k ppForm g
-
--- ppSearchState :: VC -> [(Form, Form)] -> Builder
--- ppSearchState vc = ppListNl (ppTakeEq 40)
-
 writeTerm :: Term -> Builder
 writeTerm (Var x) = ft x
 writeTerm (Fun f xs) = ppFunct f <> ppArgs (L.map writeTerm xs)
@@ -251,11 +212,6 @@ ppPath NewNot = "not"
 
 ppSig :: Sig -> Builder
 ppSig = ppHM (ppList ppPath) ppInt
--- ppEP (k, l) = ppSQ $ ppInter ":" $ ppInt k : L.map (\ (m_, n_) -> ppInt m_ <> "." <> ppInt n_) l
-
--- ppSide :: Side -> Builder
--- ppSide Lft = "lft"
--- ppSide Rgt = "rgt"
 
 ppInf :: Inf -> Builder
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
@@ -289,10 +245,6 @@ ppInf (ExF nh xs nc) = ppApp "exf" [ft nh, ppList writeTerm xs, ft nc]
 ppInf (RelD nc) = ppApp "reld" [ft nc]
 ppInf (AoC x nc) = ppApp "aoc" [ppTerm x, ft nc]
 ppInf Open = "open"
-
-ppDir :: Dir -> Builder
-ppDir Obv = "obv"
-ppDir Rev = "rev"
 
 ppSign :: Bool -> Builder
 ppSign True = "true"
@@ -474,3 +426,8 @@ diffTrail x y =
   case diffSignForm x y of 
     Just b -> tlt b 
     _ -> error "cannot find diff"
+
+writeProof :: String -> [Text] -> Proof -> IO ()
+writeProof nm nms prf = do
+  Prelude.putStrLn $ "Writing proof : " <> nm
+  TIO.writeFile nm $ tlt $ serList serText nms <> serProof prf

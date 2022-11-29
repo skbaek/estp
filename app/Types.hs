@@ -113,10 +113,6 @@ data Lrat = Del Int [Int] | Add Int [Form] [Int]
 type NTF = Map Text Form
 type SFTN = Map (Bool, Form) Text
 
--- type NSeq = Map Text Form
--- type Seq = Set Form
--- type Hyps = (NSeq, Seq)
-
 type VC = (HM.Map Text (Set Text), HM.Map Text (Set Text)) 
 type VR = (HM.Map Text Text, HM.Map Text Text) 
 type VM = HM.Map Text Term
@@ -163,10 +159,6 @@ type MTT = HM.Map Text Text
 type MTI = HM.Map Text Int
 type USOL = [Term]
 
--- type EP = (Int, [(Int, Int)])
-
-type Elab = (NodeInfo, Inf, Maybe Text)
-
 data Inf =
     Id Text Text 
   | FunC [Text] Text | RelC [Text] Text Text
@@ -181,34 +173,6 @@ data Inf =
   | ExT Text Int Text | ExF Text [Term] Text
   | RelD Text | AoC Term Text | Open
   deriving (Show)
-
-rootNode :: Proof -> NodeInfo 
-rootNode (Id_ ni _ _) = ni
-rootNode (Cut_ ni _ _) = ni
-rootNode (FunC_ ni _ _) = ni
-rootNode (RelC_ ni _ _ _) = ni
-rootNode (EqR_ ni _) = ni
-rootNode (EqS_ ni _ _) = ni
-rootNode (EqT_ ni _ _ _) = ni
-rootNode (NotT_ ni _ _) = ni
-rootNode (NotF_ ni _ _) = ni
-rootNode (OrT_ ni _ _) = ni
-rootNode (OrF_ ni _ _ _) = ni
-rootNode (AndT_ ni _ _ _) = ni
-rootNode (AndF_ ni _ _) = ni
-rootNode (ImpT_ ni _ _ _) = ni
-rootNode (ImpFA_ ni _ _) = ni
-rootNode (ImpFC_ ni _ _) = ni
-rootNode (IffTO_ ni _ _) = ni
-rootNode (IffTR_ ni _ _) = ni
-rootNode (IffF_ ni _ _ _) = ni
-rootNode (FaT_ ni _ _ _) = ni
-rootNode (FaF_ ni _ _ _) = ni
-rootNode (ExT_ ni _ _ _) = ni
-rootNode (ExF_ ni _ _ _) = ni
-rootNode (RelD_ ni _) = ni
-rootNode (AoC_ ni _ _) = ni
-rootNode (Open_ ni) = ni
 
 type NodeInfo = (Text, Bool, Form)
 
@@ -240,6 +204,9 @@ data Proof =
   | AoC_ NodeInfo Term Proof 
   | Open_ NodeInfo
   deriving (Show)
+  
+type Elab = (NodeInfo, Inf, Maybe Text)
+
 type Step = (Text, Text, [Text], Form) -- (name, inference, hyps, conc)
 
 type Invranch = HM.Map (Form, Bool) Text

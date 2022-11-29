@@ -12,9 +12,8 @@ module Main where
 import Types
 import Basic
 import PP
-import Parse ( parseName, parsePreName, decimal, parseForm, univClose,
-  conjecturize, estpToElabs, tstpToSteps, functor, parse, pcheck, getText, getList )
--- import Check (check)
+import Parse ( parseName, parsePreName, decimal, parseForm, univClose, proof, proofCheck,
+  afToEf, conjecturize, estpToElabs, tstpToSteps, functor, parse, getText, getList )
 
 import System.Timeout (timeout)
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
@@ -22,7 +21,7 @@ import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
 import System.Environment ( getArgs )
 import Data.List as L 
-  ( map, foldl, all, concat, reverse, length, any, filter, delete, isPrefixOf, stripPrefix, concatMap )
+  ( map, foldl, all, concat, reverse, length, any, filter, delete, concatMap )
 import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
 import Data.Text.Lazy.IO as TIO
     ( readFile, hPutStrLn, hPutStr, writeFile )
@@ -31,22 +30,6 @@ import Data.Set as S ( empty, insert, member, singleton, toList, fromList, Set, 
 import Data.Map as HM (Map, map, empty, insert, lookup, toList, foldrWithKey, size, fromList)
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
--- import Data.Strings (strStartsWith) 
-
-addHyp :: (NTF, Set Form) -> AF -> (NTF, Set Form)
-addHyp (nsq, sq) (n, _, f, _) = (HM.insert n f nsq, S.insert f sq)
-
-addToNodes :: Set Text -> Nodes -> PreAF -> Nodes
-addToNodes ahns nds (CnfAF nm rl tx)
-  | S.member nm ahns =
-    let f = (conjecturize rl $ univClose $ parseForm tx) in
-    HM.insert nm (f, True, 0) nds
-  | otherwise = nds
-addToNodes ahns nds (FofAF nm rl tx)
-  | S.member nm ahns =
-    let f = (conjecturize rl $ parseForm tx) in
-    HM.insert nm (f, True, 0) nds
-  | otherwise = nds
 
 addToBranch :: Set Text -> Branch -> PreAF -> Branch
 addToBranch ahns bch (CnfAF n r tx)
@@ -76,14 +59,6 @@ addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx)
 
 skipList :: String -> Bool
 skipList n = False
-
-ppInvranch :: Invranch -> Builder
-ppInvranch br = ppListNl (\ (f_, b_) -> ppSignForm (b_, f_)) $ L.map fst (HM.toList br)
-
--- elabNote :: Stelab -> Text
--- elabNote (InfStep _ _ n) = n
--- elabNote (DefStep _ _ _ n) = n
--- elabNote (AoCStep _ _ _ _ n) = n
 
 prfHasAsm :: Prf -> Bool
 prfHasAsm (Id' _) = False
@@ -153,15 +128,12 @@ assemble' mp (ni, RelC nms nt nf, _) = return $ RelC_ ni nms nt nf
 assemble' mp (ni, EqR nm, _) = return $ EqR_ ni nm
 assemble' mp (ni, EqS nt nf, _) = return $ EqS_ ni nt nf
 assemble' mp (ni, EqT nxy nyz nxz, _) = return $ EqT_ ni nxy nyz nxz
-
 assemble' mp (ni, Cut nf nt, _) = do
   pf <- assemble mp nf
   pt <- assemble mp nt
   return $ Cut_ ni pf pt
-
 assemble' mp (ni, NotT nh nc, _) = NotT_ ni nh <$> assemble mp nc
 assemble' mp (ni, NotF nh nc, _) = NotF_ ni nh <$> assemble mp nc
-
 assemble' mp (ni, OrT nh ncs, _) = do
   ps <- mapM (assemble mp) ncs
   return $ OrT_ ni nh ps
@@ -170,12 +142,10 @@ assemble' mp (ni, AndT nh k nc, _) = AndT_ ni nh k <$> assemble mp nc
 assemble' mp (ni, AndF nh ncs, _) = do
   ps <- mapM (assemble mp) ncs
   return $ AndF_ ni nh ps
-
 assemble' mp (ni, ImpT nh na nc, _) = do
   pa <- assemble mp na
   pc <- assemble mp nc
   return $ ImpT_ ni nh pa pc
-
 assemble' mp (ni, ImpFA nh nc, _) = ImpFA_ ni nh <$> assemble mp nc
 assemble' mp (ni, ImpFC nh nc, _) = ImpFC_ ni nh <$> assemble mp nc
 assemble' mp (ni, IffTO nh nc, _) = IffTO_ ni nh <$> assemble mp nc
@@ -184,15 +154,12 @@ assemble' mp (ni, IffF nh no nr, _) = do
   po <- assemble mp no
   pr <- assemble mp nr
   return $ IffF_ ni nh po pr
-
 assemble' mp (ni, FaT nh xs nc, _) = FaT_ ni nh xs <$> assemble mp nc
 assemble' mp (ni, FaF nh k nc, _) = FaF_ ni nh k <$> assemble mp nc
 assemble' mp (ni, ExT nh k nc, _) = ExT_ ni nh k <$> assemble mp nc
 assemble' mp (ni, ExF nh xs nc, _) = ExF_ ni nh xs <$> assemble mp nc
 assemble' mp (ni, RelD nc, _) = RelD_ ni <$> assemble mp nc
-
 assemble' mp (ni, AoC xs nc, _) = AoC_ ni xs <$> assemble mp nc
-
 assemble' mp (ni, Open, _) = return $ Open_ ni
 
 assemble :: HM.Map Text Elab -> Text -> IO Proof
@@ -260,11 +227,6 @@ proofNames (RelD_ _ p) = proofNames p
 proofNames (AoC_ _ _ p) = proofNames p
 proofNames (Open_ _) = S.empty
 
-writeProof :: String -> Proof -> IO ()
-writeProof nm prf = do
-  Prelude.putStrLn $ "Writing proof : " <> nm
-  TIO.writeFile nm $ tlt $ serList serText (S.toList $ proofNames prf) <> serProof prf
-
 isVar :: Term -> Bool
 isVar (Var _) = True
 isVar _ = False
@@ -272,85 +234,36 @@ isVar _ = False
 ps :: String -> IO ()
 ps = Prelude.putStr
 
-afName :: AF -> Text
-afName (n, _, _, _) = n
+elabInf :: Elab -> Inf
+elabInf (_, i, _) = i
 
-isExtraAF :: Text -> Bool
-isExtraAF ('e' :> _) = True
-isExtraAF _ = False
-
-breakExtra :: Text -> IO Int
-breakExtra ('e' :> tx) = cast $ readInt tx
-breakExtra _ = mzero
-
-redefine :: [Int] -> AF -> IO AF
-redefine ks ('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],
-  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) = do
-    k <- cast $ readInt tx
-    guard (k `elem` ks)
-    return ("f" <> tx, lang, g, Just (Gfun "inference" [Gfun "usedef" [], Glist [], Glist [Gfun ("e" <> tlt (ppInt k)) []]], Nothing))
-redefine ks af@('f' :> tx, lang, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
-  Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) = do
-    k <- cast $ readInt tx
-    guard (k `notElem` ks)
-    return af
-redefine _ af = return af
-
-mainArgs ("check" : tptp : cstp : flags) = do
+mainArgs ("check" : tptp : astp : flags) = do
   let vb = "silent" `notElem` flags
-  when vb $ ps $ "Reading CSTP : " ++ cstp ++ " ...\n"
-  (nms, prfTx) <- readCstp cstp
+  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
+  (nms, prfTx) <- readCstp astp
   when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
   bch <- readTptp nms tptp
-  case parse (pcheck vb 0 bch True (And [])) prfTx of
-    Just ((), rem) -> guard (T.null rem)
-    _ -> et "check failure" 
+  ((), rem) <- cast $ parse (proofCheck vb 0 bch True (And [])) prfTx 
+  guard (T.null rem)
+  pt "Proof checked.\n"
 
-mainArgs ("extract" : cstp : estp : flags) = do
-  -- (_, tx) <- readCstp cstp
-  -- (prf, rem) <- cast $ parse proof tx 
-  -- guard $ T.null rem
-  -- TIO.writeFile estp $ tlt $ ppList ppElab (linearize prf)
-  error "todo"
- 
--- mainArgs ("compress" : estp : cstp : flags) = do
---   let vb = "silent" `notElem` flags
--- 
---   _
+mainArgs ("extract" : tptp : astp : estp : flags) = do
+  let vb = "silent" `notElem` flags
+  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
+  (nms, prfTx) <- readCstp astp
+  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
+  bch <- readTptp nms tptp
+  (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
+  guard (T.null rem)
+  TIO.writeFile estp $ tlt $ ppListNl ppElab $ linearize prf
 
-
--- pcheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
--- pcheck vb k bch sgn f = do 
---   when vb $ trace "Getting node name...\n" skip
---   nm <- getText 
---   when vb $ trace ("Node name : " ++ unpack nm ++ "\n") skip
---   let bch' = HM.insert nm (sgn, f) bch
---   r <- getRule <|> error "cannot read rule"
---   when vb $ trace ("Rule : " ++ T.unpack r ++ "\n") skip
---   pcheck' vb k bch' r
-
-
-  -- -- when vb $ pt "Reading TPTP and ESTP files...\n"
-  -- (bch, prf) <- branchProof vb tptp estp
-  -- -- when vb $ pt "Checking ESTP solution...\n"
-  -- pt "Checking ESTP solution...\n"
-  -- check vb 0 bch prf
-
-mainArgs ("dev" : tstp : _) =
-  if isPrefixOf "/home/sk/tstp/alt/" tstp
-    then do
-      probName <- cast $ stripPrefix "/home/sk/tstp/alt/" tstp
-      ps $ "Alt solution : " <> tstp <> "\n"
-      afs <- parseName tstp
-      let nms = L.filter isExtraAF (L.map afName afs)
-      ks <- mapM breakExtra nms
-      pb $ ppList ppInt ks
-      afs' <- mapM (redefine ks) afs
-      let output = tlt $ ppInter "\n" $ L.map ((<> ".") . fmtAF) afs'
-      TIO.writeFile ("./newalt/" ++ probName)  output
-    else skip
+mainArgs ("assemble" : estp : astp : flags) = do
+  elbs <- parseName estp >>= mapM afToEf 
+  let nms = L.foldl S.union S.empty (L.map (S.fromList . infHyps . elabInf) elbs)
+  let m = L.foldl (\ m_ elb_ -> HM.insert (elabName elb_) elb_ m_) HM.empty elbs
+  prf <- assemble m "root"
+  writeProof astp (S.toList nms) prf
 mainArgs _ = et "Invalid main args"
-
 
 linearize :: Proof -> [Elab]
 linearize (Id_ ni nt nf) = [(ni, Id nt nf, Nothing)]
@@ -379,9 +292,6 @@ linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p), Nothing) : linearize p
 linearize (RelD_ ni p) = (ni, RelD (proofRN p), Nothing) : linearize p
 linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p), Nothing) : linearize p
 linearize (Open_ ni) = [(ni, Open, Nothing)]
--- extract :: Handle -> Text -> IO ()
--- extract hndl tx = _
 
 main :: IO ()
 main = getArgs >>= mainArgs
-

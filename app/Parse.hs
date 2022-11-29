@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use <$>" #-}
 
 module Parse where
 
@@ -891,25 +893,15 @@ gFunFunctor _ = Nothing
 
 tstpToSteps :: String -> IO [Step]
 tstpToSteps tstp = parseName tstp >>= mapM afToStep . sortAfs
--- parseNameToElabs :: String -> IO [Elab]
 
--- proof :: Parser Proof
--- proof = do 
---   nm <- getText 
---   -- when vb $ trace ("Node name : " ++ unpack nm ++ "\n") skip
---   -- let bch' = HM.insert nm (sgn, f) bch
---   r <- getRule <|> error "cannot read rule"
---   proof' r
--- 
-pcheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
-pcheck vb k bch sgn f = do 
-  when vb $ trace "Getting node name...\n" skip
+proofCheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
+proofCheck vb k bch sgn f = do 
   nm <- getText 
-  when vb $ trace ("Node name : " ++ unpack nm ++ "\n") skip
+  -- trace ("Node : " ++ unpack nm) skip
   let bch' = HM.insert nm (sgn, f) bch
   r <- getRule <|> error "cannot read rule"
-  when vb $ trace ("Rule : " ++ T.unpack r ++ "\n") skip
-  pcheck' vb k bch' r
+  -- trace ("Rule : " ++ T.unpack r ++ "\n") skip
+  proofCheck' vb k bch' r
 
 pguard :: Text -> Bool -> Parser ()
 pguard tx True = skip
@@ -1018,35 +1010,35 @@ getForm' c = error $ "invalid head character : " <> [c]
 fetch :: (MonadFail m) => Branch -> Text -> m SignForm
 fetch bch nm = cast (HM.lookup nm bch)
 
-pcheck' :: Bool -> Int -> Branch -> Text -> Parser ()
-pcheck' vb k bch "I" = do
+proofCheck' :: Bool -> Int -> Branch -> Text -> Parser ()
+proofCheck' vb k bch "I" = do
   nt <- getText 
   nf <- getText 
   ft <- fetch bch nt
   ff <- fetch bch nf
   pguard "id-fail" $ complementary ft ff
-pcheck' vb k bch "C" = do
+proofCheck' vb k bch "C" = do
   f <- getForm 
-  pcheck vb k bch False f
-  pcheck vb k bch True f
-pcheck' vb k bch "D" = do
+  proofCheck vb k bch False f
+  proofCheck vb k bch True f
+proofCheck' vb k bch "D" = do
   f <- getForm 
   k' <- cast $ checkRelD k f 
-  pcheck vb k' bch True f 
-pcheck' vb k bch "A" = do
+  proofCheck vb k' bch True f 
+proofCheck' vb k bch "A" = do
   x <- getTerm 
   f <- getForm 
   k' <- cast $ checkAoC k x f
-  pcheck vb k' bch True f 
-pcheck' vb k bch "O" = skip
-pcheck' vb k bch "F" = do 
+  proofCheck vb k' bch True f 
+proofCheck' vb k bch "O" = skip
+proofCheck' vb k bch "F" = do 
   eqns <- getList getText >>= mapM (fetch bch)
   (False, Eq (Fun f xs) (Fun g ys)) <- getText >>= fetch bch 
   pguard "function symbol mismatch" $ f == g
   xys <- cast $ mapM breakTrueEq eqns
   xys' <- zipM xs ys
   pguard "arguments mismatch" $ xys == xys'
-pcheck' vb k bch "R" = do 
+proofCheck' vb k bch "R" = do 
   eqns <- getList getText >>= mapM (fetch bch)
   (True, Rel r xs) <- getText >>= fetch bch 
   (False, Rel s ys) <- getText >>= fetch bch 
@@ -1054,85 +1046,85 @@ pcheck' vb k bch "R" = do
   xys <- cast $ mapM breakTrueEq eqns
   xys' <- zipM xs ys
   pguard "arguments mismatch" $ xys == xys'
-pcheck' vb k bch "=R" = do 
+proofCheck' vb k bch "=R" = do 
   (False, Eq x y) <- getText >>= fetch bch
   guard $ x == y
-pcheck' vb k bch "=S" = do 
+proofCheck' vb k bch "=S" = do 
   (True, Eq x y) <- getText >>= fetch bch
   (False, Eq y' x') <- getText >>= fetch bch
   guard $ x == x' && y == y'
-pcheck' vb k bch "=T" = do 
+proofCheck' vb k bch "=T" = do 
   (True, Eq x y) <- getText >>= fetch bch
   (True, Eq y' z) <- getText >>= fetch bch
   (False, Eq x' z') <- getText >>= fetch bch
   guard $ x == x' && y == y' && z == z'
-pcheck' vb k bch "~T" = do 
+proofCheck' vb k bch "~T" = do 
   (True, Not f) <- getText >>= fetch bch 
-  pcheck vb k bch False f
-pcheck' vb k bch "~F" = do 
+  proofCheck vb k bch False f
+proofCheck' vb k bch "~F" = do 
   (False, Not f) <- getText >>= fetch bch 
-  pcheck vb k bch True f
-pcheck' vb k bch "|T" = do 
+  proofCheck vb k bch True f
+proofCheck' vb k bch "|T" = do 
   -- (True, Or fs) <- getText >>= fetch bch
   
   nm <- getText 
   (True, Or fs) <- fetch bch nm
 
-  mapM_ (pcheck vb k bch True) fs
-pcheck' vb k bch "|F" = do 
+  mapM_ (proofCheck vb k bch True) fs
+proofCheck' vb k bch "|F" = do 
   (False, Or fs) <- getText >>= fetch bch
   m <- getInt 
   f <- cast $ nth m fs 
-  pcheck vb k bch False f 
-pcheck' vb k bch "&T" = do 
+  proofCheck vb k bch False f 
+proofCheck' vb k bch "&T" = do 
   (True, And fs) <- getText >>= fetch bch
   m <- getInt 
   f <- cast $ nth m fs 
-  pcheck vb k bch True f 
-pcheck' vb k bch "&F" = do 
+  proofCheck vb k bch True f 
+proofCheck' vb k bch "&F" = do 
   (False, And fs) <- getText >>= fetch bch
-  mapM_ (pcheck vb k bch False) fs
-pcheck' vb k bch ">T" = do 
+  mapM_ (proofCheck vb k bch False) fs
+proofCheck' vb k bch ">T" = do 
   (True, Imp f g) <- getText >>= fetch bch
-  pcheck vb k bch False f 
-  pcheck vb k bch True g 
-pcheck' vb k bch ">FA" = do 
+  proofCheck vb k bch False f 
+  proofCheck vb k bch True g 
+proofCheck' vb k bch ">FA" = do 
   nm <- getText
   (sgn, fg) <- fetch bch nm
   case (sgn, fg) of 
-    (False, Imp f g) -> pcheck vb k bch True f 
+    (False, Imp f g) -> proofCheck vb k bch True f 
     _ -> error "not false imp" 
-pcheck' vb k bch ">FC" = do 
+proofCheck' vb k bch ">FC" = do 
   (False, Imp _ g) <- getText >>= fetch bch
-  pcheck vb k bch False g
-pcheck' vb k bch "^TO" = do 
+  proofCheck vb k bch False g
+proofCheck' vb k bch "^TO" = do 
   (True, Iff f g) <- getText >>= fetch bch
-  pcheck vb k bch True (f ==> g) 
-pcheck' vb k bch "^TR" = do 
+  proofCheck vb k bch True (f ==> g) 
+proofCheck' vb k bch "^TR" = do 
   (True, Iff f g) <- getText >>= fetch bch
-  pcheck vb k bch True (g ==> f) 
-pcheck' vb k bch "^F" = do 
+  proofCheck vb k bch True (g ==> f) 
+proofCheck' vb k bch "^F" = do 
   (False, Iff f g) <- getText >>= fetch bch
-  pcheck vb k bch False (f ==> g) 
-  pcheck vb k bch False (g ==> f) 
+  proofCheck vb k bch False (f ==> g) 
+  proofCheck vb k bch False (g ==> f) 
 
-pcheck' vb k bch "!T" = do 
+proofCheck' vb k bch "!T" = do 
   (True, Fa vs f) <- getText >>= fetch bch
   xs <- getList getTerm
   vxs <- zipM vs xs 
   let f' = substForm vxs f
-  pcheck vb k bch True f'
+  proofCheck vb k bch True f'
 
-pcheck' vb k bch "!F" = do 
+proofCheck' vb k bch "!F" = do 
   (False, Fa vs f) <- getText >>= fetch bch
   m <- getInt 
   guard $ k <= m
   let (k', xs) = listPars m vs
   vxs <- zipM vs xs <|> error "!F-fail : cannot zip"
   let f' = substForm vxs f
-  pcheck vb k' bch False f' 
+  proofCheck vb k' bch False f' 
 
-pcheck' vb k bch "?T" = do 
+proofCheck' vb k bch "?T" = do 
   (True, Ex vs f) <- getText >>= fetch bch
   m <- getInt 
   -- trace ("k = " <> unpack (tlt (ppInt k)) <> "\n") skip
@@ -1141,14 +1133,163 @@ pcheck' vb k bch "?T" = do
   let (k', xs) = listPars m vs
   vxs <- zipM vs xs <|> error "?T-fail : cannot zip"
   let f' = substForm vxs f
-  pcheck vb k' bch True f' 
+  proofCheck vb k' bch True f' 
 
-pcheck' vb k bch "?F" = do 
+proofCheck' vb k bch "?F" = do 
   nm <- getText 
   (False, Ex vs f) <- fetch bch nm
   xs <- getList getTerm
   vxs <- zipM vs xs 
   let f' = substForm vxs f
-  pcheck vb k bch False f'
+  proofCheck vb k bch False f'
+proofCheck' vb k bch _ = error "impossible case"
 
-pcheck' vb k bch _ = error "impossible case"
+proof :: Branch -> Bool -> Form -> Parser Proof
+proof bch sgn f = do 
+  nm <- getText 
+  let bch' = HM.insert nm (sgn, f) bch
+  r <- getRule <|> error "cannot read rule"
+  proof' bch' (nm, sgn, f) r
+
+proof' :: Branch -> NodeInfo -> Text -> Parser Proof
+proof' bch ni "I" = do
+  nt <- getText 
+  nf <- getText 
+  return $ Id_ ni nt nf 
+proof' bch ni "C" = do
+  f <- getForm 
+  pf <- proof bch False f
+  pt <- proof bch True f
+  return $ Cut_ ni pf pt
+proof' bch ni "D" = do
+  f <- getForm 
+  p <- proof bch True f 
+  return $ RelD_ ni p
+proof' bch ni "A" = do
+  x <- getTerm 
+  f <- getForm 
+  p <- proof bch True f 
+  return $ AoC_ ni x p
+proof' bch ni "O" = return $ Open_ ni
+
+proof' bch ni "F" = do 
+  nms <- getList getText 
+  nm <- getText
+  return $ FunC_ ni nms nm
+proof' bch ni "R" = do 
+  nms <- getList getText 
+  nt <- getText
+  nf <- getText
+  return $ RelC_ ni nms nt nf
+proof' bch ni "=R" = do 
+  nf <- getText
+  return $ EqR_ ni nf
+proof' bch ni "=S" = do 
+  nt <- getText
+  nf <- getText
+  return $ EqS_ ni nt nf
+proof' bch ni "=T" = do 
+  nxy <- getText
+  nyz <- getText
+  nxz <- getText
+  return $ EqT_ ni nxy nyz nxz
+proof' bch ni "~T" = do 
+  nm <- getText 
+  (True, Not f) <- fetch bch nm
+  p <- proof bch False f
+  return $ NotT_ ni nm p
+proof' bch ni "~F" = do 
+  nm <- getText 
+  (False, Not f) <- fetch bch nm
+  p <- proof bch True f
+  return $ NotF_ ni nm p
+proof' bch ni "|T" = do 
+  nm <- getText 
+  (True, Or fs) <- fetch bch nm
+  ps <- mapM (proof bch True) fs
+  return $ OrT_ ni nm ps
+proof' bch ni "|F" = do 
+  nm <- getText 
+  (False, Or fs) <- fetch bch nm
+  m <- getInt 
+  f <- cast $ nth m fs 
+  p <- proof bch False f 
+  return $ OrF_ ni nm m p
+proof' bch ni "&T" = do 
+  nm <- getText 
+  (True, And fs) <- fetch bch nm
+  m <- getInt 
+  f <- cast $ nth m fs 
+  p <- proof bch True f 
+  return $ AndT_ ni nm m p
+proof' bch ni "&F" = do 
+  nm <- getText 
+  (False, And fs) <- fetch bch nm
+  ps <- mapM (proof bch False) fs
+  return $ AndF_ ni nm ps
+proof' bch ni ">T" = do 
+  nm <- getText 
+  (True, Imp f g) <- fetch bch nm
+  pa <- proof bch False f 
+  pc <- proof bch True g 
+  return $ ImpT_ ni nm pa pc
+proof' bch ni ">FA" = do 
+  nm <- getText
+  (False, Imp f _) <- fetch bch nm
+  p <- proof bch True f 
+  return $ ImpFA_ ni nm p
+proof' bch ni ">FC" = do 
+  nm <- getText
+  (False, Imp _ g) <- fetch bch nm
+  p <- proof bch False g 
+  return $ ImpFC_ ni nm p
+proof' bch ni "^TO" = do 
+  nm <- getText
+  (True, Iff f g) <- fetch bch nm
+  p <- proof bch True (f ==> g) 
+  return $ IffTO_ ni nm p
+proof' bch ni "^TR" = do 
+  nm <- getText
+  (True, Iff f g) <- fetch bch nm
+  p <- proof bch True (g ==> f) 
+  return $ IffTR_ ni nm p
+proof' bch ni "^F" = do 
+  nm <- getText 
+  (False, Iff f g) <- fetch bch nm
+  po <- proof bch False (f ==> g) 
+  pr <- proof bch False (g ==> f) 
+  return $ IffF_ ni nm po pr
+
+proof' bch ni "!T" = do 
+  nm <- getText 
+  (True, Fa vs f) <- fetch bch nm
+  xs <- getList getTerm
+  vxs <- zipM vs xs 
+  let f' = substForm vxs f
+  p <- proof bch True f'
+  return $ FaT_ ni nm xs p
+proof' bch ni "!F" = do 
+  nm <- getText 
+  (False, Fa vs f) <- fetch bch nm
+  m <- getInt 
+  let (_, vxs) = varPars m vs
+  let f' = substForm vxs f
+  p <- proof bch False f' 
+  return $ FaF_ ni nm m p
+proof' bch ni "?T" = do 
+  nm <- getText 
+  (True, Ex vs f) <- fetch bch nm
+  m <- getInt 
+  let (_, vxs) = varPars m vs
+  let f' = substForm vxs f
+  p <- proof bch False f' 
+  return $ ExT_ ni nm m p
+proof' bch ni "?F" = do 
+  nm <- getText 
+  (False, Ex vs f) <- fetch bch nm
+  xs <- getList getTerm
+  vxs <- zipM vs xs 
+  let f' = substForm vxs f
+  p <- proof bch True f'
+  return $ ExF_ ni nm xs p
+proof' bch ni _ = error "invalid rule"
