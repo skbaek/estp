@@ -856,23 +856,6 @@ estpToElabs estp = do
   pt "Transcribing AFs to EFs...\n"
   mapM afToEf xs
 
-afToStep :: AF -> IO Step
-afToStep (n, _, g, Just (Gfun "file" [_, Gfun m []], _)) = return (n, "file", [m], g)
-afToStep (n, _, g, Just (Gfun "introduced" [Gfun "predicate_definition_introduction" [],
-  Glist [Gfun "new_symbols" [Gfun "naming" [],Glist [Gfun r []]]]], _)) =
-    return (n, "predicate_definition_introduction", [], g)
-afToStep (n, _, g, Just (Gfun "introduced" [Gfun "avatar_definition" [],
-  Glist [Gfun "new_symbols" [Gfun "naming" [], Glist [Gfun r []]]]], _)) =
-    return (n, "avatar_definition", [], g)
-afToStep (n, _, g, Just (Gfun "introduced" [Gfun "choice_axiom" [], Glist []], _)) =
-  return (n, "choice_axiom", [], g)
-afToStep (n, _, g, Just (Gfun "inference" [Gfun "avatar_sat_refutation" [], _, Glist l], _)) = do
-  txs <- cast (mapM gFunFunctor l)
-  return (n, "avatar_sat_refutation", txs, g)
-afToStep (n, _, g, Just (Gfun "inference" [Gfun r [], _, Glist l], _)) = do
-  txs <- cast (mapM gFunFunctor l)
-  return (n, r, txs, g)
-afToStep _ = error "AF-to-step failure"
 
 sortAfs :: [AF] -> [AF]
 sortAfs = sortBy compareAfs
@@ -886,13 +869,6 @@ compareAfs (m :> ms, _, _, _) (n :> ns, _, _, _) =
         _ -> et "Cannot compare step names"
     other -> other
 compareAfs _ _ = LT
-
-gFunFunctor :: Gterm -> Maybe Text
-gFunFunctor (Gfun t []) = return t
-gFunFunctor _ = Nothing
-
-tstpToSteps :: String -> IO [Step]
-tstpToSteps tstp = parseName tstp >>= mapM afToStep . sortAfs
 
 proofCheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
 proofCheck vb k bch sgn f = do 

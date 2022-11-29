@@ -18,28 +18,6 @@ import Data.Functor.Contravariant (Op(Op))
 import Control.Applicative ( Alternative((<|>)) )
 import Control.Monad as M ( guard, mzero )
 
-
-ppLrat :: Lrat -> Builder
-ppLrat (Del k ks) = ppInt k  <> ". Del " <> ppInter " " (L.map ppInt ks)
-ppLrat (Add k fs ms) = ppInt k  <> ". Add " <> ppInter " " (L.map ppForm fs) <> ", Using : " <> ppInter  " " (L.map ppInt ms)
-
-ppMapping :: (Text, Term) -> Builder
-ppMapping (t, x) = ft t <> " |-> " <> ppTerm x
-
-ppVmap :: (Text, Text) -> Builder
-ppVmap (v, w) = ft $  v <> " <-|-> " <> w
-
-ppVR :: VR -> Builder
-ppVR (vw, _) = ppListNl ppVmap (HM.toList vw)
-
-ppVCAux :: HM.Map Text (Set Text) -> Builder
-ppVCAux vw = ppListNl (\ (v_, ws_) -> ft v_ <> " |-> " <> ppList ft (S.toList ws_)) (HM.toList vw)
-
-ppVC :: VC -> Builder
-ppVC (vws, wvs) = ppVCAux vws <> "-------------------------------------\n" <> ppVCAux wvs
-
--- ft :: Data.Text.Internal.Lazy.Text -> Builder
-
 ppInter :: Builder -> [Builder] -> Builder
 ppInter b [] = mempty
 ppInter b [x] = x
@@ -131,45 +109,6 @@ ppEq (x, y) = ppForm (Eq x y)
 pad :: Builder -> Builder
 pad t = "  " <> t
 
-ppPrf :: Int -> Prf -> Builder
-ppPrf k p = ppInter "\n" $ ppPrfCore k p
-
-ppPrfCore :: Int -> Prf -> [Builder]
-ppPrfCore 0 _ = ["..."]
-ppPrfCore k (Id' f) = ["Id' : " <> ppForm f]
-ppPrfCore k (NotT' f p) = ("Not-L : " <> ppForm (Not f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (NotF' f p) = ("Not-R : " <> ppForm (Not f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (Cut' f p0 p1) = ("Cut : " <> ppForm f) : L.map pad (ppPrfCore (k - 1) p0 ++ ppPrfCore (k - 1) p1)
-ppPrfCore k (IffF' f g p0 p1) = ("Iff-R : " <> ppForm (f <=> g)) : L.map pad (ppPrfCore (k - 1) p0 ++ ppPrfCore (k - 1) p1)
-ppPrfCore k (IffTO' f g p) = ("Iff-LO : " <> ppForm (f <=> g)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (IffTR' f g p) = ("Iff-LR : " <> ppForm (f <=> g)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (ImpT' f g p0 p1) = ("Imp-L : " <> ppForm (f ==> g)) : L.map pad (ppPrfCore (k - 1) p0 ++ ppPrfCore (k - 1) p1)
-ppPrfCore k (ImpFC' f g p) = ("Imp-RC : " <> ppForm (f ==> g)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (ImpFA' f g p) = ("Imp-RA : " <> ppForm (f ==> g)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (Mrk s p) = ("Mark : " <> ft s) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (FunC' f xs ys) = ["Fun-C : ", "  f : " <> ppFunct f, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrfCore k (RelC' r xs ys) = ["Rel-C : ", "  r : " <> ppFunct r, "  xs : " <> ppList ppTerm xs, "  ys : " <> ppList ppTerm ys]
-ppPrfCore k (OrT' fps) = "Or-L" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrfCore (k - 1) p_) fps)
-ppPrfCore k (OrF' fs fs' p) = ("Or-R : " <> ppForm (Or fs)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (AndT' fs fs' p) = ("And-L : " <> ppForm (And fs)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (AndF' fps) = "And-R" : L.map pad (L.concatMap (\ (f_, p_) -> ": " <> ppForm f_ : ppPrfCore (k - 1) p_) fps)
-ppPrfCore k (EqS' x y) = ["Eq-S?"]
-ppPrfCore k (EqR' x) = ["Eq-R : " <> ppTerm x]
-ppPrfCore k (EqT' x y z) = ["Eq-T?"]
-ppPrfCore k (FaT' vxs f p) =
-  let (vs, xs) = unzip vxs in
-  ("Fa-L : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (ExF' vxs f p) =
-  let (vs, xs) = unzip vxs in
-  ("Ex-R : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (FaF' vs m f p) =
-  let (_, vxs) = varPars m vs in
-  ("Fa-R : " : L.map (pad . ppMapping) vxs) ++ pad (ppForm (Fa vs f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k (ExT' vs m f p) =
-  let (_, vxs) = varPars m vs in
-  ("Ex-L : " : L.map (pad . ppMapping) vxs) ++  pad (ppForm (Ex vs f)) : L.map pad (ppPrfCore (k - 1) p)
-ppPrfCore k Open' = ["Open!"]
-
 writeTerm :: Term -> Builder
 writeTerm (Var x) = ft x
 writeTerm (Fun f xs) = ppFunct f <> ppArgs (L.map writeTerm xs)
@@ -195,23 +134,6 @@ fmtAF :: AF -> Builder
 fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
 fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
 fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]
-
-ppPath :: Path -> Builder
-ppPath (NewRel _ _) = "rel"
-ppPath (NewFun _ _) = "fun"
-ppPath NewEq = "eq"
-ppPath (NewFa _) = "fa"
-ppPath (NewEx _) = "ex"
-ppPath NewImpL = "imp-l"
-ppPath NewImpR = "imp-r"
-ppPath NewIffL = "iff-l"
-ppPath NewIffR = "iff-r"
-ppPath (NewOr _ _) = "or"
-ppPath (NewAnd _ _) = "and"
-ppPath NewNot = "not"
-
-ppSig :: Sig -> Builder
-ppSig = ppHM (ppList ppPath) ppInt
 
 ppInf :: Inf -> Builder
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
@@ -250,21 +172,9 @@ ppSign :: Bool -> Builder
 ppSign True = "true"
 ppSign False = "false"
 
-ppStelab :: Stelab -> Builder
-ppStelab (InfStep f p t) = ppInter "\n" $ ["InfStep", "f :" <> ppForm f, "prf :"] ++ ppPrfCore 20 p ++ ["Notes : " <> ft t]
-ppStelab (DefStep f g _ t) = "rdef : " <> ppForm f <> " |- " <> ppForm g <> "\nNotes : " <> ft t
-ppStelab (AoCStep xs _ _ _ t) = "AoC :\nxs : " <> ppListNl ppTerm xs <> "\nNotes : " <> ft t
-
 ppSignForm :: (Bool, Form) -> Builder
 ppSignForm (True, f) = "[T] " <> ppForm f
 ppSignForm (False, f) = "[F] " <> ppForm f
-
-ppStep :: Step -> Builder
-ppStep (n, r, ns, f) =
-  ft n <> " :: " <>
-  ft r <> " :: " <>
-  ppList ft ns <> " :: " <>
-  ppForm f <> "\n"
 
 ppNL :: (a -> Builder) -> (a -> Builder)
 ppNL p x = p x <> "\n"

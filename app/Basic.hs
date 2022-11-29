@@ -9,21 +9,17 @@ module Basic where
 
 import Types
 
-import Data.Maybe (fromMaybe)
 import Data.Text.Lazy as T (Text, uncons, unsnoc, unpack, null)
 import Data.Text.Lazy.Builder as B (Builder, fromLazyText, toLazyText)
-
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
   fromListWithKey, delete, findWithDefault, singleton )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions, size )
 import Control.Monad as M (MonadPlus, mzero, foldM, guard)
 import Control.Monad.Fail as MF (MonadFail, fail)
--- import Control.Monad.Plus as MP 
 import Control.Applicative as A
 import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
--- import Data.Hashable (Hashable)
 import Data.Text.Lazy.Read as TR ( decimal )
 import Debug.Trace (trace)
 
@@ -337,10 +333,6 @@ ffuns (Not f) = ffuns f
 ffuns (Fa _ f) = ffuns f
 ffuns (Ex _ f) = ffuns f
 
-cuts :: [(Form, Prf)] -> Prf -> Prf
-cuts [] prf = prf
-cuts ((f, p0) : fps) p1 = Cut' f p0 (cuts fps p1) 
-
 guardMsg :: (Alternative m, Monad m) => Text -> Bool -> m ()
 guardMsg _ True  = return ()
 guardMsg s False = error (unpack s)
@@ -383,67 +375,6 @@ varsInf vs (Ex ws f) = varsInf (vs L.\\ ws) f
 gndTerm :: Term -> Term
 gndTerm (Var _) = zt
 gndTerm (Fun f xs) = Fun f $ L.map gndTerm xs
--- gndTerm x = x
-
-agvmt :: VM -> Term -> Term
-agvmt gm (Var v) =
-  case HM.lookup v gm of
-    Just x -> gndTerm x
-    _ -> zt
-agvmt gm (Fun f xs) = Fun f $ L.map (agvmt gm) xs
--- agvmt _ x = x
-
-avmt :: VM -> Term -> Term
-avmt gm (Var v) =
-  case HM.lookup v gm of
-    Just x -> x
-    _ -> Var v
-avmt gm (Fun f xs) = Fun f $ L.map (avmt gm) xs
-
-tavmt :: VM -> Term -> Maybe Term
-tavmt gm (Var v) =
-  case HM.lookup v gm of
-    Just x -> return x
-    _ -> mzero -- return $ Var v
-tavmt gm (Fun f xs) = Fun f <$> mapM (tavmt gm) xs
-
-tavmf :: VM -> Form -> Maybe Form
-tavmf gm (Eq x y) = do
-  x' <- tavmt gm x
-  y' <- tavmt gm y
-  return (Eq x' y')
-tavmf gm (Rel r xs) = Rel r <$> mapM (tavmt gm) xs
-tavmf gm (Or fs) = Or <$> mapM (tavmf gm) fs
-tavmf gm (And fs) = And <$> mapM (tavmf gm) fs
-tavmf gm (Not f) = do
-  f' <- tavmf gm f
-  return (Not f')
-tavmf gm (Imp f g) = do
-  f' <- tavmf gm f
-  g' <- tavmf gm g
-  return (Imp f' g')
-tavmf gm (Iff f g) = do
-  f' <- tavmf gm f
-  g' <- tavmf gm g
-  return (Iff f' g')
-tavmf gm (Fa vs f) = Fa vs <$> tavmf gm f
-tavmf gm (Ex vs f) = Ex vs <$> tavmf gm f
-
-getShortList :: [[a]] -> Maybe [a]
-getShortList [] = nt
-getShortList [xs] = return xs
-getShortList ([] : xss) = return []
-getShortList ([x] : xss) = return [x]
-getShortList (xs : xss) = do
-  ys <- getShortList xss
-  if shorter xs ys
-  then return xs
-  else return ys
-
-shorter :: [a] -> [b] -> Bool
-shorter _ [] = False
-shorter [] _ = True
-shorter (_ : xs) (_ : ys) = shorter xs ys
 
 substVar :: Text -> Term -> Term -> Term
 substVar v x (Var w) = if v == w then x else Var w
@@ -453,24 +384,6 @@ substVar v x (Fun f xs) = Fun f $ L.map (substVar v x) xs
 hasVar :: Text -> Term -> Bool
 hasVar v (Var w) = v == w
 hasVar v (Fun _ xs) = L.any (hasVar v) xs
-
-appVrTerm :: VR -> Term -> Term
-appVrTerm vr (Var v) =
-  case HM.lookup v (fst vr) of
-    Just x -> Var x
-    _ -> et "appVrTerm : no mapping"
-appVrTerm vw (Fun f xs) = Fun f $ L.map (appVrTerm vw) xs
-
-appVrForm :: VR -> Form -> Form
-appVrForm vr (Not f) = Not $ appVrForm vr f
-appVrForm vr (Fa vs f) = Fa (L.map (\ v_ -> HM.findWithDefault "_" v_ (fst vr)) vs) $ appVrForm vr f
-appVrForm vr (Ex vs f) = Ex (L.map (\ v_ -> HM.findWithDefault "_" v_ (fst vr)) vs) $ appVrForm vr f
-appVrForm vr (Imp f g) = Imp (appVrForm vr f) (appVrForm vr g)
-appVrForm vr (Iff f g) = Iff (appVrForm vr f) (appVrForm vr g)
-appVrForm vr (Or fs) = Or $ L.map (appVrForm vr) fs
-appVrForm vr (And fs) = And $ L.map (appVrForm vr) fs
-appVrForm vr (Rel r xs) = Rel r $ L.map (appVrTerm vr) xs
-appVrForm vr (Eq x y) = Eq (appVrTerm vr x) (appVrTerm vr y)
 
 litOccursIn :: Form -> [Form] -> Bool
 litOccursIn (Not (Eq x y)) hs = Not (Eq x y) `elem` hs || Not (Eq y x) `elem` hs
@@ -513,51 +426,12 @@ unquote t = do
   (t'', '\'') <- T.unsnoc t'
   return t''
 
-pairWithVR' :: VR -> Text -> IO (Text, Term)
-pairWithVR' (vw, _) v = 
-  case HM.lookup v vw of 
-    Just w -> return (v, Var w)
-    _ -> mzero
-
-pairWithVR :: VR -> [(Text, Term)] -> Text -> Term
-pairWithVR (vw, _) wxs v =
-  fromMaybe zt ( do w <- HM.lookup v vw
-                    snd <$> L.find ((w ==) . fst) wxs )
-
-formSJ :: Form -> Bool
-formSJ (Or [_])  = True
-formSJ (And [_]) = True
-formSJ (Not f) = formSJ f
-formSJ (Imp f g) = formSJ f || formSJ g
-formSJ (Iff f g) = formSJ f || formSJ g
-formSJ (Or fs) = L.any formSJ fs
-formSJ (And fs) = L.any formSJ fs
-formSJ (Fa _ f) = formSJ f
-formSJ (Ex _ f) = formSJ f
-formSJ _ = False
-
-elabSingleJunct :: Elab -> Bool
-elabSingleJunct ((_, _, f), _, _) = formSJ f
 
 bt :: Bool
 bt = True
 
 bf :: Bool
 bf = False
-{- write -}
-
--- singleBag :: a -> Bag a 
--- singleBag x = HM.singleton x ()
--- 
--- insertBag :: (Ord a) => a -> Bag a -> Bag a 
--- insertBag x b = HM.insert x () b
-
---epIncr :: EP -> EP
---epIncr (k, l) = (k + 1, l)
---
---epFork :: Int -> EP -> EP
---epFork 0 ep = epIncr ep
---epFork m (k, l) = (0, (m - 1, k) : l)
 
 ft = B.fromLazyText
 tlt = B.toLazyText 
@@ -568,9 +442,6 @@ isSkolemTerm vs (Fun _ xs) =
     Just ws -> isPerm vs ws -- sublist vs ws && sublist ws vs
     _ -> False
 isSkolemTerm _ _ = False
-
--- isAoC :: Int -> Form -> IO ()
--- isAoC k (Fa vs (Imp (Ex ws f) g)) = do
 
 isAoC' :: [Term] -> Form -> IO ()
 isAoC' xs (Fa vs (Imp (Ex ws f) g)) = do

@@ -13,7 +13,7 @@ import Types
 import Basic
 import PP
 import Parse ( parseName, parsePreName, decimal, parseForm, univClose, proof, proofCheck,
-  afToEf, conjecturize, estpToElabs, tstpToSteps, functor, parse, getText, getList )
+  afToEf, conjecturize, estpToElabs, functor, parse, getText, getList )
 
 import System.Timeout (timeout)
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
@@ -59,36 +59,6 @@ addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx)
 
 skipList :: String -> Bool
 skipList n = False
-
-prfHasAsm :: Prf -> Bool
-prfHasAsm (Id' _) = False
-prfHasAsm (EqR' _) = False
-prfHasAsm (EqS' _ _) = False
-prfHasAsm EqT'  {} = False
-prfHasAsm FunC' {} = False
-prfHasAsm RelC' {} = False
-prfHasAsm (Cut' f p0 p1) = prfHasAsm p0 || prfHasAsm p1
-prfHasAsm (ImpFA' _ _ p) = prfHasAsm p
-prfHasAsm (ImpFC' _ _ p) = prfHasAsm p
-prfHasAsm (IffTO' _ _ p) = prfHasAsm p
-prfHasAsm (IffTR' _ _ p) = prfHasAsm p
-prfHasAsm (ImpT' _ _ p0 p1) = prfHasAsm p0 || prfHasAsm p1
-prfHasAsm (IffF' _ _ p0 p1) = prfHasAsm p0 || prfHasAsm p1
-prfHasAsm (OrT' fps) = L.any (prfHasAsm . snd) fps
-prfHasAsm (AndF' fps) = L.any (prfHasAsm . snd) fps
-prfHasAsm (OrF' _ _ p) = prfHasAsm p
-prfHasAsm (AndT' _ _ p) = prfHasAsm p
-prfHasAsm (NotT' _ p) = prfHasAsm p
-prfHasAsm (NotF' _ p) = prfHasAsm p
-prfHasAsm (FaT' _ _ p) = prfHasAsm p
-prfHasAsm (FaF' _ _ _ p) = prfHasAsm p
-prfHasAsm (ExT' _ _ _ p) = prfHasAsm p
-prfHasAsm (ExF' _ _ p) = prfHasAsm p
-prfHasAsm (Mrk _ p) = prfHasAsm p
-prfHasAsm Open' = True
-
-stepHyps :: Step -> [Text]
-stepHyps (_, _, ns, _) = ns
 
 elabHyps :: Elab -> [Text]
 elabHyps (_, i, _) = infHyps i
@@ -177,21 +147,6 @@ readTptp :: [Text] -> String -> IO Branch
 readTptp nms tptp = do
   pafs <- parsePreName tptp
   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
-
-hypsSteps :: Bool -> String -> String -> IO (NTF, Set Form, SFTN, [Step])
-hypsSteps verbose tptp tstp = do
-  pafs <- parsePreName tptp
-  pb $ "Total hyps count =  " <> ppInt (L.length pafs) <> "\n"
-  -- stps <- parseName tstp >>= mapM afToStep . sortAfs
-  stps <- tstpToSteps tstp -- >>= mapM afToStep . sortAfs
-  let ahns = L.foldl (\ ns_ -> foldl (flip S.insert) ns_ . stepHyps) S.empty stps
-  let (ntf, sf, ftn) = L.foldl (addToHyps ahns) (HM.empty, S.empty, HM.empty) pafs
-  pb $ "Active hyps count = " <> ppInt (HM.size ntf) <> "\n"
-  Prelude.putStr $ tptp ++ "\n"
-  when verbose $ mapM_ (\ (nm_, f_) -> pb (ft nm_ <> " :: " <> ppForm f_ <> "\n")) (HM.toList ntf)
-  Prelude.putStr $ tstp ++ "\n"
-  when verbose $ mapM_ (pb . ppStep) stps
-  return (ntf, sf, ftn, stps)
 
 writeElab :: String -> [Elab] -> IO ()
 writeElab nm efs = do
