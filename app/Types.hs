@@ -46,6 +46,12 @@ data Input =
   | Inc Text
   deriving Show
 
+data Input' =
+    Ign 
+  | Afm Text Text Form Ant
+  | Inc' Text
+  deriving Show
+
 data Gterm =
     Gfun Text [Gterm]
   | Glist [Gterm]
@@ -78,38 +84,38 @@ data Inf =
   | RelD Text | AoC Term Text | Open
   deriving (Show)
 
-type NodeInfo = (Text, Bool, Form)
+type Node = (Text, Bool, Form)
 
 data Proof =
-    Id_ NodeInfo Text Text 
-  | Cut_ NodeInfo Proof Proof
-  | FunC_ NodeInfo [Text] Text 
-  | RelC_ NodeInfo [Text] Text Text
-  | EqR_ NodeInfo Text 
-  | EqS_ NodeInfo Text Text 
-  | EqT_ NodeInfo Text Text Text
-  | NotT_ NodeInfo Text Proof 
-  | NotF_ NodeInfo Text Proof 
-  | OrT_ NodeInfo Text [Proof] 
-  | OrF_ NodeInfo Text Int Proof
-  | AndT_ NodeInfo Text Int Proof
-  | AndF_ NodeInfo Text [Proof]
-  | ImpT_ NodeInfo Text Proof Proof
-  | ImpFA_ NodeInfo Text Proof
-  | ImpFC_ NodeInfo Text Proof
-  | IffTO_ NodeInfo Text Proof
-  | IffTR_ NodeInfo Text Proof
-  | IffF_ NodeInfo Text Proof Proof
-  | FaT_ NodeInfo Text [Term] Proof
-  | FaF_ NodeInfo Text Int Proof
-  | ExT_ NodeInfo Text Int Proof
-  | ExF_ NodeInfo Text [Term]Proof
-  | RelD_ NodeInfo Proof
-  | AoC_ NodeInfo Term Proof 
-  | Open_ NodeInfo
+    Id_ Node Text Text 
+  | Cut_ Node Proof Proof
+  | FunC_ Node [Text] Text 
+  | RelC_ Node [Text] Text Text
+  | EqR_ Node Text 
+  | EqS_ Node Text Text 
+  | EqT_ Node Text Text Text
+  | NotT_ Node Text Proof 
+  | NotF_ Node Text Proof 
+  | OrT_ Node Text [Proof] 
+  | OrF_ Node Text Int Proof
+  | AndT_ Node Text Int Proof
+  | AndF_ Node Text [Proof]
+  | ImpT_ Node Text Proof Proof
+  | ImpFA_ Node Text Proof
+  | ImpFC_ Node Text Proof
+  | IffTO_ Node Text Proof
+  | IffTR_ Node Text Proof
+  | IffF_ Node Text Proof Proof
+  | FaT_ Node Text [Term] Proof
+  | FaF_ Node Text Int Proof
+  | ExT_ Node Text Int Proof
+  | ExF_ Node Text [Term]Proof
+  | RelD_ Node Proof
+  | AoC_ Node Term Proof 
+  | Open_ Node
   deriving (Show)
   
-type Elab = (NodeInfo, Inf, Maybe Text)
+type Elab = (Node, Inf, Maybe Text)
 type Branch = HM.Map Text (Bool, Form)
 type SignForm = (Bool, Form)
 type NTF = Map Text Form

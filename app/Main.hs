@@ -15,7 +15,6 @@ import PP
 import Parse ( parseName, parsePreName, decimal, parseForm, univClose, proof, proofCheck,
   afToEf, conjecturize, estpToElabs, functor, parse, getText, getList )
 
-import System.Timeout (timeout)
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
@@ -30,6 +29,7 @@ import Data.Set as S ( empty, insert, member, singleton, toList, fromList, Set, 
 import Data.Map as HM (Map, map, empty, insert, lookup, toList, foldrWithKey, size, fromList)
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
+import System.Timeout (timeout)
 
 addToBranch :: Set Text -> Branch -> PreAF -> Branch
 addToBranch ahns bch (CnfAF n r tx)
@@ -148,6 +148,17 @@ readTptp nms tptp = do
   pafs <- parsePreName tptp
   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
 
+-- readTptp' :: [Text] -> String -> IO Branch
+-- readTptp' nms tptp = do
+--   afs <- parseNameTrim (S.fromList nms) tptp
+--   return $ L.foldl (\ m_ af_ -> HM.insert (afName af_) (afSignForm af_) m_) HM.empty afs
+
+afName :: AF -> Text
+afName (nm, _, _, _) = nm
+
+afSignForm :: AF -> SignForm
+afSignForm (_, _, f, _) = (True, f)
+
 writeElab :: String -> [Elab] -> IO ()
 writeElab nm efs = do
   Prelude.putStrLn $ "Writing Elab : " <> nm
@@ -210,15 +221,32 @@ mainArgs ("extract" : tptp : astp : estp : flags) = do
   bch <- readTptp nms tptp
   (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
   guard (T.null rem)
-  TIO.writeFile estp $ tlt $ ppListNl ppElab $ linearize prf
+  (Just ()) <- timeout 120000000 $ TIO.writeFile estp $ tlt $ ppListNl ppElab $ linearize prf
+  skip
 
 mainArgs ("assemble" : estp : astp : flags) = do
-  elbs <- parseName estp >>= mapM afToEf 
-  let nms = L.foldl S.union S.empty (L.map (S.fromList . infHyps . elabInf) elbs)
-  let m = L.foldl (\ m_ elb_ -> HM.insert (elabName elb_) elb_ m_) HM.empty elbs
-  prf <- assemble m "root"
-  writeProof astp (S.toList nms) prf
+  let vb = "silent" `notElem` flags
+  -- elbs <- parseName estp >>= mapM afToEf 
+  -- let nms = L.foldl S.union S.empty (L.map (S.fromList . infHyps . elabInf) elbs)
+  -- let m = L.foldl (\ m_ elb_ -> HM.insert (elabName elb_) elb_ m_) HM.empty elbs
+  -- prf <- assemble m "root"
+  -- writeProof astp (S.toList nms) prf
+  (Just ()) <- timeout 120000000 $ asmWrite vb estp astp
+  skip
 mainArgs _ = et "Invalid main args"
+
+asmWrite :: Bool -> String -> String -> IO ()
+asmWrite vb estp astp = do 
+  when vb $ ps $ "Reading ESTP : " <> estp <> " ...\n"
+  elbs <- parseName estp >>= mapM afToEf 
+  when vb $ ps "Collecting hypothesis names...\n"
+  let nms = L.foldl S.union S.empty (L.map (S.fromList . infHyps . elabInf) elbs)
+  when vb $ ps "Constructing node map...\n"
+  let m = L.foldl (\ m_ elb_ -> HM.insert (elabName elb_) elb_ m_) HM.empty elbs
+  when vb $ ps "Assembling proof...\n"
+  prf <- assemble m "root"
+  when vb $ ps "Writing proof...\n"
+  writeProof astp (S.toList nms) prf
 
 linearize :: Proof -> [Elab]
 linearize (Id_ ni nt nf) = [(ni, Id nt nf, Nothing)]

@@ -215,7 +215,7 @@ serForm (Iff f g) = "^" <> serForm f <> serForm g
 serForm (Fa vs f) = "!" <> serList serText vs <> serForm f
 serForm (Ex vs f) = "?" <> serList serText vs <> serForm f
 
-serNodeName :: NodeInfo -> Builder
+serNodeName :: Node -> Builder
 serNodeName (nm, _, _) = serText nm
 
 serProof :: Proof -> Builder

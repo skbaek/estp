@@ -524,7 +524,7 @@ complementary :: SignForm -> SignForm -> Bool
 complementary (True, f) (False, g) = f == g 
 complementary _ _ = False
 
-proofRootNode :: Proof -> NodeInfo
+proofRootNode :: Proof -> Node
 proofRootNode (Id_ ni nt nf) = ni
 proofRootNode (Cut_ ni p q) = ni
 proofRootNode (FunC_ ni xs nm) = ni
@@ -636,7 +636,7 @@ breakTrueEq :: (Bool, Form) -> Maybe (Term, Term)
 breakTrueEq (True, Eq x y) = Just (x, y)
 breakTrueEq _ = mzero
 
-rootNode :: Proof -> NodeInfo 
+rootNode :: Proof -> Node 
 rootNode (Id_ ni _ _) = ni
 rootNode (Cut_ ni _ _) = ni
 rootNode (FunC_ ni _ _) = ni

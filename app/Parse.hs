@@ -17,6 +17,7 @@ import System.Environment (getEnv, unsetEnv)
 import Control.Monad as M ( MonadPlus(mzero), guard, when, mzero )
 import Data.Map as HM (lookup, insert)
 import Data.Functor ((<&>))
+import Data.Set (Set, member)
 import Debug.Trace (trace)
 
 newtype Parser a = Parser { parse :: Text -> Maybe (a, Text) }
@@ -470,6 +471,15 @@ inc = do
   ign
   unit (Inc w)
 
+inc' :: Parser Input'
+inc' = do
+  lit "include("
+  w <- singleQuoted
+  lit ")"
+  lit "."
+  ign
+  unit (Inc' w)
+
 preFof :: Parser PreInput
 preFof = do
   lit "fof("
@@ -519,6 +529,36 @@ preCnf = do
   ign
   unit (PreCnf n r ft)
 
+fof' :: Set Text -> Parser Input'
+fof' nms = do
+  lit "fof("
+  nm <- name
+  lit ","
+  r <- lowerWord
+  lit ","
+  ft <- formText
+  lit ")"
+  lit "."
+  ign
+  if member nm nms 
+  then return $ Afm nm r (conjecturize r $ parseForm ft) Nothing
+  else return Ign
+
+cnf' :: Set Text -> Parser Input'
+cnf' nms = do
+  lit "cnf("
+  nm <- name
+  lit ","
+  r <- lowerWord
+  lit ","
+  ft <- formText
+  lit ")"
+  lit "."
+  ign
+  if member nm nms 
+  then return $ Afm nm r (conjecturize r $ univClose $ parseForm ft) Nothing
+  else return Ign
+
 cnf :: Parser Input
 cnf = do
   lit "cnf("
@@ -549,6 +589,9 @@ fof = do
 
 input :: Parser Input
 input = cnf <|> fof <|> inc
+
+input' :: Set Text -> Parser Input'
+input' nms = cnf' nms <|> fof' nms <|> inc'
 
 preInput :: Parser PreInput
 preInput = preCnf <|> preFof <|> preInc
@@ -611,6 +654,13 @@ parseInput (Inc s) = do
 parseInput (Cnf n r f t) = return [(n, r, f, t)]
 parseInput (Fof n r f t) = return [(n, r, f, t)]
 
+parseInputTrim :: Set Text -> Input' -> IO [AF]
+parseInputTrim nms (Inc' s) = do
+  tptp <- getEnv "TPTP"
+  s' <- cast $ unquote s
+  parseNameTrim nms $ tptp ++ "/" ++ unpack s'
+parseInputTrim nms (Afm n r f t) = return [(n, r, f, t)]
+parseInputTrim nms Ign = return []
 
 parsePreText :: Text -> IO [PreAF]
 parsePreText t =
@@ -624,6 +674,14 @@ parsePreText t =
         return (pfx ++ sfx)
     _ -> et ("Failed to parse input : " <> t)
 
+parseTextTrim :: Set Text -> Text -> IO [AF]
+parseTextTrim nms t = do
+  (i, s) <- cast $ parse (input' nms) t 
+  pfx <- parseInputTrim nms i
+  if T.null s
+  then return pfx
+  else (pfx ++) <$> parseText s
+  
 parseText :: Text -> IO [AF]
 parseText t =
   case parse input t of
@@ -635,8 +693,6 @@ parseText t =
         sfx <- parseText s
         return (pfx ++ sfx)
     _ -> et ("Failed to parse input : " <> t)
-
-
 
 parsePreName :: String -> IO [PreAF]
 parsePreName n = do
@@ -659,6 +715,14 @@ parseName n = do
   case parse ign t of
     Just (i,s) -> parseText s
     _ -> ioError $ userError "Read filename, but failed to parse content"
+
+parseNameTrim :: Set Text -> String -> IO [AF]
+parseNameTrim nms n = do
+  pt "Reading file as text...\n"
+  t <- TIO.readFile n
+  pt "Parsing the text read...\n"
+  (_, s) <- cast $ parse ign t 
+  parseTextTrim nms s
 
 afToEf :: AF -> IO Elab
 afToEf (nm, sgn, f, Just (Gfun "inference" [gt], gts)) = do
@@ -1123,11 +1187,13 @@ proofCheck' vb k bch _ = error "impossible case"
 proof :: Branch -> Bool -> Form -> Parser Proof
 proof bch sgn f = do 
   nm <- getText 
+  -- trace ("Name : " ++ unpack nm ++ "\n") skip
   let bch' = HM.insert nm (sgn, f) bch
   r <- getRule <|> error "cannot read rule"
+  -- trace ("Rule : " ++ unpack r ++ "\n") skip
   proof' bch' (nm, sgn, f) r
 
-proof' :: Branch -> NodeInfo -> Text -> Parser Proof
+proof' :: Branch -> Node -> Text -> Parser Proof
 proof' bch ni "I" = do
   nt <- getText 
   nf <- getText 
@@ -1235,7 +1301,6 @@ proof' bch ni "^F" = do
   po <- proof bch False (f ==> g) 
   pr <- proof bch False (g ==> f) 
   return $ IffF_ ni nm po pr
-
 proof' bch ni "!T" = do 
   nm <- getText 
   (True, Fa vs f) <- fetch bch nm
@@ -1258,7 +1323,7 @@ proof' bch ni "?T" = do
   m <- getInt 
   let (_, vxs) = varPars m vs
   let f' = substForm vxs f
-  p <- proof bch False f' 
+  p <- proof bch True f' 
   return $ ExT_ ni nm m p
 proof' bch ni "?F" = do 
   nm <- getText 
@@ -1266,6 +1331,6 @@ proof' bch ni "?F" = do
   xs <- getList getTerm
   vxs <- zipM vs xs 
   let f' = substForm vxs f
-  p <- proof bch True f'
+  p <- proof bch False f'
   return $ ExF_ ni nm xs p
 proof' bch ni _ = error "invalid rule"
