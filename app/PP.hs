@@ -4,13 +4,10 @@ module PP where
 
 import Basic
 import Data.List as L
-import Data.Text.Lazy as T ( concat, intercalate, pack, Text, length, take )
-import Data.Text.Lazy.IO as TIO (writeFile)
-import qualified Data.Text.Lazy as TL (toStrict, intercalate)
-import Data.Text.Lazy.Builder as B (Builder, singleton, fromLazyText, toLazyText)
--- import qualified Data.Text.Lazy.Builder.Int as B
+import Data.ByteString as BS 
+import Data.ByteString.Builder as BD (Builder, byteString, writeFile) 
+import Data.ByteString.Conversion (toByteString') 
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
-import Text.Printf
 import Data.Map as HM
 
 import Types
@@ -39,8 +36,7 @@ ppHM :: (a -> Builder) -> (b -> Builder) -> HM.Map a b -> Builder
 ppHM f g m = ppListNl (\ (a_, b_) -> f a_ <> " |-> " <> g b_) $ HM.toList m
 
 ppTerm :: Term -> Builder
--- ppTerm (Par k) = "#" <> ppInt k
-ppTerm (Var x) = ft x
+ppTerm (Var x) = byteString x
 ppTerm (Fun f xs) = ppFunct f <> ppArgs (L.map ppTerm xs)
 
 ppJct :: Bool -> String
@@ -61,6 +57,9 @@ ppQtf False = "?"
 ppFunct :: Funct -> Builder
 ppFunct (Reg tx) = ft tx
 ppFunct (Idx k) = "'#" <> ppInt k <> "'"
+
+ft :: BS -> Builder
+ft = byteString
 
 ppForm :: Form -> Builder
 ppForm (Eq t s) = "(" <> ppTerm t <> " = " <> ppTerm s <> ")"
@@ -185,8 +184,8 @@ ppNL p x = p x <> "\n"
 serInt :: Int -> Builder
 serInt k = ppInt k <> "."
 
-serText :: Text -> Builder
-serText tx = ft tx <> "."
+serBS :: BS -> Builder
+serBS tx = ft tx <> "."
 
 serSign :: Bool -> Builder
 serSign True = "T"
@@ -197,11 +196,11 @@ serList _ [] = "."
 serList s (x : xs) = "," <> s x <> serList s xs
 
 serFunct :: Funct -> Builder
-serFunct (Reg t) = serText t
+serFunct (Reg t) = serBS t
 serFunct (Idx k) = "#" <> serInt k
 
 serTerm :: Term -> Builder
-serTerm (Var v) = "$" <> serText v
+serTerm (Var v) = "$" <> serBS v
 serTerm (Fun f xs) = "@" <> serFunct f <> serList serTerm xs
 
 serForm :: Form -> Builder
@@ -212,14 +211,14 @@ serForm (And fs) = "&" <> serList serForm fs
 serForm (Or fs)  = "|" <> serList serForm fs
 serForm (Imp f g) = ">" <> serForm f <> serForm g
 serForm (Iff f g) = "^" <> serForm f <> serForm g
-serForm (Fa vs f) = "!" <> serList serText vs <> serForm f
-serForm (Ex vs f) = "?" <> serList serText vs <> serForm f
+serForm (Fa vs f) = "!" <> serList serBS vs <> serForm f
+serForm (Ex vs f) = "?" <> serList serBS vs <> serForm f
 
 serNodeName :: Node -> Builder
-serNodeName (nm, _, _) = serText nm
+serNodeName (nm, _, _) = serBS nm
 
 serProof :: Proof -> Builder
-serProof p = serText (proofRN p) <> serProof' p
+serProof p = serBS (proofRN p) <> serProof' p
 
 serSignForm :: (Bool, Form) -> Builder
 serSignForm (b, f) = serSign b <> serForm f
@@ -228,7 +227,7 @@ bconcat :: [Builder] -> Builder
 bconcat = L.foldr (<>) "" 
 
 serProof' :: Proof -> Builder
-serProof' (Id_ _ nt nf) = "I" <> serText nt <> serText nf
+serProof' (Id_ _ nt nf) = "I" <> serBS nt <> serBS nf
 serProof' (Cut_ _ pf pt) =
   case (proofRSF pf, proofRSF pt) of
     ((False, f), (True, f')) ->
@@ -245,31 +244,31 @@ serProof' (AoC_ _ x p) =
   (True, f) -> "A" <> serTerm x <> serForm f <> serProof p
   _ -> error "F-signed choice axiom instance"
 serProof' (Open_ _) = "O"
-serProof' (FunC_ _ nts nf) = "F" <> serList serText nts <> serText nf
-serProof' (RelC_ _ nts nt nf) = "R" <> serList serText nts <> serText nt <> serText nf
-serProof' (EqR_ ni nf) = "=R" <>  serText nf
-serProof' (EqS_ ni nt nf) = "=S" <>  serText nt <> serText nf
-serProof' (EqT_ ni nxy nyz nxz) = "=T" <>  serText nxy <> serText nyz <> serText nxz
-serProof' (NotT_ ni nm p) = "~T" <> serText nm <> serProof p
-serProof' (NotF_ ni nm p) = "~F" <> serText nm <> serProof p
-serProof' (OrT_ ni nm ps) = "|T" <>  serText nm <> bconcat (L.map serProof ps)
-serProof' (OrF_ ni nm k p) = "|F" <>  serText nm <> serInt k <> serProof p
-serProof' (AndT_ ni nm k p) = "&T" <>  serText nm <> serInt k <> serProof p
-serProof' (AndF_ ni nm ps) = "&F" <>  serText nm <> bconcat (L.map serProof ps)
-serProof' (ImpT_ ni nm pa pc) = ">T" <>  serText nm <> serProof pa <> serProof pc
-serProof' (ImpFA_ ni nm p) = ">FA" <> serText nm <> serProof p
-serProof' (ImpFC_ ni nm p) = ">FC" <> serText nm <> serProof p
-serProof' (IffTO_ ni nm p) = "^TO" <> serText nm <> serProof p
-serProof' (IffTR_ ni nm p) = "^TR" <> serText nm <> serProof p
-serProof' (IffF_ ni nm po pr) = "^F" <>  serText nm <> serProof po <> serProof pr
-serProof' (FaT_ ni nm xs p) = "!T" <>  serText nm <> serList serTerm xs <> serProof p
-serProof' (FaF_ ni nm k p) = "!F" <>  serText nm <> serInt k <> serProof p
-serProof' (ExT_ ni nm k p) = "?T" <>  serText nm <> serInt k <> serProof p
-serProof' (ExF_ ni nm xs p) = "?F" <>  serText nm <> serList serTerm xs <> serProof p
+serProof' (FunC_ _ nts nf) = "F" <> serList serBS nts <> serBS nf
+serProof' (RelC_ _ nts nt nf) = "R" <> serList serBS nts <> serBS nt <> serBS nf
+serProof' (EqR_ ni nf) = "=R" <>  serBS nf
+serProof' (EqS_ ni nt nf) = "=S" <>  serBS nt <> serBS nf
+serProof' (EqT_ ni nxy nyz nxz) = "=T" <>  serBS nxy <> serBS nyz <> serBS nxz
+serProof' (NotT_ ni nm p) = "~T" <> serBS nm <> serProof p
+serProof' (NotF_ ni nm p) = "~F" <> serBS nm <> serProof p
+serProof' (OrT_ ni nm ps) = "|T" <>  serBS nm <> bconcat (L.map serProof ps)
+serProof' (OrF_ ni nm k p) = "|F" <>  serBS nm <> serInt k <> serProof p
+serProof' (AndT_ ni nm k p) = "&T" <>  serBS nm <> serInt k <> serProof p
+serProof' (AndF_ ni nm ps) = "&F" <>  serBS nm <> bconcat (L.map serProof ps)
+serProof' (ImpT_ ni nm pa pc) = ">T" <>  serBS nm <> serProof pa <> serProof pc
+serProof' (ImpFA_ ni nm p) = ">FA" <> serBS nm <> serProof p
+serProof' (ImpFC_ ni nm p) = ">FC" <> serBS nm <> serProof p
+serProof' (IffTO_ ni nm p) = "^TO" <> serBS nm <> serProof p
+serProof' (IffTR_ ni nm p) = "^TR" <> serBS nm <> serProof p
+serProof' (IffF_ ni nm po pr) = "^F" <>  serBS nm <> serProof po <> serProof pr
+serProof' (FaT_ ni nm xs p) = "!T" <>  serBS nm <> serList serTerm xs <> serProof p
+serProof' (FaF_ ni nm k p) = "!F" <>  serBS nm <> serInt k <> serProof p
+serProof' (ExT_ ni nm k p) = "?T" <>  serBS nm <> serInt k <> serProof p
+serProof' (ExF_ ni nm xs p) = "?F" <>  serBS nm <> serList serTerm xs <> serProof p
 
 -- Diff display
 
-neqVars :: [Text] -> [Text] -> Builder
+neqVars :: [BS] -> [BS] -> Builder
 neqVars vs ws = ppList ft vs <> "\n!=\n" <> ppList ft ws
 
 neqAppend :: Builder ->  Builder -> Builder
@@ -331,13 +330,11 @@ diffSignForm (False, _) (True, _) = Just "diff sign"
 diffSignForm (True, f) (True, g) = diffForm f g
 diffSignForm (False, f) (False, g) = diffForm f g
 
-diffTrail :: (Bool, Form) -> (Bool, Form) -> Text
+diffTrail :: (Bool, Form) -> (Bool, Form) -> BS
 diffTrail x y = 
   case diffSignForm x y of 
-    Just b -> tlt b 
+    Just b -> toByteString' b 
     _ -> error "cannot find diff"
 
-writeProof :: String -> [Text] -> Proof -> IO ()
-writeProof nm nms prf = do
-  Prelude.putStrLn $ "Writing proof : " <> nm
-  TIO.writeFile nm $ tlt $ serList serText nms <> serProof prf
+writeProof :: String -> [BS] -> Proof -> IO ()
+writeProof nm nms prf = BD.writeFile nm $ serList serBS nms <> serProof prf

@@ -1,16 +1,18 @@
 module Types where 
 
-import Data.Text.Lazy (Text)
+import qualified Data.ByteString as BS (ByteString)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Data.Functor ((<&>))
 
-data Funct = Reg Text | Idx Int
+type BS = BS.ByteString
+
+data Funct = Reg BS | Idx Int
   deriving (Show, Eq, Ord)
 
-data Term = Var Text | Fun Funct [Term]
+data Term = Var BS | Fun Funct [Term]
   deriving (Show, Eq, Ord)
 
 data Form =
@@ -21,8 +23,8 @@ data Form =
   | Or  [Form]
   | Imp Form Form
   | Iff Form Form
-  | Fa [Text] Form
-  | Ex [Text] Form
+  | Fa [BS] Form
+  | Ex [BS] Form
   deriving (Show, Eq, Ord)
 
 (<=>) :: Form -> Form -> Form
@@ -35,88 +37,88 @@ data Form =
 (===) = Eq
 
 data PreInput =
-    PreCnf Text Text Text
-  | PreFof Text Text Text
-  | PreInc Text
+    PreCnf BS BS BS
+  | PreFof BS BS BS
+  | PreInc BS
   deriving Show
 
 data Input =
-    Cnf Text Text Form Ant
-  | Fof Text Text Form Ant
-  | Inc Text
+    Cnf BS BS Form Ant
+  | Fof BS BS Form Ant
+  | Inc BS
   deriving Show
 
 data Input' =
     Ign 
-  | Afm Text Text Form Ant
-  | Inc' Text
+  | Afm BS BS Form Ant
+  | Inc' BS
   deriving Show
 
 data Gterm =
-    Gfun Text [Gterm]
+    Gfun BS [Gterm]
   | Glist [Gterm]
   | Gnum Int
-  | Gvar Text
+  | Gvar BS
   deriving (Show)
 
 type Ant = Maybe (Gterm, Maybe [Gterm])
 
 data PreAF = 
-    CnfAF Text Text Text
-  | FofAF Text Text Text
+    CnfAF BS BS BS
+  | FofAF BS BS BS
 
-type AF = (Text, Text, Form, Ant)
+type AF = (BS, BS, Form, Ant)
 
 type Prob = [Input]
 
 data Inf =
-    Id Text Text 
-  | FunC [Text] Text | RelC [Text] Text Text
-  | EqR Text | EqS Text Text |EqT Text Text Text
-  | Cut Text Text
-  | NotT Text Text | NotF Text Text
-  | OrT Text [Text] | OrF Text Int Text 
-  | AndT Text Int Text | AndF Text [Text]
-  | ImpT Text Text Text | ImpFA Text Text | ImpFC Text Text
-  | IffTO Text Text | IffTR Text Text | IffF Text Text Text
-  | FaT Text [Term] Text | FaF Text Int Text
-  | ExT Text Int Text | ExF Text [Term] Text
-  | RelD Text | AoC Term Text | Open
+    Id BS BS 
+  | FunC [BS] BS | RelC [BS] BS BS
+  | EqR BS | EqS BS BS |EqT BS BS BS
+  | Cut BS BS
+  | NotT BS BS | NotF BS BS
+  | OrT BS [BS] | OrF BS Int BS 
+  | AndT BS Int BS | AndF BS [BS]
+  | ImpT BS BS BS | ImpFA BS BS | ImpFC BS BS
+  | IffTO BS BS | IffTR BS BS | IffF BS BS BS
+  | FaT BS [Term] BS | FaF BS Int BS
+  | ExT BS Int BS | ExF BS [Term] BS
+  | RelD BS | AoC Term BS | Open
   deriving (Show)
 
-type Node = (Text, Bool, Form)
+type Node = (BS, Bool, Form)
 
 data Proof =
-    Id_ Node Text Text 
+    Id_ Node BS BS 
   | Cut_ Node Proof Proof
-  | FunC_ Node [Text] Text 
-  | RelC_ Node [Text] Text Text
-  | EqR_ Node Text 
-  | EqS_ Node Text Text 
-  | EqT_ Node Text Text Text
-  | NotT_ Node Text Proof 
-  | NotF_ Node Text Proof 
-  | OrT_ Node Text [Proof] 
-  | OrF_ Node Text Int Proof
-  | AndT_ Node Text Int Proof
-  | AndF_ Node Text [Proof]
-  | ImpT_ Node Text Proof Proof
-  | ImpFA_ Node Text Proof
-  | ImpFC_ Node Text Proof
-  | IffTO_ Node Text Proof
-  | IffTR_ Node Text Proof
-  | IffF_ Node Text Proof Proof
-  | FaT_ Node Text [Term] Proof
-  | FaF_ Node Text Int Proof
-  | ExT_ Node Text Int Proof
-  | ExF_ Node Text [Term]Proof
+  | FunC_ Node [BS] BS 
+  | RelC_ Node [BS] BS BS
+  | EqR_ Node BS 
+  | EqS_ Node BS BS 
+  | EqT_ Node BS BS BS
+  | NotT_ Node BS Proof 
+  | NotF_ Node BS Proof 
+  | OrT_ Node BS [Proof] 
+  | OrF_ Node BS Int Proof
+  | AndT_ Node BS Int Proof
+  | AndF_ Node BS [Proof]
+  | ImpT_ Node BS Proof Proof
+  | ImpFA_ Node BS Proof
+  | ImpFC_ Node BS Proof
+  | IffTO_ Node BS Proof
+  | IffTR_ Node BS Proof
+  | IffF_ Node BS Proof Proof
+  | FaT_ Node BS [Term] Proof
+  | FaF_ Node BS Int Proof
+  | ExT_ Node BS Int Proof
+  | ExF_ Node BS [Term]Proof
   | RelD_ Node Proof
   | AoC_ Node Term Proof 
   | Open_ Node
   deriving (Show)
   
-type Elab = (Node, Inf, Maybe Text)
-type Branch = HM.Map Text (Bool, Form)
+type Elab = (Node, Inf, Maybe BS)
+type Branch = HM.Map BS (Bool, Form)
 type SignForm = (Bool, Form)
-type NTF = Map Text Form
-type SFTN = Map (Bool, Form) Text
+type NTF = Map BS Form
+type SFTN = Map (Bool, Form) BS

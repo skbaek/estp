@@ -9,8 +9,11 @@ module Basic where
 
 import Types
 
-import Data.Text.Lazy as T (Text, uncons, unsnoc, unpack, null)
-import Data.Text.Lazy.Builder as B (Builder, fromLazyText, toLazyText)
+import Data.Word (Word8)
+import Data.Char.Decode (decodeByte, CodePage437 (CodePage437), encodeWithDefault)
+import qualified Data.ByteString as BS --(Text, uncons, unsnoc, unpack, null)
+--(Text, uncons, unsnoc, unpack, null)
+import Data.ByteString.Builder (Builder, toLazyByteString) -- fromLazyText, toLazyText)
 import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
   fromListWithKey, delete, findWithDefault, singleton )
@@ -20,22 +23,35 @@ import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative as A
 import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
-import Data.Text.Lazy.Read as TR ( decimal )
 import Debug.Trace (trace)
 
-pattern (:>) :: Char -> Text -> Text
-pattern x :> xs <- (T.uncons -> Just (x, xs))
+-- import Data.Text.Lazy.Read as TR ( decimal )
 
-substBv :: [(Text, Term)] -> Text -> Term
+w2c :: Word8 -> Char
+w2c = decodeByte CodePage437
+
+c2w :: Char -> Word8 
+c2w = encodeWithDefault CodePage437 (error "Not encodable") 
+
+bsrec :: BS -> Maybe (Char, BS)
+bsrec bs = DBF.first (decodeByte CodePage437) <$> BS.uncons bs 
+
+ps :: String -> IO ()
+ps = Prelude.putStr
+
+pattern (:>) :: Char -> BS -> BS
+pattern x :> xs <- (bsrec -> Just (x, xs))
+
+substBv :: [(BS, Term)] -> BS -> Term
 substBv [] s = Var s
 substBv ((t, x) : txs) s = if t == s then x else substBv txs s
 
-substTerm :: [(Text, Term)] -> Term -> Term
+substTerm :: [(BS, Term)] -> Term -> Term
 -- substTerm txs (Par k) = Par k
 substTerm txs (Var t) = substBv txs t
 substTerm txs (Fun f xs) = Fun f $ L.map (substTerm txs) xs
 
-substForm :: [(Text, Term)] -> Form -> Form
+substForm :: [(BS, Term)] -> Form -> Form
 substForm vxs (Eq x y) = Eq (substTerm vxs x) (substTerm vxs y)
 substForm vxs (Rel r xs) = Rel r $ L.map (substTerm vxs) xs
 substForm vxs (Not f) = Not $ substForm vxs f
@@ -53,13 +69,13 @@ substForm vxs (Ex vs f) =
 par :: Int -> Term
 par k = Fun (Idx k) [] -- Fun (tlt $ ppSQ $ "#" <> ppInt k) []
 
-varPars :: Int -> [Text] -> (Int, [(Text, Term)])
+varPars :: Int -> [BS] -> (Int, [(BS, Term)])
 varPars k [] = (k, [])
 varPars k (v : vs) =
   let (m, vxs) = varPars (k + 1) vs in
   (m, (v, par k) : vxs)
 
-listPars :: Int -> [Text] -> (Int, [Term])
+listPars :: Int -> [BS] -> (Int, [Term])
 listPars k [] = (k, [])
 listPars k (_ : vs) =
   let (m, xs) = listPars (k + 1) vs in
@@ -99,17 +115,17 @@ charToInt '8' = Just 8
 charToInt '9' = Just 9
 charToInt _ = Nothing
 
-textToInt :: Text -> Maybe Int
-textToInt ('-' :> t) = textToNat t <&> negate
-textToInt t = textToNat t
+bs2int :: BS -> Maybe Int
+bs2int ('-' :> t) = textToNat t <&> negate
+bs2int t = textToNat t
 
-textToNat :: Text -> Maybe Int
+textToNat :: BS -> Maybe Int
 textToNat (c :> t) = do
   k <- charToInt c
   textToNatCore k t
 textToNat _ = Nothing
 
-textToNatCore :: Int -> Text -> Maybe Int
+textToNatCore :: Int -> BS -> Maybe Int
 textToNatCore k (c :> t) = do
   m <- charToInt c
   textToNatCore ((k * 10) + m) t
@@ -144,20 +160,8 @@ isPerm xs ys = L.null (xs \\ ys) && L.null (ys \\ xs)
 mark :: Int -> IO ()
 mark k = print $ "Marking checkpoint " <> show k
 
-pt :: Text -> IO ()
-pt t = Prelude.putStr $ unpack t
-
-pb :: Builder -> IO ()
-pb = pt . tlt 
-
-ptnl :: Text -> IO ()
-ptnl t = Prelude.putStr $ unpack $ t <> "\n"
-
-et :: Text -> a
-et t = error (unpack t)
-
-eb :: Builder -> a
-eb b = et $ tlt b
+pbs :: BS -> IO ()
+pbs t = Prelude.putStr $ show t
 
 deleteOnce :: (Eq a) => a -> [a] -> Maybe [a]
 deleteOnce _ [] = Nothing
@@ -199,7 +203,7 @@ isNeg _ = False
 isbt :: Form -> Bool
 isbt = not . isNeg
 
-isGndTerm :: [Text] -> Term -> Bool
+isGndTerm :: [BS] -> Term -> Bool
 isGndTerm vs (Var v) = v `elem` vs
 isGndTerm vs (Fun f xs) = L.all (isGndTerm vs) xs
 
@@ -212,7 +216,7 @@ isGndLit :: Form -> Bool
 isGndLit (Not f) = isGndAtom f
 isGndLit f = isGndAtom f
 
-isGndForm :: [Text] -> Form -> Bool
+isGndForm :: [BS] -> Form -> Bool
 isGndForm vs (Rel _ xs) = L.all (isGndTerm vs) xs
 isGndForm vs (Eq x y) = isGndTerm vs x && isGndTerm vs y
 isGndForm vs (Not f) = isGndForm vs f
@@ -243,12 +247,12 @@ isTop = (top ==)
 isBot :: Form -> Bool
 isBot = (bot ==)
 
-varInt :: Text -> Term -> Bool
+varInt :: BS -> Term -> Bool
 varInt v (Var w) = v == w
 varInt v (Fun f xs) = L.any (varInt v) xs
 -- varInt v _ = False
 
-varInf :: Text -> Form -> Bool
+varInf :: BS -> Form -> Bool
 varInf v (Eq x y) = varInt v x || varInt v y
 varInf v (Rel _ xs) = L.any (varInt v) xs
 varInf v (Not f) = varInf v f
@@ -287,7 +291,7 @@ isAnd _ = False
 nt :: Maybe a
 nt = Nothing
 
-breakVar :: Term -> Maybe Text
+breakVar :: Term -> Maybe BS
 breakVar (Var v) = Just v
 breakVar _ = Nothing
 
@@ -295,11 +299,11 @@ isConstant :: Term -> Bool
 isConstant (Fun _ []) = True
 isConstant _ = False
 
-breakFa :: Form -> Maybe ([Text], Form)
+breakFa :: Form -> Maybe ([BS], Form)
 breakFa (Fa vs f) = return (vs, f)
 breakFa _ = mzero
 
-breakEx :: Form -> Maybe ([Text], Form)
+breakEx :: Form -> Maybe ([BS], Form)
 breakEx (Ex vs f) = return (vs, f)
 breakEx _ = mzero
 
@@ -333,16 +337,16 @@ ffuns (Not f) = ffuns f
 ffuns (Fa _ f) = ffuns f
 ffuns (Ex _ f) = ffuns f
 
-guardMsg :: (Alternative m, Monad m) => Text -> Bool -> m ()
+guardMsg :: (Alternative m, Monad m) => String -> Bool -> m ()
 guardMsg _ True  = return ()
-guardMsg s False = error (unpack s)
+guardMsg s False = error s
 
-claVars :: Form -> IO (Set Text)
+claVars :: Form -> IO (Set BS)
 claVars (Fa vs f) = S.union (S.fromList vs) <$> claVars f
 claVars (Or fs) = S.unions <$> mapM claVars fs
 claVars f = guard (isLit f) >> return S.empty
 
-formVars :: Form -> Set Text
+formVars :: Form -> Set BS
 formVars (Fa vs f) = S.union (S.fromList vs) $ formVars f
 formVars (Ex vs f) = S.union (S.fromList vs) $ formVars f
 formVars (Imp f g) = S.union (formVars f) (formVars g)
@@ -352,12 +356,12 @@ formVars (Or fs) = S.unions $ L.map formVars fs
 formVars (And fs) = S.unions $ L.map formVars fs
 formVars _ = S.empty
 
-varsInt :: [Text] -> Term -> Bool
+varsInt :: [BS] -> Term -> Bool
 varsInt vs (Var v) = v `elem` vs
 varsInt vs (Fun f xs) = L.any (varsInt vs) xs
 -- varsInt vs _ = False
 
-varsInf :: [Text] -> Form -> Bool
+varsInf :: [BS] -> Form -> Bool
 varsInf vs (Eq x y) = varsInt vs x || varsInt vs y
 varsInf vs (Rel _ xs) = L.any (varsInt vs) xs
 varsInf vs (Not f) = varsInf vs f
@@ -376,12 +380,12 @@ gndTerm :: Term -> Term
 gndTerm (Var _) = zt
 gndTerm (Fun f xs) = Fun f $ L.map gndTerm xs
 
-substVar :: Text -> Term -> Term -> Term
+substVar :: BS -> Term -> Term -> Term
 substVar v x (Var w) = if v == w then x else Var w
 -- substVar v x (Par m) = Par m
 substVar v x (Fun f xs) = Fun f $ L.map (substVar v x) xs
 
-hasVar :: Text -> Term -> Bool
+hasVar :: BS -> Term -> Bool
 hasVar v (Var w) = v == w
 hasVar v (Fun _ xs) = L.any (hasVar v) xs
 
@@ -412,20 +416,15 @@ formPreds (Iff f g) = S.union (formPreds f) (formPreds g)
 formPreds (Fa _ f) = formPreds f
 formPreds (Ex _ f) = formPreds f
 
-readInt :: Text -> Maybe Int
-readInt t = 
-  case TR.decimal t of 
-    Left _ -> nt -- et $ "cannot read int : " <> t
-    Right (k, t') -> do 
-      guard $ T.null t' 
-      return k
+bs2str :: BS -> String 
+bs2str = L.map w2c . BS.unpack
 
-unquote :: Text -> Maybe Text
-unquote t = do 
-  ('\'', t') <- T.uncons t
-  (t'', '\'') <- T.unsnoc t'
-  return t''
-
+unquote :: BS -> Maybe BS
+unquote ('\'' :> bs) = do 
+  -- ('\'', t') <- DBF.first decodeByte  <$> BS.uncons t
+  (bs', '\'') <- DBF.second w2c <$> BS.unsnoc bs
+  return bs'
+unquote _ = Nothing
 
 bt :: Bool
 bt = True
@@ -433,10 +432,10 @@ bt = True
 bf :: Bool
 bf = False
 
-ft = B.fromLazyText
-tlt = B.toLazyText 
+-- ft = B.fromLazyBS
+-- tlt = B.toLazyBS 
 
-isSkolemTerm :: [Text] -> Term -> Bool
+isSkolemTerm :: [BS] -> Term -> Bool
 isSkolemTerm vs (Fun _ xs) =
   case mapM breakVar xs of
     Just ws -> isPerm vs ws -- sublist vs ws && sublist ws vs
@@ -552,7 +551,7 @@ proofRootNode (RelD_ ni p) = ni
 proofRootNode (AoC_ ni xs p) = ni
 proofRootNode (Open_ ni) = ni
 
-proofRN :: Proof -> Text
+proofRN :: Proof -> BS
 proofRN p = 
   case proofRootNode p of 
     (ni, _, _) -> ni 
@@ -599,7 +598,7 @@ checkRelD _ _ = mzero
 distintList :: (Ord a) => [a] -> Bool
 distintList xs = S.size (S.fromList xs) == L.length xs
 
-checkSkolemTerm :: [Text] -> Int -> Term -> Maybe Int
+checkSkolemTerm :: [BS] -> Int -> Term -> Maybe Int
 checkSkolemTerm vs k (Var _) = mzero
 checkSkolemTerm vs k (Fun (Reg _) _) = mzero
 checkSkolemTerm vs k (Fun (Idx m) xs) = do

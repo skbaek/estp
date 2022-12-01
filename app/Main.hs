@@ -13,25 +13,23 @@ import Types
 import Basic
 import PP
 import Parse ( parseName, parsePreName, decimal, parseForm, univClose, proof, proofCheck,
-  afToEf, conjecturize, estpToElabs, functor, parse, getText, getList )
+  afToEf, conjecturize, estpToElabs, functor, parse, getBS, getList )
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BD
 import Control.Monad as M ( guard, MonadPlus(mzero), foldM_, when )
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative ( Alternative((<|>)) )
 import System.Environment ( getArgs )
 import Data.List as L 
   ( map, foldl, all, concat, reverse, length, any, filter, delete, concatMap )
-import Data.Text.Lazy as T ( Text, unpack, intercalate, pack, null, splitOn, unsnoc )
-import Data.Text.Lazy.IO as TIO
-    ( readFile, hPutStrLn, hPutStr, writeFile )
-import Data.Text.Lazy.Builder (Builder)
 import Data.Set as S ( empty, insert, member, singleton, toList, fromList, Set, union, unions )
 import Data.Map as HM (Map, map, empty, insert, lookup, toList, foldrWithKey, size, fromList)
 import Data.Bifunctor as DBF (first, second, bimap)
 import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
 import System.Timeout (timeout)
 
-addToBranch :: Set Text -> Branch -> PreAF -> Branch
+addToBranch :: Set BS -> Branch -> PreAF -> Branch
 addToBranch ahns bch (CnfAF n r tx)
   | S.member n ahns =
       let f = (conjecturize r $ univClose $ parseForm tx) in
@@ -43,7 +41,7 @@ addToBranch ahns bch (FofAF n r tx)
       HM.insert n (True, f) bch
   | otherwise = bch
 
-addToHyps :: Set Text -> (NTF, Set Form, SFTN) -> PreAF -> (NTF, Set Form, SFTN)
+addToHyps :: Set BS -> (NTF, Set Form, SFTN) -> PreAF -> (NTF, Set Form, SFTN)
 addToHyps ahns hyp@(ntf, sf, ftn) (CnfAF n r tx)
   | S.member n ahns =
       let f = (conjecturize r $ univClose $ parseForm tx) in
@@ -60,10 +58,10 @@ addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx)
 skipList :: String -> Bool
 skipList n = False
 
-elabHyps :: Elab -> [Text]
+elabHyps :: Elab -> [BS]
 elabHyps (_, i, _) = infHyps i
 
-infHyps :: Inf -> [Text]
+infHyps :: Inf -> [BS]
 infHyps (Id n m) = [n, m]
 infHyps (Cut _ _) = []
 infHyps (FunC ns n) = n : ns
@@ -91,7 +89,7 @@ infHyps (RelD _) = []
 infHyps (AoC _ _) = []
 infHyps Open = []
 
-assemble' :: HM.Map Text Elab -> Elab -> IO Proof
+assemble' :: HM.Map BS Elab -> Elab -> IO Proof
 assemble' mp (ni, Id nt nf, _) = return $ Id_ ni nt nf
 assemble' mp (ni, FunC nms nm, _) = return $ FunC_ ni nms nm
 assemble' mp (ni, RelC nms nt nf, _) = return $ RelC_ ni nms nt nf
@@ -132,28 +130,28 @@ assemble' mp (ni, RelD nc, _) = RelD_ ni <$> assemble mp nc
 assemble' mp (ni, AoC xs nc, _) = AoC_ ni xs <$> assemble mp nc
 assemble' mp (ni, Open, _) = return $ Open_ ni
 
-assemble :: HM.Map Text Elab -> Text -> IO Proof
+assemble :: HM.Map BS Elab -> BS -> IO Proof
 assemble mp nm = cast (HM.lookup nm mp) >>= assemble' mp
 
-elabName :: Elab -> Text
+elabName :: Elab -> BS
 elabName ((nm, _, _), _, _) = nm
 
-readCstp :: String -> IO ([Text], Text)
+readCstp :: String -> IO ([BS], BS)
 readCstp cstp = do
-  tx <- TIO.readFile cstp
-  cast $ parse (getList getText) tx
+  tx <- BS.readFile cstp
+  cast $ parse (getList getBS) tx
 
-readTptp :: [Text] -> String -> IO Branch
+readTptp :: [BS] -> String -> IO Branch
 readTptp nms tptp = do
   pafs <- parsePreName tptp
   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
 
--- readTptp' :: [Text] -> String -> IO Branch
+-- readTptp' :: [BS] -> String -> IO Branch
 -- readTptp' nms tptp = do
 --   afs <- parseNameTrim (S.fromList nms) tptp
 --   return $ L.foldl (\ m_ af_ -> HM.insert (afName af_) (afSignForm af_) m_) HM.empty afs
 
-afName :: AF -> Text
+afName :: AF -> BS
 afName (nm, _, _, _) = nm
 
 afSignForm :: AF -> SignForm
@@ -162,10 +160,10 @@ afSignForm (_, _, f, _) = (True, f)
 writeElab :: String -> [Elab] -> IO ()
 writeElab nm efs = do
   Prelude.putStrLn $ "Writing Elab : " <> nm
-  let output = tlt $ ppInter "\n" $ L.map ppElab efs
-  TIO.writeFile nm output
+  let output = ppInter "\n" $ L.map ppElab efs
+  BD.writeFile nm output
 
-proofNames :: Proof -> Set Text
+proofNames :: Proof -> Set BS
 proofNames (Id_ _ nt nf) = S.fromList [nt, nf]
 proofNames (Cut_ _ pf pt) = S.union (proofNames pf) (proofNames pt)
 proofNames (FunC_ _ nts nf) = S.fromList (nf : nts)
@@ -197,43 +195,9 @@ isVar :: Term -> Bool
 isVar (Var _) = True
 isVar _ = False
 
-ps :: String -> IO ()
-ps = Prelude.putStr
-
 elabInf :: Elab -> Inf
 elabInf (_, i, _) = i
 
-mainArgs ("check" : tptp : astp : flags) = do
-  let vb = "silent" `notElem` flags
-  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
-  (nms, prfTx) <- readCstp astp
-  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
-  bch <- readTptp nms tptp
-  ((), rem) <- cast $ parse (proofCheck vb 0 bch True (And [])) prfTx 
-  guard (T.null rem)
-  pt "Proof checked.\n"
-
-mainArgs ("extract" : tptp : astp : estp : flags) = do
-  let vb = "silent" `notElem` flags
-  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
-  (nms, prfTx) <- readCstp astp
-  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
-  bch <- readTptp nms tptp
-  (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
-  guard (T.null rem)
-  (Just ()) <- timeout 120000000 $ TIO.writeFile estp $ tlt $ ppListNl ppElab $ linearize prf
-  skip
-
-mainArgs ("assemble" : estp : astp : flags) = do
-  let vb = "silent" `notElem` flags
-  -- elbs <- parseName estp >>= mapM afToEf 
-  -- let nms = L.foldl S.union S.empty (L.map (S.fromList . infHyps . elabInf) elbs)
-  -- let m = L.foldl (\ m_ elb_ -> HM.insert (elabName elb_) elb_ m_) HM.empty elbs
-  -- prf <- assemble m "root"
-  -- writeProof astp (S.toList nms) prf
-  (Just ()) <- timeout 120000000 $ asmWrite vb estp astp
-  skip
-mainArgs _ = et "Invalid main args"
 
 asmWrite :: Bool -> String -> String -> IO ()
 asmWrite vb estp astp = do 
@@ -275,6 +239,32 @@ linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p), Nothing) : linearize p
 linearize (RelD_ ni p) = (ni, RelD (proofRN p), Nothing) : linearize p
 linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p), Nothing) : linearize p
 linearize (Open_ ni) = [(ni, Open, Nothing)]
+
+mainArgs :: [String] -> IO ()
+mainArgs ("check" : tptp : astp : flags) = do
+  let vb = "silent" `notElem` flags
+  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
+  (nms, prfTx) <- readCstp astp
+  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
+  bch <- readTptp nms tptp
+  ((), rem) <- cast $ parse (proofCheck vb 0 bch True (And [])) prfTx 
+  guard (BS.null rem)
+  ps "Proof checked.\n"
+mainArgs ("extract" : tptp : astp : estp : flags) = do
+  let vb = "silent" `notElem` flags
+  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
+  (nms, prfTx) <- readCstp astp
+  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
+  bch <- readTptp nms tptp
+  (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
+  guard (BS.null rem)
+  (Just ()) <- timeout 120000000 $ BD.writeFile estp $ ppListNl ppElab $ linearize prf
+  skip
+mainArgs ("assemble" : estp : astp : flags) = do
+  let vb = "silent" `notElem` flags
+  (Just ()) <- timeout 120000000 $ asmWrite vb estp astp
+  skip
+mainArgs _ = error "Invalid main args"
 
 main :: IO ()
 main = getArgs >>= mainArgs
