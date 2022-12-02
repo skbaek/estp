@@ -1,7 +1,6 @@
 module Types where 
 
 import qualified Data.ByteString as BS (ByteString)
-import Data.List as L
 import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
 import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
 import Control.Monad.Fail as MF (MonadFail, fail)
@@ -48,12 +47,6 @@ data Input =
   | Inc BS
   deriving Show
 
-data Input' =
-    Ign 
-  | Afm BS BS Form Ant
-  | Inc' BS
-  deriving Show
-
 data Gterm =
     Gfun BS [Gterm]
   | Glist [Gterm]
@@ -87,6 +80,7 @@ data Inf =
   deriving (Show)
 
 type Node = (BS, Bool, Form)
+type Node' = (BS, Bool, BS)
 
 data Proof =
     Id_ Node BS BS 
@@ -118,7 +112,6 @@ data Proof =
   deriving (Show)
   
 type Elab = (Node, Inf, Maybe BS)
+type Elab' = (Node', Inf, Maybe BS)
 type Branch = HM.Map BS (Bool, Form)
 type SignForm = (Bool, Form)
-type NTF = Map BS Form
-type SFTN = Map (Bool, Form) BS

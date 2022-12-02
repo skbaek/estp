@@ -12,8 +12,8 @@ module Main where
 import Types
 import Basic
 import PP
-import Parse ( parseName, parsePreName, decimal, parseForm, univClose, proof, proofCheck,
-  afToEf, conjecturize, estpToElabs, functor, parse, getBS, getList )
+import Parse ( parseName, parsePreName, decimal, parseForm, univClose, proof, gTermToInf,
+  gTermsToMaybeBS, proofCheck, conjecturize, functor, parse, getBS, getList )
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BD
@@ -41,19 +41,42 @@ addToBranch ahns bch (FofAF n r tx)
       HM.insert n (True, f) bch
   | otherwise = bch
 
-addToHyps :: Set BS -> (NTF, Set Form, SFTN) -> PreAF -> (NTF, Set Form, SFTN)
-addToHyps ahns hyp@(ntf, sf, ftn) (CnfAF n r tx)
-  | S.member n ahns =
-      let f = (conjecturize r $ univClose $ parseForm tx) in
-      (HM.insert n f ntf, S.insert f sf, HM.insert (True, f) n ftn)
-  | otherwise = hyp
-addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx)
-  | S.member n ahns =
-      let f = (conjecturize r $ parseForm tx) in
-      (HM.insert n f ntf, S.insert f sf, HM.insert (True, f) n ftn)
-  | otherwise = hyp
+-- addToHyps :: Set BS -> (NTF, Set Form, SFTN) -> PreAF -> (NTF, Set Form, SFTN)
+-- addToHyps ahns hyp@(ntf, sf, ftn) (CnfAF n r tx)
+--   | S.member n ahns =
+--       let f = (conjecturize r $ univClose $ parseForm tx) in
+--       (HM.insert n f ntf, S.insert f sf, HM.insert (True, f) n ftn)
+--   | otherwise = hyp
+-- addToHyps ahns hyp@(ntf, sf, ftn) (FofAF n r tx)
+--   | S.member n ahns =
+--       let f = (conjecturize r $ parseForm tx) in
+--       (HM.insert n f ntf, S.insert f sf, HM.insert (True, f) n ftn)
+--   | otherwise = hyp
 
 {- Main -}
+
+textToBool :: BS -> IO Bool
+textToBool "true" = return True
+textToBool "false" = return False
+textToBool _ = error "Cannot read Boolarity"
+
+pafToEf' :: PreAF -> IO Elab'
+pafToEf' = error "todo"
+
+afToEf :: AF -> IO Elab
+afToEf (nm, sgn, f, Just (Gfun "inference" [gt], gts)) = do
+  pl <- textToBool sgn
+  i <- gTermToInf gt
+  mtx <- gTermsToMaybeBS gts
+  return ((nm, pl, f), i, mtx)
+afToEf af = error "cannot read AF into Elab" -- <> tlt (fmtAF af)
+
+estpToElabs :: String -> IO [Elab]
+estpToElabs estp = do
+  ps "Reading ESTP file...\n"
+  xs <- parseName estp
+  ps "Transcribing AFs to EFs...\n"
+  mapM afToEf xs
 
 skipList :: String -> Bool
 skipList n = False
@@ -136,8 +159,8 @@ assemble mp nm = cast (HM.lookup nm mp) >>= assemble' mp
 elabName :: Elab -> BS
 elabName ((nm, _, _), _, _) = nm
 
-readCstp :: String -> IO ([BS], BS)
-readCstp cstp = do
+readAstp :: String -> IO ([BS], BS)
+readAstp cstp = do
   tx <- BS.readFile cstp
   cast $ parse (getList getBS) tx
 
@@ -145,11 +168,6 @@ readTptp :: [BS] -> String -> IO Branch
 readTptp nms tptp = do
   pafs <- parsePreName tptp
   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
-
--- readTptp' :: [BS] -> String -> IO Branch
--- readTptp' nms tptp = do
---   afs <- parseNameTrim (S.fromList nms) tptp
---   return $ L.foldl (\ m_ af_ -> HM.insert (afName af_) (afSignForm af_) m_) HM.empty afs
 
 afName :: AF -> BS
 afName (nm, _, _, _) = nm
@@ -199,6 +217,20 @@ elabInf :: Elab -> Inf
 elabInf (_, i, _) = i
 
 
+asmWrite' :: Bool -> String -> String -> IO ()
+asmWrite' vb estp astp = do 
+  when vb $ ps $ "Reading ESTP : " <> estp <> " ...\n"
+  plbs <- parsePreName estp >>= mapM pafToEf' 
+  -- when vb $ ps "Collecting hypothesis names...\n"
+  -- let nms = L.foldl S.union S.empty (L.map (S.fromList . infHyps . elabInf) elbs)
+  -- when vb $ ps "Constructing node map...\n"
+  -- let m = L.foldl (\ m_ elb_ -> HM.insert (elabName elb_) elb_ m_) HM.empty elbs
+  -- when vb $ ps "Assembling proof...\n"
+  -- prf <- assemble m "root"
+  -- when vb $ ps "Writing proof...\n"
+  -- writeProof astp (S.toList nms) prf
+  _
+
 asmWrite :: Bool -> String -> String -> IO ()
 asmWrite vb estp astp = do 
   when vb $ ps $ "Reading ESTP : " <> estp <> " ...\n"
@@ -244,7 +276,7 @@ mainArgs :: [String] -> IO ()
 mainArgs ("check" : tptp : astp : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
-  (nms, prfTx) <- readCstp astp
+  (nms, prfTx) <- readAstp astp
   when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
   bch <- readTptp nms tptp
   ((), rem) <- cast $ parse (proofCheck vb 0 bch True (And [])) prfTx 
@@ -253,7 +285,7 @@ mainArgs ("check" : tptp : astp : flags) = do
 mainArgs ("extract" : tptp : astp : estp : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
-  (nms, prfTx) <- readCstp astp
+  (nms, prfTx) <- readAstp astp
   when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
   bch <- readTptp nms tptp
   (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
@@ -262,8 +294,7 @@ mainArgs ("extract" : tptp : astp : estp : flags) = do
   skip
 mainArgs ("assemble" : estp : astp : flags) = do
   let vb = "silent" `notElem` flags
-  (Just ()) <- timeout 120000000 $ asmWrite vb estp astp
-  skip
+  asmWrite vb estp astp
 mainArgs _ = error "Invalid main args"
 
 main :: IO ()

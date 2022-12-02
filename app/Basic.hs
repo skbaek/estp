@@ -11,21 +11,20 @@ import Types
 
 import Data.Word (Word8)
 import Data.Char.Decode (decodeByte, CodePage437 (CodePage437), encodeWithDefault)
-import qualified Data.ByteString as BS --(Text, uncons, unsnoc, unpack, null)
---(Text, uncons, unsnoc, unpack, null)
-import Data.ByteString.Builder (Builder, toLazyByteString) -- fromLazyText, toLazyText)
+import qualified Data.ByteString as BS 
+import Data.ByteString.Builder (Builder, toLazyByteString) 
 import Data.List as L
-import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
-  fromListWithKey, delete, findWithDefault, singleton )
-import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList, union, unions, size )
+import Data.Map as HM 
+  ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
+    fromListWithKey, delete, findWithDefault, singleton )
+import Data.Set as S 
+  ( empty, insert, member, singleton, toList, Set, fromList, union, unions, size )
 import Control.Monad as M (MonadPlus, mzero, foldM, guard)
 import Control.Monad.Fail as MF (MonadFail, fail)
 import Control.Applicative as A
 import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
 import Debug.Trace (trace)
-
--- import Data.Text.Lazy.Read as TR ( decimal )
 
 w2c :: Word8 -> Char
 w2c = decodeByte CodePage437
@@ -67,7 +66,7 @@ substForm vxs (Ex vs f) =
   Ex vs $ substForm vxs' f
 
 par :: Int -> Term
-par k = Fun (Idx k) [] -- Fun (tlt $ ppSQ $ "#" <> ppInt k) []
+par k = Fun (Idx k) [] 
 
 varPars :: Int -> [BS] -> (Int, [(BS, Term)])
 varPars k [] = (k, [])
@@ -149,10 +148,6 @@ instance MonadCast Maybe where
   cast = \case
            Nothing -> MF.fail ""
            (Just x) -> return x
-
--- (?>) :: Maybe a -> (a -> b) -> b -> b
--- (?>) (Just x) f _ = f x
--- (?>) Nothing _ y = y
 
 isPerm :: (Eq a) => [a] -> [a] -> Bool
 isPerm xs ys = L.null (xs \\ ys) && L.null (ys \\ xs)
@@ -250,7 +245,6 @@ isBot = (bot ==)
 varInt :: BS -> Term -> Bool
 varInt v (Var w) = v == w
 varInt v (Fun f xs) = L.any (varInt v) xs
--- varInt v _ = False
 
 varInf :: BS -> Form -> Bool
 varInf v (Eq x y) = varInt v x || varInt v y
@@ -278,7 +272,6 @@ instance Monad m => Applicative (StateM s m) where
 -- | Monadic variant of 'mapAccumL'.
 mapAccumM :: (Monad m, Traversable t) => (a -> b -> m (a, c)) -> a -> t b -> m (a, t c)
 mapAccumM f s t = runStateM (traverse (\x -> StateM (`f` x)) t) s
-
 
 isOr :: Form -> Bool
 isOr (Or _) = True
@@ -421,19 +414,9 @@ bs2str = L.map w2c . BS.unpack
 
 unquote :: BS -> Maybe BS
 unquote ('\'' :> bs) = do 
-  -- ('\'', t') <- DBF.first decodeByte  <$> BS.uncons t
   (bs', '\'') <- DBF.second w2c <$> BS.unsnoc bs
   return bs'
 unquote _ = Nothing
-
-bt :: Bool
-bt = True
-
-bf :: Bool
-bf = False
-
--- ft = B.fromLazyBS
--- tlt = B.toLazyBS 
 
 isSkolemTerm :: [BS] -> Term -> Bool
 isSkolemTerm vs (Fun _ xs) =
@@ -618,12 +601,10 @@ checkAoC k x (Fa vs (Imp (Ex (w : ws) f) g)) = do
   k' <- checkSkolemTerm vs k x 
   guard $ substForm [(w, x)] (Ex ws f) == g
   return k'
-
 checkAoC k x (Imp (Ex [w] f) g) = do
   k' <- checkSkolemTerm [] k x
   guard $ substForm [(w, x)] f == g
   return k'
-
 checkAoC k x (Imp (Ex (w : ws) f) g) = do
   guard $ distintList (w : ws)
   k' <- checkSkolemTerm [] k x
