@@ -219,8 +219,6 @@ elabName ((nm, _, _), _, _) = nm
 --   pafs <- parsePreName tptp
 --   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
 -- 
-readBranch :: String -> IO Branch
-readBranch = error "todo"
 -- readTptp nms tptp = do
 --   pafs <- parsePreName tptp
 --   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
@@ -337,17 +335,16 @@ linearize (Open_ ni) = [(ni, Open, Nothing)]
 mainArgs :: [String] -> IO ()
 mainArgs ("assemble" : enm : anm : flags) = do
   let vb = "silent" `notElem` flags
-  estp <- nameParseEstp enm
+  estp <- readEstp enm
   prf <- assemble estp "root"
   writeProof anm prf
 mainArgs ("check" : pnm : anm : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ ps $ "Reading TPTP : " ++ pnm ++ " ...\n"
-  bch <- readBranch pnm
+  bch <- readBranch pnm HM.empty
   when vb $ ps $ "Reading ASTP : " ++ anm ++ " ...\n"
   bs <- BS.readFile anm
-  -- runParser (proofCheck vb 0 bch True (And [])) bs
-  ---guard (BS.null rem)
+  runParser (proofCheck vb 0 bch True (And [])) bs
   ps "Proof checked.\n"
 -- mainArgs ("extract" : tptp : astp : estp : flags) = do
 --   let vb = "silent" `notElem` flags

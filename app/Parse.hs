@@ -529,13 +529,46 @@ formLength k tx =
     _ -> Nothing
 
 
-
-nameParseEstp :: String -> IO ESTP
-nameParseEstp n = do
+readBranch :: String -> Branch -> IO Branch
+readBranch nm bch = do
   -- ps "Reading file as text...\n"
-  bs <- BS.readFile n
+  bs <- BS.readFile nm
   -- ps "Parsing the text read...\n"
-  runParser (ign >> estp) bs
+  (_, bs') <- cast $ parse ign bs 
+  parseBranch bs' bch
+
+parseBranch :: BS -> Branch -> IO Branch
+parseBranch bs bch = do
+  (i,bs') <- cast $ parse input bs 
+  bch' <- parseInput i bch
+  if BS.null bs'
+  then return bch'
+  else parseBranch bs' bch'
+
+parseInput :: Input -> Branch -> IO Branch
+parseInput (IncInput bs) bch = do
+  tptp <- getEnv "TPTP"
+  bs' <- cast $ unquote bs
+  readBranch (tptp ++ "/" ++ show bs') bch
+parseInput (AnfInput (nm, rl, f, Nothing)) bch = do
+  return $ M.insert nm (True, conjecturize rl $ univClose f) bch
+parseInput (AnfInput (_, _, _, Just _)) bch = error "Anntation found in TPTP"
+
+--   ps $ "Axiom name : " ++ show s' ++ "\n"
+-- parseInput (Anf n r f t) = return [(n, r, f, t)]
+
+--   case parse input t of
+--     Just (i,s) -> do
+--       pfx <- parseInput i
+--       if BS.null s
+--       then return pfx
+--       else do
+--         sfx <- parseBS s
+--         return (pfx ++ sfx)
+--     _ -> error ("Failed to parse input : " <> show t)
+-- 
+readEstp :: String -> IO ESTP
+readEstp n = BS.readFile n >>= runParser (ign >> estp) 
 
 starMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
 starMap p m = plusMap p m <|> pure m
@@ -752,8 +785,8 @@ runParser p bs = do
   guard $ BS.null rem
   return rst
 
-text :: Parser BS
-text = Parser $
+stext :: Parser BS
+stext = Parser $
   \ tx ->
     case BS.break ((== '.') . w2c) tx of
       (pfx, _ :> sfx) -> Just (pfx, sfx)
@@ -774,7 +807,7 @@ rule =
 
 proofCheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
 proofCheck vb k bch sgn f = do
-  nm <- text
+  nm <- stext
   let bch' = M.insert nm (sgn, f) bch
   r <- rule <|> error "cannot read rule"
   proofCheck' vb k bch' r
@@ -789,17 +822,44 @@ pguard tx False = error tx
 sform :: Parser Form
 sform = item >>= sform'
 
+-- sterms :: Parser [Term]
+-- sterms = slist sterm
+
+sterm :: Parser Term
+sterm = item >>= sterm'
+
+sterm' :: Char -> Parser Term
+sterm' '$' = Var <$> stext
+sterm' '@' = do
+  f <- getFunct
+  Fun f <$> slist sterm
+sterm' _ = error "cannot get term"
+
+slist :: Parser a -> Parser [a]
+slist p = (char '.' >> unit []) <|>
+  ( do char ','
+       x <- p
+       xs <- slist p
+       unit (x : xs) )
+
+getInt :: Parser Int
+getInt = do
+  tx <- stext
+  cast $ bs2int tx
+
+getFunct :: Parser Funct
+getFunct = (char '#' >> (Idx <$> getInt)) <|> (Reg <$> stext)
 sform' :: Char -> Parser Form
 sform' '=' = do
-  x <- getTerm
-  y <- getTerm
+  x <- sterm
+  y <- sterm
   unit $ Eq x y
 sform' '@' = do
   r <- getFunct
-  Rel r <$> getTerms
+  Rel r <$> slist sterm
 sform' '~' = Not <$> sform
-sform' '|' = Or <$> sforms
-sform' '&' = And <$> sforms
+sform' '|' = Or <$> slist sform
+sform' '&' = And <$> slist sform
 sform' '>' = do
   f <- sform
   g <- sform
@@ -809,17 +869,17 @@ sform' '^' = do
   g <- sform
   unit $ Iff f g
 sform' '!' = do
-  vs <- getList getBS
+  vs <- slist stext
   Fa vs <$> sform
 sform' '?' = do
-  vs <- getList getBS
+  vs <- slist stext
   Ex vs <$> sform
 sform' c = error $ "invalid head character : " <> [c]
 
 proofCheck' :: Bool -> Int -> Branch -> BS -> Parser ()
 proofCheck' vb k bch "I" = do
-  nt <- text
-  nf <- text
+  nt <- stext
+  nf <- stext
   ft <- fetch bch nt
   ff <- fetch bch nf
   pguard "id-fail" $ complementary ft ff
@@ -832,92 +892,92 @@ proofCheck' vb k bch "D" = do
   k' <- cast $ checkRelD k f
   proofCheck vb k' bch True f
 proofCheck' vb k bch "A" = do
-  x <- getTerm
+  x <- sterm
   f <- sform
   k' <- cast $ checkAoC k x f
   proofCheck vb k' bch True f
 proofCheck' vb k bch "O" = skip
 proofCheck' vb k bch "F" = do
-  eqns <- getList text >>= mapM (fetch bch)
-  (False, Eq (Fun f xs) (Fun g ys)) <- text >>= fetch bch
+  eqns <- slist stext >>= mapM (fetch bch)
+  (False, Eq (Fun f xs) (Fun g ys)) <- stext >>= fetch bch
   pguard "function symbol mismatch" $ f == g
   xys <- cast $ mapM breakTrueEq eqns
   xys' <- zipM xs ys
   pguard "arguments mismatch" $ xys == xys'
 proofCheck' vb k bch "R" = do
-  eqns <- getList text >>= mapM (fetch bch)
-  (True, Rel r xs) <- text >>= fetch bch
-  (False, Rel s ys) <- text >>= fetch bch
+  eqns <- slist stext >>= mapM (fetch bch)
+  (True, Rel r xs) <- stext >>= fetch bch
+  (False, Rel s ys) <- stext >>= fetch bch
   pguard "relation symbol mismatch" $ r == s
   xys <- cast $ mapM breakTrueEq eqns
   xys' <- zipM xs ys
   pguard "arguments mismatch" $ xys == xys'
 proofCheck' vb k bch "=R" = do
-  (False, Eq x y) <- text >>= fetch bch
+  (False, Eq x y) <- stext >>= fetch bch
   guard $ x == y
 proofCheck' vb k bch "=S" = do
-  (True, Eq x y) <- text >>= fetch bch
-  (False, Eq y' x') <- text >>= fetch bch
+  (True, Eq x y) <- stext >>= fetch bch
+  (False, Eq y' x') <- stext >>= fetch bch
   guard $ x == x' && y == y'
 proofCheck' vb k bch "=T" = do
-  (True, Eq x y) <- text >>= fetch bch
-  (True, Eq y' z) <- text >>= fetch bch
-  (False, Eq x' z') <- text >>= fetch bch
+  (True, Eq x y) <- stext >>= fetch bch
+  (True, Eq y' z) <- stext >>= fetch bch
+  (False, Eq x' z') <- stext >>= fetch bch
   guard $ x == x' && y == y' && z == z'
 proofCheck' vb k bch "~T" = do
-  (True, Not f) <- text >>= fetch bch
+  (True, Not f) <- stext >>= fetch bch
   proofCheck vb k bch False f
 proofCheck' vb k bch "~F" = do
-  (False, Not f) <- text >>= fetch bch
+  (False, Not f) <- stext >>= fetch bch
   proofCheck vb k bch True f
 proofCheck' vb k bch "|T" = do
-  nm <- text
+  nm <- stext
   (True, Or fs) <- fetch bch nm
   mapM_ (proofCheck vb k bch True) fs
 proofCheck' vb k bch "|F" = do
-  (False, Or fs) <- text >>= fetch bch
+  (False, Or fs) <- stext >>= fetch bch
   m <- getInt
   f <- cast $ nth m fs
   proofCheck vb k bch False f
 proofCheck' vb k bch "&T" = do
-  (True, And fs) <- text >>= fetch bch
+  (True, And fs) <- stext >>= fetch bch
   m <- getInt
   f <- cast $ nth m fs
   proofCheck vb k bch True f
 proofCheck' vb k bch "&F" = do
-  (False, And fs) <- text >>= fetch bch
+  (False, And fs) <- stext >>= fetch bch
   mapM_ (proofCheck vb k bch False) fs
 proofCheck' vb k bch ">T" = do
-  (True, Imp f g) <- text >>= fetch bch
+  (True, Imp f g) <- stext >>= fetch bch
   proofCheck vb k bch False f
   proofCheck vb k bch True g
 proofCheck' vb k bch ">FA" = do
-  nm <- text
+  nm <- stext
   (sgn, fg) <- fetch bch nm
   case (sgn, fg) of
     (False, Imp f g) -> proofCheck vb k bch True f
     _ -> error "not false imp"
 proofCheck' vb k bch ">FC" = do
-  (False, Imp _ g) <- text >>= fetch bch
+  (False, Imp _ g) <- stext >>= fetch bch
   proofCheck vb k bch False g
 proofCheck' vb k bch "^TO" = do
-  (True, Iff f g) <- text >>= fetch bch
+  (True, Iff f g) <- stext >>= fetch bch
   proofCheck vb k bch True (f ==> g)
 proofCheck' vb k bch "^TR" = do
-  (True, Iff f g) <- text >>= fetch bch
+  (True, Iff f g) <- stext >>= fetch bch
   proofCheck vb k bch True (g ==> f)
 proofCheck' vb k bch "^F" = do
-  (False, Iff f g) <- text >>= fetch bch
+  (False, Iff f g) <- stext >>= fetch bch
   proofCheck vb k bch False (f ==> g)
   proofCheck vb k bch False (g ==> f)
 proofCheck' vb k bch "!T" = do
-  (True, Fa vs f) <- text >>= fetch bch
-  xs <- getList getTerm
+  (True, Fa vs f) <- stext >>= fetch bch
+  xs <- slist sterm
   vxs <- zipM vs xs
   let f' = substForm vxs f
   proofCheck vb k bch True f'
 proofCheck' vb k bch "!F" = do
-  (False, Fa vs f) <- text >>= fetch bch
+  (False, Fa vs f) <- stext >>= fetch bch
   m <- getInt
   guard $ k <= m
   let (k', xs) = listPars m vs
@@ -925,7 +985,7 @@ proofCheck' vb k bch "!F" = do
   let f' = substForm vxs f
   proofCheck vb k' bch False f'
 proofCheck' vb k bch "?T" = do
-  (True, Ex vs f) <- text >>= fetch bch
+  (True, Ex vs f) <- stext >>= fetch bch
   m <- getInt
   pguard "index check failed for ?T" (k <= m)
   let (k', xs) = listPars m vs
@@ -933,13 +993,15 @@ proofCheck' vb k bch "?T" = do
   let f' = substForm vxs f
   proofCheck vb k' bch True f'
 proofCheck' vb k bch "?F" = do
-  nm <- text
+  nm <- stext
   (False, Ex vs f) <- fetch bch nm
-  xs <- getList getTerm
+  xs <- slist sterm
   vxs <- zipM vs xs
   let f' = substForm vxs f
   proofCheck vb k bch False f'
 proofCheck' vb k bch _ = error "impossible case"
+
+
 {-
 
 -- run :: BS -> Prob
@@ -955,26 +1017,7 @@ parsePreInput (PreInc s) = do
   parsePreName $ tptp ++ "/" ++ bs2str s'
 parsePreInput (PreAnf n r f x) = return [(n, r, f, x)]
 
-parseInput :: Input -> IO [AF]
-parseInput (Inc s) = do
-  tptp <- getEnv "TPTP"
-  s<- cast $ unquote s
-  ps $ "Axiom name : " ++ show s' ++ "\n"
-  parseName $ tptp ++ "/" ++ show s'
-parseInput (Anf n r f t) = return [(n, r, f, t)]
 
-
-parseBS :: BS -> IO [AF]
-parseBS t =
-  case parse input t of
-    Just (i,s) -> do
-      pfx <- parseInput i
-      if BS.null s
-      then return pfx
-      else do
-        sfx <- parseBS s
-        return (pfx ++ sfx)
-    _ -> error ("Failed to parse input : " <> show t)
 
 
 parseForm :: BS -> Form
@@ -1015,32 +1058,26 @@ compareAfs _ _ = LT
 
 getInt :: Parser Int
 getInt = do
-  tx <- getBS
+  tx <- stext
   cast $ bs2int tx
 
 getFunct :: Parser Funct
-getFunct = (char '#' >> (Idx <$> getInt)) <|> (Reg <$> getBS)
+getFunct = (char '#' >> (Idx <$> getInt)) <|> (Reg <$> stext)
 
-getList :: Parser a -> Parser [a]
-getList p = (char '.' >> unit []) <|>
-  ( do char ','
-       x <- p
-       xs <- getList p
-       unit (x : xs) )
 
 getSign :: Parser Bool
 getSign = (lit "T" >> return True) <|> (lit "F" >> return False)
 
-getTerms :: Parser [Term]
-getTerms = getList getTerm
+sterms :: Parser [Term]
+sterms = slist sterm
 
 sforms :: Parser [Form]
-sforms = getList sform
+sforms = slist sform
 
 
 proof :: Branch -> Bool -> Form -> Parser Proof
 proof bch sgn f = do
-  nm <- getBS
+  nm <- stext
   -- trace ("Name : " ++ unpack nm ++ "\n") skip
   let bch' = HM.insert nm (sgn, f) bch
   r <- getRule <|> error "cannot read rule"
@@ -1049,8 +1086,8 @@ proof bch sgn f = do
 
 proof' :: Branch -> Node -> BS -> Parser Proof
 proof' bch ni "I" = do
-  nt <- getBS
-  nf <- getBS
+  nt <- stext
+  nf <- stext
   return $ Id_ ni nt nf
 proof' bch ni "C" = do
   f <- sform
@@ -1062,109 +1099,109 @@ proof' bch ni "D" = do
   p <- proof bch True f
   return $ RelD_ ni p
 proof' bch ni "A" = do
-  x <- getTerm
+  x <- sterm
   f <- sform
   p <- proof bch True f
   return $ AoC_ ni x p
 proof' bch ni "O" = return $ Open_ ni
 
 proof' bch ni "F" = do
-  nms <- getList getBS
-  nm <- getBS
+  nms <- slist stext
+  nm <- stext
   return $ FunC_ ni nms nm
 proof' bch ni "R" = do
-  nms <- getList getBS
-  nt <- getBS
-  nf <- getBS
+  nms <- slist stext
+  nt <- stext
+  nf <- stext
   return $ RelC_ ni nms nt nf
 proof' bch ni "=R" = do
-  nf <- getBS
+  nf <- stext
   return $ EqR_ ni nf
 proof' bch ni "=S" = do
-  nt <- getBS
-  nf <- getBS
+  nt <- stext
+  nf <- stext
   return $ EqS_ ni nt nf
 proof' bch ni "=T" = do
-  nxy <- getBS
-  nyz <- getBS
-  nxz <- getBS
+  nxy <- stext
+  nyz <- stext
+  nxz <- stext
   return $ EqT_ ni nxy nyz nxz
 proof' bch ni "~T" = do
-  nm <- getBS
+  nm <- stext
   (True, Not f) <- fetch bch nm
   p <- proof bch False f
   return $ NotT_ ni nm p
 proof' bch ni "~F" = do
-  nm <- getBS
+  nm <- stext
   (False, Not f) <- fetch bch nm
   p <- proof bch True f
   return $ NotF_ ni nm p
 proof' bch ni "|T" = do
-  nm <- getBS
+  nm <- stext
   (True, Or fs) <- fetch bch nm
   ps <- mapM (proof bch True) fs
   return $ OrT_ ni nm ps
 proof' bch ni "|F" = do
-  nm <- getBS
+  nm <- stext
   (False, Or fs) <- fetch bch nm
   m <- getInt
   f <- cast $ nth m fs
   p <- proof bch False f
   return $ OrF_ ni nm m p
 proof' bch ni "&T" = do
-  nm <- getBS
+  nm <- stext
   (True, And fs) <- fetch bch nm
   m <- getInt
   f <- cast $ nth m fs
   p <- proof bch True f
   return $ AndT_ ni nm m p
 proof' bch ni "&F" = do
-  nm <- getBS
+  nm <- stext
   (False, And fs) <- fetch bch nm
   ps <- mapM (proof bch False) fs
   return $ AndF_ ni nm ps
 proof' bch ni ">T" = do
-  nm <- getBS
+  nm <- stext
   (True, Imp f g) <- fetch bch nm
   pa <- proof bch False f
   pc <- proof bch True g
   return $ ImpT_ ni nm pa pc
 proof' bch ni ">FA" = do
-  nm <- getBS
+  nm <- stext
   (False, Imp f _) <- fetch bch nm
   p <- proof bch True f
   return $ ImpFA_ ni nm p
 proof' bch ni ">FC" = do
-  nm <- getBS
+  nm <- stext
   (False, Imp _ g) <- fetch bch nm
   p <- proof bch False g
   return $ ImpFC_ ni nm p
 proof' bch ni "^TO" = do
-  nm <- getBS
+  nm <- stext
   (True, Iff f g) <- fetch bch nm
   p <- proof bch True (f ==> g)
   return $ IffTO_ ni nm p
 proof' bch ni "^TR" = do
-  nm <- getBS
+  nm <- stext
   (True, Iff f g) <- fetch bch nm
   p <- proof bch True (g ==> f)
   return $ IffTR_ ni nm p
 proof' bch ni "^F" = do
-  nm <- getBS
+  nm <- stext
   (False, Iff f g) <- fetch bch nm
   po <- proof bch False (f ==> g)
   pr <- proof bch False (g ==> f)
   return $ IffF_ ni nm po pr
 proof' bch ni "!T" = do
-  nm <- getBS
+  nm <- stext
   (True, Fa vs f) <- fetch bch nm
-  xs <- getList getTerm
+  xs <- slist sterm
   vxs <- zipM vs xs
   let f' = substForm vxs f
   p <- proof bch True f'
   return $ FaT_ ni nm xs p
 proof' bch ni "!F" = do
-  nm <- getBS
+  nm <- stext
   (False, Fa vs f) <- fetch bch nm
   m <- getInt
   let (_, vxs) = varPars m vs
@@ -1172,7 +1209,7 @@ proof' bch ni "!F" = do
   p <- proof bch False f'
   return $ FaF_ ni nm m p
 proof' bch ni "?T" = do
-  nm <- getBS
+  nm <- stext
   (True, Ex vs f) <- fetch bch nm
   m <- getInt
   let (_, vxs) = varPars m vs
@@ -1180,9 +1217,9 @@ proof' bch ni "?T" = do
   p <- proof bch True f'
   return $ ExT_ ni nm m p
 proof' bch ni "?F" = do
-  nm <- getBS
+  nm <- stext
   (False, Ex vs f) <- fetch bch nm
-  xs <- getList getTerm
+  xs <- slist sterm
   vxs <- zipM vs xs
   let f' = substForm vxs f
   p <- proof bch False f'
