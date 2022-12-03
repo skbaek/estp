@@ -41,22 +41,22 @@ data Form =
 --   deriving Show
 
 data Input =
-    Anf BS BS Form Ant
-  | Inc BS
+    AnfInput Anf
+  | IncInput BS
   deriving Show
 
-data Gterm =
-    Gfun BS [Gterm]
-  | Glist [Gterm]
-  | Gnum Int
-  | Gvar BS
+data Gent =
+    Genf BS [Gent]
+  | Genl [Gent]
+  | Genn Int
+  | Genv BS
   deriving (Show)
 
-type Ant = Maybe (Gterm, Maybe [Gterm])
+type Ant = Maybe (Gent, Maybe [Gent])
 
 -- data PreAF =  CnfAF BS BS BS Ant | FofAF BS BS BS Ant
+-- type PreAnf = (BS, BS, BS, Ant)
 
-type PreAnf = (BS, BS, BS, Ant)
 type Anf = (BS, BS, Form, Ant)
 
 type Prob = [Input]
@@ -112,6 +112,8 @@ data Proof =
 type ESTP = Map BS (Bool, Form, Inf)
 
 type Elab = (Node, Inf, Maybe BS)
+
+
 -- type Elab' = (Node', Inf, Maybe BS)
 type Branch = HM.Map BS (Bool, Form)
 type SignForm = (Bool, Form)

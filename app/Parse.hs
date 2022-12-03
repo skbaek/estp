@@ -15,12 +15,12 @@ import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
 import Data.List (elem, foldl, map, sortBy, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
 import System.Environment (getEnv, unsetEnv)
-import Control.Monad as M ( MonadPlus(mzero), guard, when, mzero )
-import Data.Map as HM (lookup, insert)
+import Control.Monad ( MonadPlus(mzero), guard, when, mzero )
 import Data.Functor ((<&>))
 import Data.Set (Set, member)
 import Data.String (fromString)
 import Debug.Trace (trace)
+import Data.Map as M (Map, empty, lookup, insert)
 import qualified Data.Bifunctor as DBF
 
 
@@ -74,7 +74,6 @@ option p q = Parser $ \s ->
 
 
 
-{- Parsers -}
 
 item :: Parser Char
 item = Parser (fmap (DBF.first w2c) . BS.uncons)
@@ -181,7 +180,7 @@ untilNlOrEof :: Parser ()
 untilNlOrEof = eof <|> untilChar '\n' <|> (item >> untilNlOrEof)
 
 comment :: Parser ()
-comment = char '%' >> untilNlOrEof -- untilChar '\n' 
+comment = char '%' >> untilNlOrEof 
 
 blockCommentEnd :: Parser ()
 blockCommentEnd = (string "*/" >> nil) <|> (item >> blockCommentEnd)
@@ -297,7 +296,7 @@ connective =
   litRet "=" <|>
   litRet "!="
 
-usefulInfo :: Parser (Maybe [Gterm])
+usefulInfo :: Parser (Maybe [Gent])
 usefulInfo =
   (peek ")" >> unit Nothing)
     <|> ( do lit ","
@@ -411,7 +410,7 @@ functor = idxFunctor <|> regFunctor
 arguments :: Parser [Term]
 arguments = do { lit "(" ; ts <- terms ; lit ")" ; unit ts } <|> (ws >> unit [])
 
-gargs :: Parser [Gterm]
+gargs :: Parser [Gent]
 gargs = do { lit "(" ; ts <- commaSepPlus generalTerm ; lit ")" ; unit ts } <|> (ws >> unit [])
 
 terms :: Parser [Term]
@@ -420,19 +419,19 @@ terms = commaSepPlus term
 term :: Parser Term
 term = (upperWord >>= unit . Var) <|> do { f <- functor ; ts <- arguments ; unit $ Fun f ts }
 
-generalTermList :: Parser [Gterm]
+generalTermList :: Parser [Gent]
 generalTermList = do
   lit "["
   ts <- commaSepStar generalTerm ;
   lit "]"
   unit ts
 
-generalTerm :: Parser Gterm
+generalTerm :: Parser Gent
 generalTerm =
-  do { ts <- generalTermList ; unit (Glist ts) } <|>
-  do { f <- atomicWord ; ts <- gargs ; unit $ Gfun f ts } <|>
-  do { kt <- integer ; cast (bs2int kt) >>= (unit . Gnum) } <|>
-  do { v <- upperWord ; unit (Gvar v) }
+  do { ts <- generalTermList ; unit (Genl ts) } <|>
+  do { f <- atomicWord ; ts <- gargs ; unit $ Genf f ts } <|>
+  do { kt <- integer ; cast (bs2int kt) >>= (unit . Genn) } <|>
+  do { v <- upperWord ; unit (Genv v) }
 
 termInfixOpformLazy :: Term -> BS -> Parser Form
 termInfixOpformLazy t "=" = do
@@ -482,7 +481,7 @@ inc = do
   lit ")"
   lit "."
   ign
-  unit (Inc w)
+  unit (IncInput w)
 
 -- preInput :: Parser PreInput
 -- preInput = preAnf <|> preInc
@@ -506,7 +505,6 @@ inc = do
 
 
 
-{- Others -}
 
 textParsePreForm :: BS -> Maybe (BS, BS)
 textParsePreForm tx = do
@@ -530,25 +528,180 @@ formLength k tx =
     Just (_, tx') ->   succ <$> formLength k tx'
     _ -> Nothing
 
+
+
 nameParseEstp :: String -> IO ESTP
 nameParseEstp n = do
   -- ps "Reading file as text...\n"
   bs <- BS.readFile n
   -- ps "Parsing the text read...\n"
-  (_, bs') <- cast $ parse ign bs
-  textParseEstp bs'
+  runParser (ign >> estp) bs
 
-textParseEstp :: BS -> IO ESTP
-textParseEstp bs =
-  case parse input t of
-    Just (i,s) -> do
-      pfx <- parseInput i
-      if BS.null s
-      then return pfx
-      else do
-        sfx <- parseBS s
-        return (pfx ++ sfx)
-    _ -> error ("Failed to parse input : " <> show t)
+starMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
+starMap p m = plusMap p m <|> pure m
+
+plusMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
+plusMap p m = do
+  (x, y) <- p 
+  starMap p (M.insert x y m) 
+
+elabStep :: Parser (BS, (Bool, Form, Inf))
+elabStep = do 
+  (nm, rl, f, Just (Genf "inference" [gt], Nothing)) <- anf 
+  sgn <- cast $ textParseBool rl
+  inf <- cast $ gentParseInf gt
+  unit (nm, (sgn, f, inf))
+
+textToIdxFunct :: BS -> Maybe Funct
+textToIdxFunct tx = do
+  ('#' :> tx') <- cast $ parseSingleQuote tx
+  cast (Idx <$> bs2int tx')
+
+textParseFunct :: BS -> Maybe Funct
+textParseFunct tx = textToIdxFunct tx <|> return (Reg tx)
+
+gentParseTerm :: Gent-> Maybe Term
+gentParseTerm (Genf tx ts) = do
+  f <- textParseFunct tx
+  xs <- mapM gentParseTerm ts
+  return $ Fun f xs
+gentParseTerm (Genv v) = return $ Var v
+gentParseTerm _ = mzero
+
+gentParseBS :: Gent-> Maybe BS
+gentParseBS (Genf t []) = return t
+gentParseBS _ = mzero
+
+gentParseInf :: Gent-> Maybe Inf
+gentParseInf (Genf "cut" [gtf, gtt]) = do
+  nf <- gentParseBS gtf
+  nt <- gentParseBS gtt
+  return $ Cut nf nt
+gentParseInf (Genf "id" [gt0, gt1]) = do
+  m <- gentParseBS gt0
+  n <- gentParseBS gt1
+  return $ Id m n
+gentParseInf (Genf "iffto" [gth, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ IffTO nh nc
+gentParseInf (Genf "ifftr" [gth, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ IffTR nh nc
+gentParseInf (Genf "ifff" [gth, gt0, gt1]) = do
+  nh <- gentParseBS gth
+  n0 <- gentParseBS gt0
+  n1 <- gentParseBS gt1
+  return $ IffF nh n0 n1
+gentParseInf (Genf "impfa" [gth, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ ImpFA nh nc
+gentParseInf (Genf "impfc" [gth, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ ImpFC nh nc
+gentParseInf (Genf "impt" [gth, gt0, gt1]) = do
+  nh <- gentParseBS gth
+  n0 <- gentParseBS gt0
+  n1 <- gentParseBS gt1
+  return $ ImpT nh n0 n1
+gentParseInf (Genf "bott" [gt]) = do
+  nm <- gentParseBS gt
+  return $ OrT nm []
+gentParseInf (Genf "ort" [gt, Genl gts]) = do
+  nm <- gentParseBS gt
+  nms <- mapM gentParseBS gts
+  return $ OrT nm nms
+gentParseInf (Genf "orf" [gth, Genn k, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ OrF nh k nc
+gentParseInf (Genf "andt" [gth, Genn k, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ AndT nh k nc
+gentParseInf (Genf "topf" [gt]) = do
+  nm <- gentParseBS gt
+  return $ AndF nm []
+gentParseInf (Genf "andf" [gt, Genl gts]) = do
+  nm <- gentParseBS gt
+  nms <- mapM gentParseBS gts
+  return $ AndF nm nms
+gentParseInf (Genf "faf" [gth, Genn k, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ FaF nh k nc
+gentParseInf (Genf "ext" [gth, Genn k, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ ExT nh k nc
+gentParseInf (Genf "fat" [gth, Genl gts, gtc]) = do
+  nh <- gentParseBS gth
+  xs <- mapM gentParseTerm gts
+  nc <- gentParseBS gtc
+  return $ FaT nh xs nc
+gentParseInf (Genf "exf" [gth, Genl gts, gtc]) = do
+  nh <- gentParseBS gth
+  xs <- mapM gentParseTerm gts
+  nc <- gentParseBS gtc
+  return $ ExF nh xs nc
+gentParseInf (Genf "nott" [gth, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ NotT nh nc
+gentParseInf (Genf "notf" [gth, gtc]) = do
+  nh <- gentParseBS gth
+  nc <- gentParseBS gtc
+  return $ NotF nh nc
+gentParseInf (Genf "eqr" [gt]) = EqR <$> gentParseBS gt
+gentParseInf (Genf "eqs" gts) = do
+  [nm0, nm1] <- mapM gentParseBS gts
+  return $ EqS nm0 nm1
+gentParseInf (Genf "eqt" gts) = do
+  [nm0, nm1, nm2] <- mapM gentParseBS gts
+  return $ EqT nm0 nm1 nm2
+gentParseInf (Genf "func" [Genl gts, gt]) = do
+  nms <- mapM gentParseBS gts
+  nm <- gentParseBS gt
+  return $ FunC nms nm
+gentParseInf (Genf "relc" [Genl gts, gt0, gt1]) = do
+  nms <- mapM gentParseBS gts
+  m <- gentParseBS gt0
+  n <- gentParseBS gt1
+  return $ RelC nms m n
+gentParseInf (Genf "aoc" [gtx, gtn]) = do
+  x <- gentParseTerm gtx
+  nm <- gentParseBS gtn
+  return $ AoC x nm
+gentParseInf (Genf "reld" [gt]) = RelD <$> gentParseBS gt
+gentParseInf (Genf "open" []) = return Open
+gentParseInf t = error $ "inf reader : " <> fromString (show t)
+
+textParseBool :: BS -> Maybe Bool
+textParseBool "true" = return True
+textParseBool "false" = return False
+textParseBool _ = error "Cannot read Bool"
+
+-- afToEf (nm, sgn, f, Just (Genf "inference" [gt], gts)) = do
+--   pl <- textToBool sgn
+--   i <- gentParseInf gt
+--   mtx <- gTermsToMaybeBS gts
+--   return ((nm, pl, f), i, mtx)
+estp :: Parser ESTP
+estp = starMap elabStep M.empty
+
+
+ -- case parse input t of
+ --   Just (i,s) -> do
+ --     pfx <- parseInput i
+ --     if BS.null s
+ --     then return pfx
+ --     else do
+ --       sfx <- parseBS s
+ --       return (pfx ++ sfx)
+ --   _ -> error ("Failed to parse input : " <> show t)
 
 -- nameParsePreAnfs :: String -> IO [PreAnf]
 -- nameParsePreAnfs n = do
@@ -575,9 +728,8 @@ parseSingleQuote ('\'' :> t) = do
   (t', '\'') <- DBF.second w2c <$> BS.unsnoc t
   return t'
 parseSingleQuote _ = mzero
-{- 
 
-anf :: Parser Input
+anf :: Parser Anf
 anf = do
   lit "cnf(" <|> lit "fof("
   n <- name
@@ -589,38 +741,212 @@ anf = do
   lit ")"
   lit "."
   ign
-  unit (Anf n r f a)
-
-fof :: Parser Input
-fof = do
-  lit "fof("
-  n <- name
-  lit ","
-  r <- lowerWord
-  lit ","
-  f <- form
-  a <- annotations
-  lit ")"
-  lit "."
-  ign
-  unit (Anf n r (conjecturize r f) a)
+  unit (n, r, f, a)
 
 input :: Parser Input
-input = anf <|> inc
+input = (AnfInput <$> anf) <|> inc
 
+runParser :: Parser a -> BS -> IO a
+runParser p bs = do
+  (rst, rem) <- cast $ parse p bs 
+  guard $ BS.null rem
+  return rst
+
+text :: Parser BS
+text = Parser $
+  \ tx ->
+    case BS.break ((== '.') . w2c) tx of
+      (pfx, _ :> sfx) -> Just (pfx, sfx)
+      _ -> error "No full stop found"
+
+rule :: Parser BS
+rule =
+  litRet "O" <|> litRet "I" <|> litRet "C" <|> litRet "D" <|> 
+  litRet "A" <|> litRet "F" <|> litRet "R" <|>
+  litRet "=R" <|> litRet "=S" <|> litRet "=T" <|>
+  litRet "~T" <|> litRet "~F" <|>
+  litRet "|T" <|> litRet "|F" <|>
+  litRet "&T" <|> litRet "&F" <|>
+  litRet ">T" <|> litRet ">FA" <|> litRet ">FC" <|>
+  litRet "^TO" <|> litRet "^TR" <|> litRet "^F" <|>
+  litRet "!T" <|> litRet "!F" <|>
+  litRet "?T" <|> litRet "?F"
+
+proofCheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
+proofCheck vb k bch sgn f = do
+  nm <- text
+  let bch' = M.insert nm (sgn, f) bch
+  r <- rule <|> error "cannot read rule"
+  proofCheck' vb k bch' r
+
+fetch :: (MonadFail m) => Branch -> BS -> m SignForm
+fetch bch nm = cast (M.lookup nm bch)
+
+pguard :: String -> Bool -> Parser ()
+pguard tx True = skip
+pguard tx False = error tx
+
+sform :: Parser Form
+sform = item >>= sform'
+
+sform' :: Char -> Parser Form
+sform' '=' = do
+  x <- getTerm
+  y <- getTerm
+  unit $ Eq x y
+sform' '@' = do
+  r <- getFunct
+  Rel r <$> getTerms
+sform' '~' = Not <$> sform
+sform' '|' = Or <$> sforms
+sform' '&' = And <$> sforms
+sform' '>' = do
+  f <- sform
+  g <- sform
+  unit $ Imp f g
+sform' '^' = do
+  f <- sform
+  g <- sform
+  unit $ Iff f g
+sform' '!' = do
+  vs <- getList getBS
+  Fa vs <$> sform
+sform' '?' = do
+  vs <- getList getBS
+  Ex vs <$> sform
+sform' c = error $ "invalid head character : " <> [c]
+
+proofCheck' :: Bool -> Int -> Branch -> BS -> Parser ()
+proofCheck' vb k bch "I" = do
+  nt <- text
+  nf <- text
+  ft <- fetch bch nt
+  ff <- fetch bch nf
+  pguard "id-fail" $ complementary ft ff
+proofCheck' vb k bch "C" = do
+  f <- sform
+  proofCheck vb k bch False f
+  proofCheck vb k bch True f
+proofCheck' vb k bch "D" = do
+  f <- sform
+  k' <- cast $ checkRelD k f
+  proofCheck vb k' bch True f
+proofCheck' vb k bch "A" = do
+  x <- getTerm
+  f <- sform
+  k' <- cast $ checkAoC k x f
+  proofCheck vb k' bch True f
+proofCheck' vb k bch "O" = skip
+proofCheck' vb k bch "F" = do
+  eqns <- getList text >>= mapM (fetch bch)
+  (False, Eq (Fun f xs) (Fun g ys)) <- text >>= fetch bch
+  pguard "function symbol mismatch" $ f == g
+  xys <- cast $ mapM breakTrueEq eqns
+  xys' <- zipM xs ys
+  pguard "arguments mismatch" $ xys == xys'
+proofCheck' vb k bch "R" = do
+  eqns <- getList text >>= mapM (fetch bch)
+  (True, Rel r xs) <- text >>= fetch bch
+  (False, Rel s ys) <- text >>= fetch bch
+  pguard "relation symbol mismatch" $ r == s
+  xys <- cast $ mapM breakTrueEq eqns
+  xys' <- zipM xs ys
+  pguard "arguments mismatch" $ xys == xys'
+proofCheck' vb k bch "=R" = do
+  (False, Eq x y) <- text >>= fetch bch
+  guard $ x == y
+proofCheck' vb k bch "=S" = do
+  (True, Eq x y) <- text >>= fetch bch
+  (False, Eq y' x') <- text >>= fetch bch
+  guard $ x == x' && y == y'
+proofCheck' vb k bch "=T" = do
+  (True, Eq x y) <- text >>= fetch bch
+  (True, Eq y' z) <- text >>= fetch bch
+  (False, Eq x' z') <- text >>= fetch bch
+  guard $ x == x' && y == y' && z == z'
+proofCheck' vb k bch "~T" = do
+  (True, Not f) <- text >>= fetch bch
+  proofCheck vb k bch False f
+proofCheck' vb k bch "~F" = do
+  (False, Not f) <- text >>= fetch bch
+  proofCheck vb k bch True f
+proofCheck' vb k bch "|T" = do
+  nm <- text
+  (True, Or fs) <- fetch bch nm
+  mapM_ (proofCheck vb k bch True) fs
+proofCheck' vb k bch "|F" = do
+  (False, Or fs) <- text >>= fetch bch
+  m <- getInt
+  f <- cast $ nth m fs
+  proofCheck vb k bch False f
+proofCheck' vb k bch "&T" = do
+  (True, And fs) <- text >>= fetch bch
+  m <- getInt
+  f <- cast $ nth m fs
+  proofCheck vb k bch True f
+proofCheck' vb k bch "&F" = do
+  (False, And fs) <- text >>= fetch bch
+  mapM_ (proofCheck vb k bch False) fs
+proofCheck' vb k bch ">T" = do
+  (True, Imp f g) <- text >>= fetch bch
+  proofCheck vb k bch False f
+  proofCheck vb k bch True g
+proofCheck' vb k bch ">FA" = do
+  nm <- text
+  (sgn, fg) <- fetch bch nm
+  case (sgn, fg) of
+    (False, Imp f g) -> proofCheck vb k bch True f
+    _ -> error "not false imp"
+proofCheck' vb k bch ">FC" = do
+  (False, Imp _ g) <- text >>= fetch bch
+  proofCheck vb k bch False g
+proofCheck' vb k bch "^TO" = do
+  (True, Iff f g) <- text >>= fetch bch
+  proofCheck vb k bch True (f ==> g)
+proofCheck' vb k bch "^TR" = do
+  (True, Iff f g) <- text >>= fetch bch
+  proofCheck vb k bch True (g ==> f)
+proofCheck' vb k bch "^F" = do
+  (False, Iff f g) <- text >>= fetch bch
+  proofCheck vb k bch False (f ==> g)
+  proofCheck vb k bch False (g ==> f)
+proofCheck' vb k bch "!T" = do
+  (True, Fa vs f) <- text >>= fetch bch
+  xs <- getList getTerm
+  vxs <- zipM vs xs
+  let f' = substForm vxs f
+  proofCheck vb k bch True f'
+proofCheck' vb k bch "!F" = do
+  (False, Fa vs f) <- text >>= fetch bch
+  m <- getInt
+  guard $ k <= m
+  let (k', xs) = listPars m vs
+  vxs <- zipM vs xs <|> error "!F-fail : cannot zip"
+  let f' = substForm vxs f
+  proofCheck vb k' bch False f'
+proofCheck' vb k bch "?T" = do
+  (True, Ex vs f) <- text >>= fetch bch
+  m <- getInt
+  pguard "index check failed for ?T" (k <= m)
+  let (k', xs) = listPars m vs
+  vxs <- zipM vs xs <|> error "?T-fail : cannot zip"
+  let f' = substForm vxs f
+  proofCheck vb k' bch True f'
+proofCheck' vb k bch "?F" = do
+  nm <- text
+  (False, Ex vs f) <- fetch bch nm
+  xs <- getList getTerm
+  vxs <- zipM vs xs
+  let f' = substForm vxs f
+  proofCheck vb k bch False f'
+proofCheck' vb k bch _ = error "impossible case"
+{-
+
+-- run :: BS -> Prob
+-- run = runParser (ign >> prob)
 
 prob :: Parser Prob
 prob = star input
-
-runParser :: Parser a -> BS -> a
-runParser m s =
-  case parse m s of
-    Just (res, empty) -> res
-    _                 -> error "Parser error."
-
-run :: BS -> Prob
-run = runParser (ign >> prob)
-
 
 parsePreInput :: PreInput -> IO [PreAF]
 parsePreInput (PreInc s) = do
@@ -666,137 +992,10 @@ parseName n = do
     Just (i,s) -> parseBS s
     _ -> ioError $ userError "Read filename, but failed to parse content"
 
-gTermsToMaybeBS :: Maybe [Gterm] -> IO (Maybe BS)
+gTermsToMaybeBS :: Maybe [Gent] -> IO (Maybe BS)
 gTermsToMaybeBS Nothing = return nt
-gTermsToMaybeBS (Just [Gfun tx []]) = return $ Just tx
+gTermsToMaybeBS (Just [Genf tx []]) = return $ Just tx
 gTermsToMaybeBS _ = error "Cannot extact maybe text"
-
-gTermToBS :: Gterm -> IO BS
-gTermToBS (Gfun t []) = return t
-gTermToBS _ = mzero
-
-textToIdxFunct :: BS -> IO Funct
-textToIdxFunct tx = do
-  ('#' :> tx') <- cast $ parseSingleQuote tx
-  cast (Idx <$> bs2int tx')
-
-textToFunct :: BS -> IO Funct
-textToFunct tx = textToIdxFunct tx <|> return (Reg tx)
-
-gTermToTerm :: Gterm -> IO Term
-gTermToTerm (Gfun tx ts) = do
-  f <- textToFunct tx
-  xs <- mapM gTermToTerm ts
-  return $ Fun f xs
-gTermToTerm (Gvar v) = return $ Var v
-gTermToTerm _ = mzero
-
-gTermToInf :: Gterm -> IO Inf
-gTermToInf (Gfun "cut" [gtf, gtt]) = do
-  nf <- gTermToBS gtf
-  nt <- gTermToBS gtt
-  return $ Cut nf nt
-gTermToInf (Gfun "id" [gt0, gt1]) = do
-  m <- gTermToBS gt0
-  n <- gTermToBS gt1
-  return $ Id m n
-gTermToInf (Gfun "iffto" [gth, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ IffTO nh nc
-gTermToInf (Gfun "ifftr" [gth, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ IffTR nh nc
-gTermToInf (Gfun "ifff" [gth, gt0, gt1]) = do
-  nh <- gTermToBS gth
-  n0 <- gTermToBS gt0
-  n1 <- gTermToBS gt1
-  return $ IffF nh n0 n1
-gTermToInf (Gfun "impfa" [gth, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ ImpFA nh nc
-gTermToInf (Gfun "impfc" [gth, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ ImpFC nh nc
-gTermToInf (Gfun "impt" [gth, gt0, gt1]) = do
-  nh <- gTermToBS gth
-  n0 <- gTermToBS gt0
-  n1 <- gTermToBS gt1
-  return $ ImpT nh n0 n1
-gTermToInf (Gfun "bott" [gt]) = do
-  nm <- gTermToBS gt
-  return $ OrT nm []
-gTermToInf (Gfun "ort" [gt, Glist gts]) = do
-  nm <- gTermToBS gt
-  nms <- mapM gTermToBS gts
-  return $ OrT nm nms
-gTermToInf (Gfun "orf" [gth, Gnum k, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ OrF nh k nc
-gTermToInf (Gfun "andt" [gth, Gnum k, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ AndT nh k nc
-gTermToInf (Gfun "topf" [gt]) = do
-  nm <- gTermToBS gt
-  return $ AndF nm []
-gTermToInf (Gfun "andf" [gt, Glist gts]) = do
-  nm <- gTermToBS gt
-  nms <- mapM gTermToBS gts
-  return $ AndF nm nms
-gTermToInf (Gfun "faf" [gth, Gnum k, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ FaF nh k nc
-gTermToInf (Gfun "ext" [gth, Gnum k, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ ExT nh k nc
-gTermToInf (Gfun "fat" [gth, Glist gts, gtc]) = do
-  nh <- gTermToBS gth
-  xs <- mapM gTermToTerm gts
-  nc <- gTermToBS gtc
-  return $ FaT nh xs nc
-gTermToInf (Gfun "exf" [gth, Glist gts, gtc]) = do
-  nh <- gTermToBS gth
-  xs <- mapM gTermToTerm gts
-  nc <- gTermToBS gtc
-  return $ ExF nh xs nc
-gTermToInf (Gfun "nott" [gth, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ NotT nh nc
-gTermToInf (Gfun "notf" [gth, gtc]) = do
-  nh <- gTermToBS gth
-  nc <- gTermToBS gtc
-  return $ NotF nh nc
-gTermToInf (Gfun "eqr" [gt]) = EqR <$> gTermToBS gt
-gTermToInf (Gfun "eqs" gts) = do
-  [nm0, nm1] <- mapM gTermToBS gts
-  return $ EqS nm0 nm1
-gTermToInf (Gfun "eqt" gts) = do
-  [nm0, nm1, nm2] <- mapM gTermToBS gts
-  return $ EqT nm0 nm1 nm2
-gTermToInf (Gfun "func" [Glist gts, gt]) = do
-  nms <- mapM gTermToBS gts
-  nm <- gTermToBS gt
-  return $ FunC nms nm
-gTermToInf (Gfun "relc" [Glist gts, gt0, gt1]) = do
-  nms <- mapM gTermToBS gts
-  m <- gTermToBS gt0
-  n <- gTermToBS gt1
-  return $ RelC nms m n
-gTermToInf (Gfun "aoc" [gtx, gtn]) = do
-  x <- gTermToTerm gtx
-  nm <- gTermToBS gtn
-  return $ AoC x nm
-gTermToInf (Gfun "reld" [gt]) = RelD <$> gTermToBS gt
-gTermToInf (Gfun "open" []) = return Open
-gTermToInf t = error $ "inf reader : " <> fromString (show t)
 
 
 sortAfs :: [AF] -> [AF]
@@ -812,23 +1011,7 @@ compareAfs (m :> ms, _, _, _) (n :> ns, _, _, _) =
     other -> other
 compareAfs _ _ = LT
 
-proofCheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
-proofCheck vb k bch sgn f = do
-  nm <- getBS
-  let bch' = HM.insert nm (sgn, f) bch
-  r <- getRule <|> error "cannot read rule"
-  proofCheck' vb k bch' r
 
-pguard :: BS -> Bool -> Parser ()
-pguard tx True = skip
-pguard tx False = error $ show tx
-
-getBS :: Parser BS
-getBS = Parser $
-  \ tx ->
-    case BS.break ((== '.') . w2c) tx of
-      (pfx, _ :> sfx) -> Just (pfx, sfx)
-      _ -> error "No full stop found"
 
 getInt :: Parser Int
 getInt = do
@@ -848,192 +1031,12 @@ getList p = (char '.' >> unit []) <|>
 getSign :: Parser Bool
 getSign = (lit "T" >> return True) <|> (lit "F" >> return False)
 
-getRule :: Parser BS
-getRule =
-  litRet "O" <|> litRet "I" <|> litRet "C" <|> litRet "D" <|> 
-  litRet "A" <|> litRet "F" <|> litRet "R" <|>
-  litRet "=R" <|> litRet "=S" <|> litRet "=T" <|>
-  litRet "~T" <|> litRet "~F" <|>
-  litRet "|T" <|> litRet "|F" <|>
-  litRet "&T" <|> litRet "&F" <|>
-  litRet ">T" <|> litRet ">FA" <|> litRet ">FC" <|>
-  litRet "^TO" <|> litRet "^TR" <|> litRet "^F" <|>
-  litRet "!T" <|> litRet "!F" <|>
-  litRet "?T" <|> litRet "?F"
-
 getTerms :: Parser [Term]
 getTerms = getList getTerm
 
-getTerm :: Parser Term
-getTerm = item >>= getTerm'
+sforms :: Parser [Form]
+sforms = getList sform
 
-getTerm' :: Char -> Parser Term
-getTerm' '$' = Var <$> getBS
-getTerm' '@' = do
-  f <- getFunct
-  Fun f <$> getTerms
-getTerm' _ = error "cannot get term"
-
-getForms :: Parser [Form]
-getForms = getList getForm
-
-getForm :: Parser Form
-getForm = item >>= getForm'
-
-getForm' :: Char -> Parser Form
-getForm' '=' = do
-  x <- getTerm
-  y <- getTerm
-  unit $ Eq x y
-getForm' '@' = do
-  r <- getFunct
-  Rel r <$> getTerms
-getForm' '~' = Not <$> getForm
-getForm' '|' = Or <$> getForms
-getForm' '&' = And <$> getForms
-getForm' '>' = do
-  f <- getForm
-  g <- getForm
-  unit $ Imp f g
-getForm' '^' = do
-  f <- getForm
-  g <- getForm
-  unit $ Iff f g
-getForm' '!' = do
-  vs <- getList getBS
-  Fa vs <$> getForm
-getForm' '?' = do
-  vs <- getList getBS
-  Ex vs <$> getForm
-getForm' c = error $ "invalid head character : " <> [c]
-
-fetch :: (MonadFail m) => Branch -> BS -> m SignForm
-fetch bch nm = cast (HM.lookup nm bch)
-
-proofCheck' :: Bool -> Int -> Branch -> BS -> Parser ()
-proofCheck' vb k bch "I" = do
-  nt <- getBS
-  nf <- getBS
-  ft <- fetch bch nt
-  ff <- fetch bch nf
-  pguard "id-fail" $ complementary ft ff
-proofCheck' vb k bch "C" = do
-  f <- getForm
-  proofCheck vb k bch False f
-  proofCheck vb k bch True f
-proofCheck' vb k bch "D" = do
-  f <- getForm
-  k' <- cast $ checkRelD k f
-  proofCheck vb k' bch True f
-proofCheck' vb k bch "A" = do
-  x <- getTerm
-  f <- getForm
-  k' <- cast $ checkAoC k x f
-  proofCheck vb k' bch True f
-proofCheck' vb k bch "O" = skip
-proofCheck' vb k bch "F" = do
-  eqns <- getList getBS >>= mapM (fetch bch)
-  (False, Eq (Fun f xs) (Fun g ys)) <- getBS >>= fetch bch
-  pguard "function symbol mismatch" $ f == g
-  xys <- cast $ mapM breakTrueEq eqns
-  xys' <- zipM xs ys
-  pguard "arguments mismatch" $ xys == xys'
-proofCheck' vb k bch "R" = do
-  eqns <- getList getBS >>= mapM (fetch bch)
-  (True, Rel r xs) <- getBS >>= fetch bch
-  (False, Rel s ys) <- getBS >>= fetch bch
-  pguard "relation symbol mismatch" $ r == s
-  xys <- cast $ mapM breakTrueEq eqns
-  xys' <- zipM xs ys
-  pguard "arguments mismatch" $ xys == xys'
-proofCheck' vb k bch "=R" = do
-  (False, Eq x y) <- getBS >>= fetch bch
-  guard $ x == y
-proofCheck' vb k bch "=S" = do
-  (True, Eq x y) <- getBS >>= fetch bch
-  (False, Eq y' x') <- getBS >>= fetch bch
-  guard $ x == x' && y == y'
-proofCheck' vb k bch "=T" = do
-  (True, Eq x y) <- getBS >>= fetch bch
-  (True, Eq y' z) <- getBS >>= fetch bch
-  (False, Eq x' z') <- getBS >>= fetch bch
-  guard $ x == x' && y == y' && z == z'
-proofCheck' vb k bch "~T" = do
-  (True, Not f) <- getBS >>= fetch bch
-  proofCheck vb k bch False f
-proofCheck' vb k bch "~F" = do
-  (False, Not f) <- getBS >>= fetch bch
-  proofCheck vb k bch True f
-proofCheck' vb k bch "|T" = do
-  nm <- getBS
-  (True, Or fs) <- fetch bch nm
-  mapM_ (proofCheck vb k bch True) fs
-proofCheck' vb k bch "|F" = do
-  (False, Or fs) <- getBS >>= fetch bch
-  m <- getInt
-  f <- cast $ nth m fs
-  proofCheck vb k bch False f
-proofCheck' vb k bch "&T" = do
-  (True, And fs) <- getBS >>= fetch bch
-  m <- getInt
-  f <- cast $ nth m fs
-  proofCheck vb k bch True f
-proofCheck' vb k bch "&F" = do
-  (False, And fs) <- getBS >>= fetch bch
-  mapM_ (proofCheck vb k bch False) fs
-proofCheck' vb k bch ">T" = do
-  (True, Imp f g) <- getBS >>= fetch bch
-  proofCheck vb k bch False f
-  proofCheck vb k bch True g
-proofCheck' vb k bch ">FA" = do
-  nm <- getBS
-  (sgn, fg) <- fetch bch nm
-  case (sgn, fg) of
-    (False, Imp f g) -> proofCheck vb k bch True f
-    _ -> error "not false imp"
-proofCheck' vb k bch ">FC" = do
-  (False, Imp _ g) <- getBS >>= fetch bch
-  proofCheck vb k bch False g
-proofCheck' vb k bch "^TO" = do
-  (True, Iff f g) <- getBS >>= fetch bch
-  proofCheck vb k bch True (f ==> g)
-proofCheck' vb k bch "^TR" = do
-  (True, Iff f g) <- getBS >>= fetch bch
-  proofCheck vb k bch True (g ==> f)
-proofCheck' vb k bch "^F" = do
-  (False, Iff f g) <- getBS >>= fetch bch
-  proofCheck vb k bch False (f ==> g)
-  proofCheck vb k bch False (g ==> f)
-proofCheck' vb k bch "!T" = do
-  (True, Fa vs f) <- getBS >>= fetch bch
-  xs <- getList getTerm
-  vxs <- zipM vs xs
-  let f' = substForm vxs f
-  proofCheck vb k bch True f'
-proofCheck' vb k bch "!F" = do
-  (False, Fa vs f) <- getBS >>= fetch bch
-  m <- getInt
-  guard $ k <= m
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "!F-fail : cannot zip"
-  let f' = substForm vxs f
-  proofCheck vb k' bch False f'
-proofCheck' vb k bch "?T" = do
-  (True, Ex vs f) <- getBS >>= fetch bch
-  m <- getInt
-  pguard "index check failed for ?T" (k <= m)
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "?T-fail : cannot zip"
-  let f' = substForm vxs f
-  proofCheck vb k' bch True f'
-proofCheck' vb k bch "?F" = do
-  nm <- getBS
-  (False, Ex vs f) <- fetch bch nm
-  xs <- getList getTerm
-  vxs <- zipM vs xs
-  let f' = substForm vxs f
-  proofCheck vb k bch False f'
-proofCheck' vb k bch _ = error "impossible case"
 
 proof :: Branch -> Bool -> Form -> Parser Proof
 proof bch sgn f = do
@@ -1050,17 +1053,17 @@ proof' bch ni "I" = do
   nf <- getBS
   return $ Id_ ni nt nf
 proof' bch ni "C" = do
-  f <- getForm
+  f <- sform
   pf <- proof bch False f
   pt <- proof bch True f
   return $ Cut_ ni pf pt
 proof' bch ni "D" = do
-  f <- getForm
+  f <- sform
   p <- proof bch True f
   return $ RelD_ ni p
 proof' bch ni "A" = do
   x <- getTerm
-  f <- getForm
+  f <- sform
   p <- proof bch True f
   return $ AoC_ ni x p
 proof' bch ni "O" = return $ Open_ ni

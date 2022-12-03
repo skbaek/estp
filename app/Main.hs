@@ -55,10 +55,6 @@ import System.Timeout (timeout)
 
 {- Main -}
 
-textToBool :: BS -> IO Bool
-textToBool "true" = return True
-textToBool "false" = return False
-textToBool _ = error "Cannot read Boolarity"
 
 -- pafToEf :: PreAF -> IO Elab'
 -- pafToEf (nm, sgn, bs, Just (Gfun "inference" [gt], gts)) = do
@@ -164,49 +160,51 @@ infHyps Open = []
 -- pssemble :: HM.Map BS Elab' -> BS -> IO Proof
 -- pssemble mp nm = cast (HM.lookup nm mp) >>= pssemble' mp
 
-assemble' :: HM.Map BS Elab -> Elab -> IO Proof
-assemble' mp (ni, Id nt nf, _) = return $ Id_ ni nt nf
-assemble' mp (ni, FunC nms nm, _) = return $ FunC_ ni nms nm
-assemble' mp (ni, RelC nms nt nf, _) = return $ RelC_ ni nms nt nf
-assemble' mp (ni, EqR nm, _) = return $ EqR_ ni nm
-assemble' mp (ni, EqS nt nf, _) = return $ EqS_ ni nt nf
-assemble' mp (ni, EqT nxy nyz nxz, _) = return $ EqT_ ni nxy nyz nxz
-assemble' mp (ni, Cut nf nt, _) = do
+assemble' :: ESTP -> Node -> Inf -> IO Proof
+assemble' mp ni (Id nt nf) = return $ Id_ ni nt nf
+assemble' mp ni (FunC nms nm) = return $ FunC_ ni nms nm
+assemble' mp ni (RelC nms nt nf) = return $ RelC_ ni nms nt nf
+assemble' mp ni (EqR nm) = return $ EqR_ ni nm
+assemble' mp ni (EqS nt nf) = return $ EqS_ ni nt nf
+assemble' mp ni (EqT nxy nyz nxz) = return $ EqT_ ni nxy nyz nxz
+assemble' mp ni (Cut nf nt) = do
   pf <- assemble mp nf
   pt <- assemble mp nt
   return $ Cut_ ni pf pt
-assemble' mp (ni, NotT nh nc, _) = NotT_ ni nh <$> assemble mp nc
-assemble' mp (ni, NotF nh nc, _) = NotF_ ni nh <$> assemble mp nc
-assemble' mp (ni, OrT nh ncs, _) = do
+assemble' mp ni (NotT nh nc) = NotT_ ni nh <$> assemble mp nc
+assemble' mp ni (NotF nh nc) = NotF_ ni nh <$> assemble mp nc
+assemble' mp ni (OrT nh ncs) = do
   ps <- mapM (assemble mp) ncs
   return $ OrT_ ni nh ps
-assemble' mp (ni, OrF nh k nc, _) = OrF_ ni nh k <$> assemble mp nc
-assemble' mp (ni, AndT nh k nc, _) = AndT_ ni nh k <$> assemble mp nc
-assemble' mp (ni, AndF nh ncs, _) = do
+assemble' mp ni (OrF nh k nc) = OrF_ ni nh k <$> assemble mp nc
+assemble' mp ni (AndT nh k nc) = AndT_ ni nh k <$> assemble mp nc
+assemble' mp ni (AndF nh ncs) = do
   ps <- mapM (assemble mp) ncs
   return $ AndF_ ni nh ps
-assemble' mp (ni, ImpT nh na nc, _) = do
+assemble' mp ni (ImpT nh na nc) = do
   pa <- assemble mp na
   pc <- assemble mp nc
   return $ ImpT_ ni nh pa pc
-assemble' mp (ni, ImpFA nh nc, _) = ImpFA_ ni nh <$> assemble mp nc
-assemble' mp (ni, ImpFC nh nc, _) = ImpFC_ ni nh <$> assemble mp nc
-assemble' mp (ni, IffTO nh nc, _) = IffTO_ ni nh <$> assemble mp nc
-assemble' mp (ni, IffTR nh nc, _) = IffTR_ ni nh <$> assemble mp nc
-assemble' mp (ni, IffF nh no nr, _) = do
+assemble' mp ni (ImpFA nh nc) = ImpFA_ ni nh <$> assemble mp nc
+assemble' mp ni (ImpFC nh nc) = ImpFC_ ni nh <$> assemble mp nc
+assemble' mp ni (IffTO nh nc) = IffTO_ ni nh <$> assemble mp nc
+assemble' mp ni (IffTR nh nc) = IffTR_ ni nh <$> assemble mp nc
+assemble' mp ni (IffF nh no nr) = do
   po <- assemble mp no
   pr <- assemble mp nr
   return $ IffF_ ni nh po pr
-assemble' mp (ni, FaT nh xs nc, _) = FaT_ ni nh xs <$> assemble mp nc
-assemble' mp (ni, FaF nh k nc, _) = FaF_ ni nh k <$> assemble mp nc
-assemble' mp (ni, ExT nh k nc, _) = ExT_ ni nh k <$> assemble mp nc
-assemble' mp (ni, ExF nh xs nc, _) = ExF_ ni nh xs <$> assemble mp nc
-assemble' mp (ni, RelD nc, _) = RelD_ ni <$> assemble mp nc
-assemble' mp (ni, AoC xs nc, _) = AoC_ ni xs <$> assemble mp nc
-assemble' mp (ni, Open, _) = return $ Open_ ni
+assemble' mp ni (FaT nh xs nc) = FaT_ ni nh xs <$> assemble mp nc
+assemble' mp ni (FaF nh k nc) = FaF_ ni nh k <$> assemble mp nc
+assemble' mp ni (ExT nh k nc) = ExT_ ni nh k <$> assemble mp nc
+assemble' mp ni (ExF nh xs nc) = ExF_ ni nh xs <$> assemble mp nc
+assemble' mp ni (RelD nc) = RelD_ ni <$> assemble mp nc
+assemble' mp ni (AoC xs nc) = AoC_ ni xs <$> assemble mp nc
+assemble' mp ni Open = return $ Open_ ni
 
-assemble :: HM.Map BS Elab -> BS -> IO Proof
-assemble mp nm = cast (HM.lookup nm mp) >>= assemble' mp
+assemble :: ESTP -> BS -> IO Proof
+assemble mp nm = do 
+  (b, f, i) <- cast (HM.lookup nm mp) 
+  assemble' mp (nm, b, f) i
 
 elabName :: Elab -> BS
 elabName ((nm, _, _), _, _) = nm
@@ -217,6 +215,12 @@ elabName ((nm, _, _), _, _) = nm
 --   cast $ parse (getList getBS) tx
 -- 
 -- readTptp :: [BS] -> String -> IO Branch
+-- readTptp nms tptp = do
+--   pafs <- parsePreName tptp
+--   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
+-- 
+readBranch :: String -> IO Branch
+readBranch = error "todo"
 -- readTptp nms tptp = do
 --   pafs <- parsePreName tptp
 --   return $ L.foldl (addToBranch $ S.fromList nms) HM.empty pafs
@@ -284,11 +288,11 @@ triSnd (_, x, _) = x
 --   when vb $ ps "Writing proof...\n"
 --   writeProof astp (S.toList nms) prf
 
-asmWrite :: Bool -> String -> String -> IO ()
-asmWrite vb enm anm = do 
-  estp <- nameParseEstp enm
-  prf <- assemble estp "root"
-  writeProof anm prf
+-- asmWrite :: Bool -> String -> String -> IO ()
+-- asmWrite vb enm anm = do 
+--   estp <- nameParseEstp enm
+--   prf <- assemble estp "root"
+--   writeProof anm prf
 
 -- asmWrite vb estp astp = do 
 --   when vb $ ps $ "Reading ESTP : " <> estp <> " ...\n"
@@ -331,29 +335,32 @@ linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p), Nothing) : linearize p
 linearize (Open_ ni) = [(ni, Open, Nothing)]
 
 mainArgs :: [String] -> IO ()
-mainArgs ("check" : tptp : astp : flags) = do
+mainArgs ("assemble" : enm : anm : flags) = do
   let vb = "silent" `notElem` flags
-  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
-  (nms, prfTx) <- readAstp astp
-  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
-  bch <- readTptp nms tptp
-  ((), rem) <- cast $ parse (proofCheck vb 0 bch True (And [])) prfTx 
-  guard (BS.null rem)
+  estp <- nameParseEstp enm
+  prf <- assemble estp "root"
+  writeProof anm prf
+mainArgs ("check" : pnm : anm : flags) = do
+  let vb = "silent" `notElem` flags
+  when vb $ ps $ "Reading TPTP : " ++ pnm ++ " ...\n"
+  bch <- readBranch pnm
+  when vb $ ps $ "Reading ASTP : " ++ anm ++ " ...\n"
+  bs <- BS.readFile anm
+  -- runParser (proofCheck vb 0 bch True (And [])) bs
+  ---guard (BS.null rem)
   ps "Proof checked.\n"
-mainArgs ("extract" : tptp : astp : estp : flags) = do
-  let vb = "silent" `notElem` flags
-  when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
-  (nms, prfTx) <- readAstp astp
-  when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
-  bch <- readTptp nms tptp
-  (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
-  guard (BS.null rem)
-  (Just ()) <- timeout 120000000 $ BD.writeFile estp $ ppListNl ppElab $ linearize prf
-  skip
+-- mainArgs ("extract" : tptp : astp : estp : flags) = do
+--   let vb = "silent" `notElem` flags
+--   when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
+--   (nms, prfTx) <- readAstp astp
+--   when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
+--   bch <- readTptp nms tptp
+--   (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 
+--   guard (BS.null rem)
+--   (Just ()) <- timeout 120000000 $ BD.writeFile estp $ ppListNl ppElab $ linearize prf
+--   skip
+-- 
 
-mainArgs ("assemble" : estp : astp : flags) = do
-  let vb = "silent" `notElem` flags
-  asmWrite' vb estp astp
 mainArgs _ = error "Invalid main args"
 
 main :: IO ()

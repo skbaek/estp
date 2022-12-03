@@ -96,11 +96,11 @@ ppForms fs = ppInter "\n" $ L.map ppForm fs
 ppObj :: [Form] -> Form -> Builder
 ppObj fs g = ppForms fs <> "\n---------------------------------------------------------------------\n" <> ppForm g <> "\n"
 
-ppGterm :: Gterm -> Builder
-ppGterm (Gfun f ts) = ft f <> ppArgs (L.map ppGterm ts)
-ppGterm (Glist ts) = ppList id $ L.map ppGterm ts
-ppGterm (Gnum k) = ppInt k
-ppGterm (Gvar v) = ft v
+ppGent :: Gent -> Builder
+ppGent (Genf f ts) = ft f <> ppArgs (L.map ppGent ts)
+ppGent (Genl ts) = ppList id $ L.map ppGent ts
+ppGent (Genn k) = ppInt k
+ppGent (Genv v) = ft v
 
 ppEq :: (Term, Term) -> Builder
 ppEq (x, y) = ppForm (Eq x y)
@@ -131,8 +131,8 @@ ppElab ((nm, sgn, f), i, Just cmt) = ppApp "fof" [ft nm, ppSign sgn, writeForm f
 
 fmtAF :: Anf -> Builder
 fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
-fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
-fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]
+fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGent t]
+fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGent t, ppList ppGent ts]
 
 ppInf :: Inf -> Builder
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
@@ -336,5 +336,7 @@ diffTrail x y =
     Just b -> toByteString' b 
     _ -> error "cannot find diff"
 
-writeProof :: String -> [BS] -> Proof -> IO ()
-writeProof nm nms prf = BD.writeFile nm $ serList serBS nms <> serProof prf
+-- writeProof :: String -> [BS] -> Proof -> IO ()
+-- writeProof nm nms prf = BD.writeFile nm $ serList serBS nms <> serProof prf
+writeProof :: String -> Proof -> IO ()
+writeProof nm prf = BD.writeFile nm $ serProof prf
