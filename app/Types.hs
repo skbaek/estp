@@ -35,15 +35,13 @@ data Form =
 (===) :: Term -> Term -> Form
 (===) = Eq
 
-data PreInput =
-    PreCnf BS BS BS
-  | PreFof BS BS BS
-  | PreInc BS
-  deriving Show
+-- data PreInput =
+--     PreAnf BS BS BS Ant
+--   | PreInc BS
+--   deriving Show
 
 data Input =
-    Cnf BS BS Form Ant
-  | Fof BS BS Form Ant
+    Anf BS BS Form Ant
   | Inc BS
   deriving Show
 
@@ -56,18 +54,17 @@ data Gterm =
 
 type Ant = Maybe (Gterm, Maybe [Gterm])
 
-data PreAF = 
-    CnfAF BS BS BS
-  | FofAF BS BS BS
+-- data PreAF =  CnfAF BS BS BS Ant | FofAF BS BS BS Ant
 
-type AF = (BS, BS, Form, Ant)
+type PreAnf = (BS, BS, BS, Ant)
+type Anf = (BS, BS, Form, Ant)
 
 type Prob = [Input]
 
 data Inf =
     Id BS BS 
   | FunC [BS] BS | RelC [BS] BS BS
-  | EqR BS | EqS BS BS |EqT BS BS BS
+  | EqR BS | EqS BS BS | EqT BS BS BS
   | Cut BS BS
   | NotT BS BS | NotF BS BS
   | OrT BS [BS] | OrF BS Int BS 
@@ -111,7 +108,10 @@ data Proof =
   | Open_ Node
   deriving (Show)
   
+-- type TSTP = Map BS (Bool, Form, Inf)
+type ESTP = Map BS (Bool, Form, Inf)
+
 type Elab = (Node, Inf, Maybe BS)
-type Elab' = (Node', Inf, Maybe BS)
+-- type Elab' = (Node', Inf, Maybe BS)
 type Branch = HM.Map BS (Bool, Form)
 type SignForm = (Bool, Form)

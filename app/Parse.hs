@@ -2,6 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Parse where
 
@@ -22,7 +23,58 @@ import Data.String (fromString)
 import Debug.Trace (trace)
 import qualified Data.Bifunctor as DBF
 
+
+
+{- Parser -}
+
 newtype Parser a = Parser { parse :: BS -> Maybe (a, BS) }
+
+instance Functor Parser where
+  fmap :: (a -> b) -> Parser a -> Parser b
+  fmap f (Parser cs) = Parser $ \ s ->
+    case cs s of
+      Nothing -> Nothing
+      Just (x, t) -> Just (f x, t)
+
+instance Applicative Parser where
+  pure :: a -> Parser a
+  pure = return
+  (Parser cs1) <*> (Parser cs2) = Parser $ \ s ->
+    case cs1 s of
+      Nothing -> Nothing
+      Just (f,t) ->
+        case cs2 t of
+          Nothing -> Nothing
+          Just (x,r) -> Just (f x, r)
+
+instance Monad Parser where
+  return :: a -> Parser a
+  return = unit
+  (>>=) :: Parser a -> (a -> Parser b) -> Parser b
+  (>>=)  = bind
+
+instance Alternative Parser where
+  empty :: Parser a
+  empty = failure
+  (<|>) :: Parser a -> Parser a -> Parser a
+  (<|>) = option
+
+instance MonadFail Parser where
+  fail :: String -> Parser a
+  fail _ = failure
+
+failure :: Parser a
+failure = Parser (const Nothing)
+
+option :: Parser a -> Parser a -> Parser a
+option p q = Parser $ \s ->
+  case parse p s of
+    Nothing -> parse q s
+    res     -> res
+
+
+
+{- Parsers -}
 
 item :: Parser Char
 item = Parser (fmap (DBF.first w2c) . BS.uncons)
@@ -35,42 +87,6 @@ bind p f = Parser $ \ s ->
 
 unit :: a -> Parser a
 unit a = Parser (\s -> Just (a,s))
-
-instance Functor Parser where
-  fmap f (Parser cs) = Parser $ \ s ->
-    case cs s of
-      Nothing -> Nothing
-      Just (x, t) -> Just (f x, t)
-
-instance Applicative Parser where
-  pure = return
-  (Parser cs1) <*> (Parser cs2) = Parser $ \ s ->
-    case cs1 s of
-      Nothing -> Nothing
-      Just (f,t) ->
-        case cs2 t of
-          Nothing -> Nothing
-          Just (x,r) -> Just (f x, r)
-
-instance Monad Parser where
-  return = unit
-  (>>=)  = bind
-
-instance Alternative Parser where
-  empty = failure
-  (<|>) = option
-
-instance MonadFail Parser where
-  fail _ = failure
-
-failure :: Parser a
-failure = Parser (const Nothing)
-
-option :: Parser a -> Parser a -> Parser a
-option p q = Parser $ \s ->
-  case parse p s of
-    Nothing -> parse q s
-    res     -> res
 
 cutParse :: Parser a -> (a -> Parser b) -> Parser b -> Parser b
 cutParse p q r = Parser $ \ s ->
@@ -385,7 +401,7 @@ regFunctor = do
 idxFunctor :: Parser Funct
 idxFunctor = do
   tx <- singleQuoted
-  ('#' :> tx') <- cast $ unsq tx
+  ('#' :> tx') <- cast $ parseSingleQuote tx
   k <- cast $ bs2int tx'
   return $ Idx k
 
@@ -450,14 +466,14 @@ form = do
   f <- formLazy
   (eof >> return f) <|> (peekDelimiter >> return f) <|> (connective >>= formClose f)
 
-preInc :: Parser PreInput
-preInc = do
-  lit "include("
-  w <- singleQuoted
-  lit ")"
-  lit "."
-  ign
-  unit (PreInc w)
+-- preInc :: Parser PreInput
+-- preInc = do
+--   lit "include("
+--   w <- singleQuoted
+--   lit ")"
+--   lit "."
+--   ign
+--   unit (PreInc w)
 
 inc :: Parser Input
 inc = do
@@ -468,67 +484,112 @@ inc = do
   ign
   unit (Inc w)
 
-preFof :: Parser PreInput
-preFof = do
-  lit "fof("
-  n <- name
-  lit ","
-  r <- lowerWord
-  lit ","
-  ft <- formBS
-  lit ")"
-  lit "."
-  ign
-  unit (PreFof n r ft)
+-- preInput :: Parser PreInput
+-- preInput = preAnf <|> preInc
+-- 
+-- preAnf :: Parser PreInput
+-- preAnf = do
+--   lit "cnf(" <|> lit "fof("
+--   n <- name
+--   lit ","
+--   r <- lowerWord
+--   lit ","
+--   bs <- preForm
+--   a <- annotations
+--   lit ")"
+--   lit "."
+--   ign
+--   unit (PreAnf n r bs a)
+-- 
+-- preForm :: Parser BS
+-- preForm = Parser textParsePreForm
+
+
+
+{- Others -}
+
+textParsePreForm :: BS -> Maybe (BS, BS)
+textParsePreForm tx = do
+  k <- formLength 0 tx
+  return $ BS.splitAt (fromIntegral k) tx
 
 formLength :: Int -> BS -> Maybe Int
 formLength 0 tx =
   case bsrec tx of
     Just (')', tx') -> Just 0
     Just ('(', tx') -> succ <$> formLength 1 tx'
+    Just ('[', tx') -> succ <$> formLength 1 tx'
     Just (_, tx') -> succ <$> formLength 0 tx'
     _ -> Nothing
 formLength k tx =
   case bsrec tx of
     Just (')', tx') -> succ <$> formLength (k - 1) tx'
+    Just (']', tx') -> succ <$> formLength (k - 1) tx'
     Just ('(', tx') -> succ <$> formLength (k + 1) tx'
+    Just ('[', tx') -> succ <$> formLength (k + 1) tx'
     Just (_, tx') ->   succ <$> formLength k tx'
     _ -> Nothing
 
-formBSCore :: BS -> Maybe (BS, BS)
-formBSCore tx = do
-  k <- formLength 0 tx
-  return $ BS.splitAt (fromIntegral k) tx
+nameParseEstp :: String -> IO ESTP
+nameParseEstp n = do
+  -- ps "Reading file as text...\n"
+  bs <- BS.readFile n
+  -- ps "Parsing the text read...\n"
+  (_, bs') <- cast $ parse ign bs
+  textParseEstp bs'
 
-formBS :: Parser BS
-formBS = Parser formBSCore
+textParseEstp :: BS -> IO ESTP
+textParseEstp bs =
+  case parse input t of
+    Just (i,s) -> do
+      pfx <- parseInput i
+      if BS.null s
+      then return pfx
+      else do
+        sfx <- parseBS s
+        return (pfx ++ sfx)
+    _ -> error ("Failed to parse input : " <> show t)
 
-preCnf :: Parser PreInput
-preCnf = do
-  lit "cnf("
+-- nameParsePreAnfs :: String -> IO [PreAnf]
+-- nameParsePreAnfs n = do
+--   t <- BS.readFile n
+--   (_, s) <- cast $ parse ign t 
+--   textParsePreAnfs s
+-- 
+-- textParsePreAnfs :: BS -> IO [PreAnf]
+-- textParsePreAnfs t = do
+--  (i,s) <- cast $ parse preInput t 
+--  _
+
+ --  case parse preInput t of
+ --    Just (i,s) -> do
+ --      pfx <- parsePreInput i
+ --      if BS.null s
+ --      then return pfx
+ --      else do
+ --        sfx <- parsePreBS s
+ --        return (pfx ++ sfx)
+ --    _ -> error ("Failed to parse input : " <> show t)
+parseSingleQuote :: BS -> Maybe BS
+parseSingleQuote ('\'' :> t) = do
+  (t', '\'') <- DBF.second w2c <$> BS.unsnoc t
+  return t'
+parseSingleQuote _ = mzero
+{- 
+
+anf :: Parser Input
+anf = do
+  lit "cnf(" <|> lit "fof("
   n <- name
   lit ","
   r <- lowerWord
   lit ","
-  ft <- formBS
-  lit ")"
-  lit "."
-  ign
-  unit (PreCnf n r ft)
-
-cnf :: Parser Input
-cnf = do
-  lit "cnf("
-  n <- name
-  lit ","
-  r <- lowerWord
-  lit ","
-  f <- univClose <$> form
+  f <- form
   a <- annotations
   lit ")"
   lit "."
   ign
-  unit (Cnf n r (conjecturize r f) a)
+  unit (Anf n r f a)
 
 fof :: Parser Input
 fof = do
@@ -542,13 +603,11 @@ fof = do
   lit ")"
   lit "."
   ign
-  unit (Fof n r (conjecturize r f) a)
+  unit (Anf n r (conjecturize r f) a)
 
 input :: Parser Input
-input = cnf <|> fof <|> inc
+input = anf <|> inc
 
-preInput :: Parser PreInput
-preInput = preCnf <|> preFof <|> preInc
 
 prob :: Parser Prob
 prob = star input
@@ -562,62 +621,22 @@ runParser m s =
 run :: BS -> Prob
 run = runParser (ign >> prob)
 
-univClose :: Form -> Form
-univClose f =
-  case formBvs f of
-    [] -> f
-    vs -> Fa vs f
-
-conjecturize :: BS -> Form -> Form
-conjecturize "conjecture" f = Not f
-conjecturize _ f = f
-
-mergeVars :: [BS] -> [BS] -> [BS]
-mergeVars vs ws = vs ++ (ws \\ vs)
-
-termBvs :: Term -> [BS]
-termBvs (Var v) = [v]
-termBvs (Fun _ ts) = foldl mergeVars [] (map termBvs ts)
-
-formBvs :: Form -> [BS]
-formBvs (Rel _ ts) = foldl mergeVars [] (map termBvs ts)
-formBvs (Eq t s) = mergeVars (termBvs t) (termBvs s)
-formBvs (Not f) = formBvs f
-formBvs (And fs) = foldl mergeVars [] (map formBvs fs)
-formBvs (Or  fs) = foldl mergeVars [] (map formBvs fs)
-formBvs (Imp f g) = mergeVars (formBvs f) (formBvs g)
-formBvs (Iff f g) = mergeVars (formBvs f) (formBvs g)
-formBvs (Fa vs f) = vs ++ (formBvs f \\ vs)
-formBvs (Ex vs f) = vs ++ (formBvs f \\ vs)
 
 parsePreInput :: PreInput -> IO [PreAF]
 parsePreInput (PreInc s) = do
   tptp <- getEnv "TPTP"
   s' <- cast $ unquote s
   parsePreName $ tptp ++ "/" ++ bs2str s'
-parsePreInput (PreCnf n r f) = return [CnfAF n r f]
-parsePreInput (PreFof n r f) = return [FofAF n r f]
+parsePreInput (PreAnf n r f x) = return [(n, r, f, x)]
 
 parseInput :: Input -> IO [AF]
 parseInput (Inc s) = do
   tptp <- getEnv "TPTP"
-  s' <- cast $ unquote s
+  s<- cast $ unquote s
   ps $ "Axiom name : " ++ show s' ++ "\n"
   parseName $ tptp ++ "/" ++ show s'
-parseInput (Cnf n r f t) = return [(n, r, f, t)]
-parseInput (Fof n r f t) = return [(n, r, f, t)]
+parseInput (Anf n r f t) = return [(n, r, f, t)]
 
-parsePreBS :: BS -> IO [PreAF]
-parsePreBS t =
-  case parse preInput t of
-    Just (i,s) -> do
-      pfx <- parsePreInput i
-      if BS.null s
-      then return pfx
-      else do
-        sfx <- parsePreBS s
-        return (pfx ++ sfx)
-    _ -> error ("Failed to parse input : " <> show t)
 
 parseBS :: BS -> IO [AF]
 parseBS t =
@@ -631,12 +650,6 @@ parseBS t =
         return (pfx ++ sfx)
     _ -> error ("Failed to parse input : " <> show t)
 
-parsePreName :: String -> IO [PreAF]
-parsePreName n = do
-  t <- BS.readFile n
-  case parse ign t of
-    Just (i,s) -> parsePreBS s
-    _ -> ioError $ userError "Read filename, but failed to parse content"
 
 parseForm :: BS -> Form
 parseForm tx =
@@ -653,7 +666,6 @@ parseName n = do
     Just (i,s) -> parseBS s
     _ -> ioError $ userError "Read filename, but failed to parse content"
 
-
 gTermsToMaybeBS :: Maybe [Gterm] -> IO (Maybe BS)
 gTermsToMaybeBS Nothing = return nt
 gTermsToMaybeBS (Just [Gfun tx []]) = return $ Just tx
@@ -665,7 +677,7 @@ gTermToBS _ = mzero
 
 textToIdxFunct :: BS -> IO Funct
 textToIdxFunct tx = do
-  ('#' :> tx') <- cast $ unsq tx
+  ('#' :> tx') <- cast $ parseSingleQuote tx
   cast (Idx <$> bs2int tx')
 
 textToFunct :: BS -> IO Funct
@@ -785,12 +797,6 @@ gTermToInf (Gfun "aoc" [gtx, gtn]) = do
 gTermToInf (Gfun "reld" [gt]) = RelD <$> gTermToBS gt
 gTermToInf (Gfun "open" []) = return Open
 gTermToInf t = error $ "inf reader : " <> fromString (show t)
-
-unsq :: BS -> Maybe BS
-unsq ('\'' :> t) = do
-  (t', '\'') <- DBF.second w2c <$> BS.unsnoc t
-  return t'
-unsq _ = mzero
 
 
 sortAfs :: [AF] -> [AF]
@@ -1179,3 +1185,5 @@ proof' bch ni "?F" = do
   p <- proof bch False f'
   return $ ExF_ ni nm xs p
 proof' bch ni _ = error "invalid rule"
+
+-}

@@ -129,7 +129,7 @@ ppElab :: Elab -> Builder
 ppElab ((nm, sgn, f), i, Nothing) =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i]] <> "."
 ppElab ((nm, sgn, f), i, Just cmt) = ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i], ppList ft [cmt]] <> "."
 
-fmtAF :: AF -> Builder
+fmtAF :: Anf -> Builder
 fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
 fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t]
 fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGterm t, ppList ppGterm ts]

@@ -643,3 +643,31 @@ rootNode (ExF_ ni _ _ _) = ni
 rootNode (RelD_ ni _) = ni
 rootNode (AoC_ ni _ _) = ni
 rootNode (Open_ ni) = ni
+
+conjecturize :: BS -> Form -> Form
+conjecturize "conjecture" f = Not f
+conjecturize _ f = f
+
+univClose :: Form -> Form
+univClose f =
+  case formBvs f of
+    [] -> f
+    vs -> Fa vs f
+
+mergeVars :: [BS] -> [BS] -> [BS]
+mergeVars vs ws = vs ++ (ws \\ vs)
+
+termBvs :: Term -> [BS]
+termBvs (Var v) = [v]
+termBvs (Fun _ ts) = foldl mergeVars [] (L.map termBvs ts)
+
+formBvs :: Form -> [BS]
+formBvs (Rel _ ts) = foldl mergeVars [] (L.map termBvs ts)
+formBvs (Eq t s) = mergeVars (termBvs t) (termBvs s)
+formBvs (Not f) = formBvs f
+formBvs (And fs) = foldl mergeVars [] (L.map formBvs fs)
+formBvs (Or  fs) = foldl mergeVars [] (L.map formBvs fs)
+formBvs (Imp f g) = mergeVars (formBvs f) (formBvs g)
+formBvs (Iff f g) = mergeVars (formBvs f) (formBvs g)
+formBvs (Fa vs f) = vs ++ (formBvs f \\ vs)
+formBvs (Ex vs f) = vs ++ (formBvs f \\ vs)
