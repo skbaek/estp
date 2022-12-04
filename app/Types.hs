@@ -110,10 +110,7 @@ data Proof =
   
 -- type TSTP = Map BS (Bool, Form, Inf)
 type ESTP = Map BS (Bool, Form, Inf)
-
+type TPTP = Map BS Form
 type Elab = (Node, Inf, Maybe BS)
-
-
--- type Elab' = (Node', Inf, Maybe BS)
 type Branch = HM.Map BS (Bool, Form)
 type SignForm = (Bool, Form)

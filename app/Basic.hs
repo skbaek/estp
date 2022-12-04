@@ -650,24 +650,24 @@ conjecturize _ f = f
 
 univClose :: Form -> Form
 univClose f =
-  case formBvs f of
+  case formFreeVars f of
     [] -> f
     vs -> Fa vs f
 
 mergeVars :: [BS] -> [BS] -> [BS]
 mergeVars vs ws = vs ++ (ws \\ vs)
 
-termBvs :: Term -> [BS]
-termBvs (Var v) = [v]
-termBvs (Fun _ ts) = foldl mergeVars [] (L.map termBvs ts)
+termVars :: Term -> [BS]
+termVars (Var v) = [v]
+termVars (Fun _ ts) = foldl mergeVars [] (L.map termVars ts)
 
-formBvs :: Form -> [BS]
-formBvs (Rel _ ts) = foldl mergeVars [] (L.map termBvs ts)
-formBvs (Eq t s) = mergeVars (termBvs t) (termBvs s)
-formBvs (Not f) = formBvs f
-formBvs (And fs) = foldl mergeVars [] (L.map formBvs fs)
-formBvs (Or  fs) = foldl mergeVars [] (L.map formBvs fs)
-formBvs (Imp f g) = mergeVars (formBvs f) (formBvs g)
-formBvs (Iff f g) = mergeVars (formBvs f) (formBvs g)
-formBvs (Fa vs f) = vs ++ (formBvs f \\ vs)
-formBvs (Ex vs f) = vs ++ (formBvs f \\ vs)
+formFreeVars :: Form -> [BS]
+formFreeVars (Rel _ ts) = foldl mergeVars [] (L.map termVars ts)
+formFreeVars (Eq t s) = mergeVars (termVars t) (termVars s)
+formFreeVars (Not f) = formFreeVars f
+formFreeVars (And fs) = foldl mergeVars [] (L.map formFreeVars fs)
+formFreeVars (Or  fs) = foldl mergeVars [] (L.map formFreeVars fs)
+formFreeVars (Imp f g) = mergeVars (formFreeVars f) (formFreeVars g)
+formFreeVars (Iff f g) = mergeVars (formFreeVars f) (formFreeVars g)
+formFreeVars (Fa vs f) = formFreeVars f \\ vs
+formFreeVars (Ex vs f) = formFreeVars f \\ vs

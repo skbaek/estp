@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use foldr" #-}
 {-# HLINT ignore "Use foldl" #-}
@@ -335,21 +336,39 @@ linearize (Open_ ni) = [(ni, Open, Nothing)]
 mainArgs :: [String] -> IO ()
 mainArgs ("assemble" : enm : anm : flags) = do
   let vb = "silent" `notElem` flags
+  ps "Reading in elaborated formulas...\n"
   estp <- readEstp enm
+  ps "Asssembling proof...\n"
   prf <- assemble estp "root"
+  ps "Writing proof to file...\n"
   writeProof anm prf
 mainArgs ("check" : pnm : anm : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ ps $ "Reading TPTP : " ++ pnm ++ " ...\n"
-  bch <- readBranch pnm HM.empty
+  tptp <- readTptp pnm HM.empty
+  let bch = HM.map (True,) tptp -- readBranch pnm HM.empty
   when vb $ ps $ "Reading ASTP : " ++ anm ++ " ...\n"
   bs <- BS.readFile anm
   runParser (proofCheck vb 0 bch True (And [])) bs
   ps "Proof checked.\n"
--- mainArgs ("extract" : tptp : astp : estp : flags) = do
---   let vb = "silent" `notElem` flags
---   when vb $ ps $ "Reading ASTP : " ++ astp ++ " ...\n"
+mainArgs ("extract" : pnm : anm : enm : flags) = do
+  let vb = "silent" `notElem` flags
+  when vb $ ps $ "Reading TPTP : " ++ pnm ++ " ...\n"
+  tptp <- readTptp pnm HM.empty
+  let bch = HM.map (True,) tptp -- readBranch pnm HM.empty
+  when vb $ ps $ "Reading ASTP : " ++ anm ++ " ...\n"
+  bs <- BS.readFile anm
+  prf <- runParser (proof bch True (And [])) bs 
+  BD.writeFile enm $ ppListNl ppElab $ linearize prf
+mainArgs ["dev", onm, nnm] = do
+  ps $ "Reading ASTP : " ++ onm ++ " ...\n"
+  bs <- BS.readFile onm
+  case parse (slist stext) bs of 
+    Just (_, bs') -> BS.writeFile nnm bs'
+    _ -> error "Cannot parse header names"
+
 --   (nms, prfTx) <- readAstp astp
+
 --   when vb $ ps $ "Reading TPTP : " ++ tptp ++ " ...\n"
 --   bch <- readTptp nms tptp
 --   (prf, rem) <- cast $ parse (proof bch True (And [])) prfTx 

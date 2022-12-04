@@ -7,10 +7,10 @@
 module Parse where
 
 import Types
-import Basic 
+import Basic
 
 import qualified Data.ByteString as BS
-  (uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head) 
+  (uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head)
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
 import Data.List (elem, foldl, map, sortBy, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
@@ -96,19 +96,27 @@ cutParse p q r = Parser $ \ s ->
 commitParse :: Parser a -> Parser b -> Parser b -> Parser b
 commitParse p q = cutParse p (const q)
 
--- | One or more.
-some :: Alternative f => f a -> f [a]
-some v = some_v
-  where
-    star_v = some_v <|> pure []
-    some_v = (:) <$> v <*> star_v
+-- -- | One or more.
+-- some :: Alternative f => f a -> f [a]
+-- some v = some_v
+--   where
+--     star_v = some_v <|> pure []
+--     some_v = (:) <$> v <*> starPlus
+
+ordPlusL :: Parser a -> Parser [a]
+ordPlusL p = do 
+  x <- p
+  (x :) <$> ordStarL p
 
 -- | Zero or more.
-star :: Alternative f => f a -> f [a]
-star v = star_v
-  where
-    star_v = some_v <|> pure []
-    some_v = (:) <$> v <*> star_v
+ordStarL :: Parser a -> Parser [a]
+ordStarL p = ordPlusL p <|> pure []
+
+permStarL :: Parser a -> Parser [a]
+permStarL p = star p (:) []
+
+star :: Parser a -> (a -> b -> b) -> b -> Parser b
+star p f ys = plus p f ys <|> pure ys
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy p = item `bind` \c ->
@@ -150,7 +158,7 @@ space :: Parser ()
 space = oneOf " \n\r" >> nil
 
 ws :: Parser ()
-ws = star space >> nil
+ws = permStarL space >> nil
 
 digit :: Parser Char
 digit = satisfy isDigit
@@ -164,11 +172,13 @@ eof = Parser  $ \ t ->
     then Just (() , t)
     else Nothing
 
-plus :: Parser a -> Parser [a]
-plus p = do
+plus :: Parser a -> (a -> b -> b) -> b -> Parser b
+plus p f ys = do
   x <- p
-  xs <- star p
-  unit (x : xs)
+  star p f (f x ys)
+
+-- plusL :: Parser a -> Parser [a]
+-- plusL p = plus p (:) []
 
 newline :: Parser ()
 newline = char '\n' >> nil
@@ -180,7 +190,7 @@ untilNlOrEof :: Parser ()
 untilNlOrEof = eof <|> untilChar '\n' <|> (item >> untilNlOrEof)
 
 comment :: Parser ()
-comment = char '%' >> untilNlOrEof 
+comment = char '%' >> untilNlOrEof
 
 blockCommentEnd :: Parser ()
 blockCommentEnd = (string "*/" >> nil) <|> (item >> blockCommentEnd)
@@ -192,7 +202,7 @@ ignOnce :: Parser ()
 ignOnce = space <|> comment <|> blockComment
 
 ign :: Parser ()
-ign = star ignOnce >> nil
+ign = permStarL ignOnce >> nil
 
 lowerAlpha :: Parser Char
 lowerAlpha = satisfy isLower
@@ -209,14 +219,14 @@ alphaNumeric = satisfy isAlphaNumeric
 lowerWord :: Parser BS
 lowerWord = do
   c <- lowerAlpha
-  cs <- star alphaNumeric
+  cs <- ordStarL alphaNumeric
   ign
   unit $ fromString $ c : cs
 
 upperWord :: Parser BS
 upperWord = do
   c <- upperAlpha
-  cs <- star alphaNumeric
+  cs <- ordStarL alphaNumeric
   ign
   unit $ fromString $ c : cs
 
@@ -247,7 +257,7 @@ numeric = char '0' <|> nonZeroNumeric
 positiveDecimal :: Parser BS
 positiveDecimal = do
   c <- nonZeroNumeric
-  cs <- star numeric
+  cs <- ordStarL numeric
   unit $ fromString $ c : cs
 
 decimal :: Parser BS
@@ -265,7 +275,7 @@ isDoChar c = c /= '"' && c /= '\\'
 singleQuoted :: Parser BS
 singleQuoted = do
   char '\''
-  s <- plus sqChar
+  s <- ordPlusL sqChar
   char '\''
   let bs = fromString s
   ws
@@ -274,7 +284,7 @@ singleQuoted = do
 distinctObject :: Parser BS
 distinctObject = do
   char '"'
-  s <- plus $ satisfy isDoChar
+  s <- ordPlusL $ satisfy isDoChar
   char '"'
   ws
   unit $ fromString $  "\"" ++ s ++ "\""
@@ -456,8 +466,8 @@ falsum :: Parser Form
 falsum = lit "$false" >> unit (Or [])
 
 formLazy :: Parser Form
-formLazy = 
-  verum <|> falsum <|> parenFormLazy <|> notformLazy <|> 
+formLazy =
+  verum <|> falsum <|> parenFormLazy <|> notformLazy <|>
   faformLazy <|> exformLazy <|> (term >>= termformLazy)
 
 form :: Parser Form
@@ -529,30 +539,30 @@ formLength k tx =
     _ -> Nothing
 
 
-readBranch :: String -> Branch -> IO Branch
-readBranch nm bch = do
+readTptp :: String -> TPTP -> IO TPTP
+readTptp nm bch = do
   -- ps "Reading file as text...\n"
   bs <- BS.readFile nm
   -- ps "Parsing the text read...\n"
-  (_, bs') <- cast $ parse ign bs 
-  parseBranch bs' bch
+  (_, bs') <- cast $ parse ign bs
+  parseTptp bs' bch
 
-parseBranch :: BS -> Branch -> IO Branch
-parseBranch bs bch = do
-  (i,bs') <- cast $ parse input bs 
-  bch' <- parseInput i bch
+parseTptp :: BS -> TPTP -> IO TPTP
+parseTptp bs bch = do
+  (i,bs') <- cast $ parse input bs
+  bch' <- addInput i bch
   if BS.null bs'
   then return bch'
-  else parseBranch bs' bch'
+  else parseTptp bs' bch'
 
-parseInput :: Input -> Branch -> IO Branch
-parseInput (IncInput bs) bch = do
+addInput :: Input -> TPTP -> IO TPTP
+addInput (IncInput bs) bch = do
   tptp <- getEnv "TPTP"
   bs' <- cast $ unquote bs
-  readBranch (tptp ++ "/" ++ show bs') bch
-parseInput (AnfInput (nm, rl, f, Nothing)) bch = do
-  return $ M.insert nm (True, conjecturize rl $ univClose f) bch
-parseInput (AnfInput (_, _, _, Just _)) bch = error "Anntation found in TPTP"
+  readTptp (tptp ++ "/" ++ bs2str bs') bch
+addInput (AnfInput (nm, rl, f, Nothing)) bch = do
+  return $ M.insert nm (conjecturize rl $ univClose f) bch
+addInput (AnfInput (_, _, _, Just _)) bch = error "Anntation found in TPTP"
 
 --   ps $ "Axiom name : " ++ show s' ++ "\n"
 -- parseInput (Anf n r f t) = return [(n, r, f, t)]
@@ -568,19 +578,20 @@ parseInput (AnfInput (_, _, _, Just _)) bch = error "Anntation found in TPTP"
 --     _ -> error ("Failed to parse input : " <> show t)
 -- 
 readEstp :: String -> IO ESTP
-readEstp n = BS.readFile n >>= runParser (ign >> estp) 
+readEstp n = BS.readFile n >>= runParser (ign >> estp)
 
 starMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
-starMap p m = plusMap p m <|> pure m
+starMap p = star p (uncurry insert) 
 
 plusMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
-plusMap p m = do
-  (x, y) <- p 
-  starMap p (M.insert x y m) 
+plusMap p = plus p (uncurry insert)
+  -- do
+  -- (x, y) <- p
+  -- starMap p (M.insert x y m)
 
-elabStep :: Parser (BS, (Bool, Form, Inf))
-elabStep = do 
-  (nm, rl, f, Just (Genf "inference" [gt], Nothing)) <- anf 
+elabForm :: Parser (BS, (Bool, Form, Inf))
+elabForm = do
+  (nm, rl, f, Just (Genf "inference" [gt], Nothing)) <- anf
   sgn <- cast $ textParseBool rl
   inf <- cast $ gentParseInf gt
   unit (nm, (sgn, f, inf))
@@ -723,7 +734,7 @@ textParseBool _ = error "Cannot read Bool"
 --   mtx <- gTermsToMaybeBS gts
 --   return ((nm, pl, f), i, mtx)
 estp :: Parser ESTP
-estp = starMap elabStep M.empty
+estp = starMap elabForm M.empty
 
 
  -- case parse input t of
@@ -781,7 +792,7 @@ input = (AnfInput <$> anf) <|> inc
 
 runParser :: Parser a -> BS -> IO a
 runParser p bs = do
-  (rst, rem) <- cast $ parse p bs 
+  (rst, rem) <- cast $ parse p bs
   guard $ BS.null rem
   return rst
 
@@ -794,7 +805,7 @@ stext = Parser $
 
 rule :: Parser BS
 rule =
-  litRet "O" <|> litRet "I" <|> litRet "C" <|> litRet "D" <|> 
+  litRet "O" <|> litRet "I" <|> litRet "C" <|> litRet "D" <|>
   litRet "A" <|> litRet "F" <|> litRet "R" <|>
   litRet "=R" <|> litRet "=S" <|> litRet "=T" <|>
   litRet "~T" <|> litRet "~F" <|>
@@ -1001,86 +1012,12 @@ proofCheck' vb k bch "?F" = do
   proofCheck vb k bch False f'
 proofCheck' vb k bch _ = error "impossible case"
 
-
-{-
-
--- run :: BS -> Prob
--- run = runParser (ign >> prob)
-
-prob :: Parser Prob
-prob = star input
-
-parsePreInput :: PreInput -> IO [PreAF]
-parsePreInput (PreInc s) = do
-  tptp <- getEnv "TPTP"
-  s' <- cast $ unquote s
-  parsePreName $ tptp ++ "/" ++ bs2str s'
-parsePreInput (PreAnf n r f x) = return [(n, r, f, x)]
-
-
-
-
-parseForm :: BS -> Form
-parseForm tx =
-  case parse form tx of
-    Just (f, tx') -> if BS.null tx' then f else error ("parse-form failed, case 1 : " <> show tx)
-    _ -> error $ "parse-form failed, case 2 : " <> show tx
-
-parseName :: String -> IO [AF]
-parseName n = do
-  ps "Reading file as text...\n"
-  t <- BS.readFile n
-  ps "Parsing the text read...\n"
-  case parse ign t of
-    Just (i,s) -> parseBS s
-    _ -> ioError $ userError "Read filename, but failed to parse content"
-
-gTermsToMaybeBS :: Maybe [Gent] -> IO (Maybe BS)
-gTermsToMaybeBS Nothing = return nt
-gTermsToMaybeBS (Just [Genf tx []]) = return $ Just tx
-gTermsToMaybeBS _ = error "Cannot extact maybe text"
-
-
-sortAfs :: [AF] -> [AF]
-sortAfs = sortBy compareAfs
-
-compareAfs :: AF -> AF -> Ordering
-compareAfs (m :> ms, _, _, _) (n :> ns, _, _, _) =
-  case compare m n of
-    EQ ->
-      case (bs2int ms, bs2int ns) of
-        (Just i, Just j) -> compare i j
-        _ -> error "Cannot compare step names"
-    other -> other
-compareAfs _ _ = LT
-
-
-
-getInt :: Parser Int
-getInt = do
-  tx <- stext
-  cast $ bs2int tx
-
-getFunct :: Parser Funct
-getFunct = (char '#' >> (Idx <$> getInt)) <|> (Reg <$> stext)
-
-
-getSign :: Parser Bool
-getSign = (lit "T" >> return True) <|> (lit "F" >> return False)
-
-sterms :: Parser [Term]
-sterms = slist sterm
-
-sforms :: Parser [Form]
-sforms = slist sform
-
-
 proof :: Branch -> Bool -> Form -> Parser Proof
 proof bch sgn f = do
   nm <- stext
   -- trace ("Name : " ++ unpack nm ++ "\n") skip
-  let bch' = HM.insert nm (sgn, f) bch
-  r <- getRule <|> error "cannot read rule"
+  let bch' = M.insert nm (sgn, f) bch
+  r <- rule <|> error "cannot read rule"
   -- trace ("Rule : " ++ unpack r ++ "\n") skip
   proof' bch' (nm, sgn, f) r
 
@@ -1225,5 +1162,67 @@ proof' bch ni "?F" = do
   p <- proof bch False f'
   return $ ExF_ ni nm xs p
 proof' bch ni _ = error "invalid rule"
+
+
+{-
+
+-- run :: BS -> Prob
+-- run = runParser (ign >> prob)
+
+prob :: Parser Prob
+prob = star input
+
+parsePreInput :: PreInput -> IO [PreAF]
+parsePreInput (PreInc s) = do
+  tptp <- getEnv "TPTP"
+  s' <- cast $ unquote s
+  parsePreName $ tptp ++ "/" ++ bs2str s'
+parsePreInput (PreAnf n r f x) = return [(n, r, f, x)]
+
+
+
+
+parseForm :: BS -> Form
+parseForm tx =
+  case parse form tx of
+    Just (f, tx') -> if BS.null tx' then f else error ("parse-form failed, case 1 : " <> show tx)
+    _ -> error $ "parse-form failed, case 2 : " <> show tx
+
+parseName :: String -> IO [AF]
+parseName n = do
+  ps "Reading file as text...\n"
+  t <- BS.readFile n
+  ps "Parsing the text read...\n"
+  case parse ign t of
+    Just (i,s) -> parseBS s
+    _ -> ioError $ userError "Read filename, but failed to parse content"
+
+gTermsToMaybeBS :: Maybe [Gent] -> IO (Maybe BS)
+gTermsToMaybeBS Nothing = return nt
+gTermsToMaybeBS (Just [Genf tx []]) = return $ Just tx
+gTermsToMaybeBS _ = error "Cannot extact maybe text"
+
+
+
+
+
+getInt :: Parser Int
+getInt = do
+  tx <- stext
+  cast $ bs2int tx
+
+getFunct :: Parser Funct
+getFunct = (char '#' >> (Idx <$> getInt)) <|> (Reg <$> stext)
+
+
+getSign :: Parser Bool
+getSign = (lit "T" >> return True) <|> (lit "F" >> return False)
+
+sterms :: Parser [Term]
+sterms = slist sterm
+
+sforms :: Parser [Form]
+sforms = slist sform
+
 
 -}
