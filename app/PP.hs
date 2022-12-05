@@ -147,15 +147,12 @@ ppInf (EqS nm0 nm1) = ppApp "eqs" [ft nm0, ft nm1]
 ppInf (EqT nm0 nm1 nm2) = ppApp "eqt" [ft nm0, ft nm1, ft nm2]
 ppInf (NotT nh nc) = ppApp "nott" [ft nh, ft nc]
 ppInf (NotF nh nc) = ppApp "notf" [ft nh, ft nc]
-
 ppInf (OrT nh []) = ppApp "bott" [ft nh]
 ppInf (OrT nh ns) = ppApp "ort" [ft nh, ppList ft ns]
 ppInf (OrF nh k nc) =  ppApp "orf"  [ft nh, ppInt k, ft nc]
-
 ppInf (AndT nh k nc) = ppApp "andt" [ft nh, ppInt k, ft nc]
 ppInf (AndF nh []) = ppApp "topf" [ft nh]
 ppInf (AndF nh ns) = ppApp "andf" [ft nh, ppList ft ns]
-
 ppInf (ImpT nh n0 n1) = ppApp "impt" [ft nh, ft n0, ft n1]
 ppInf (ImpFA nh nc) = ppApp "impfa" [ft nh, ft nc]
 ppInf (ImpFC nh nc) = ppApp "impfc" [ft nh, ft nc]
@@ -166,8 +163,8 @@ ppInf (FaT nh xs nc) = ppApp "fat" [ft nh, ppList writeTerm xs, ft nc]
 ppInf (FaF nh k nc) = ppApp "faf" [ft nh, ppInt k, ft nc]
 ppInf (ExT nh k nc) = ppApp "ext" [ft nh, ppInt k, ft nc]
 ppInf (ExF nh xs nc) = ppApp "exf" [ft nh, ppList writeTerm xs, ft nc]
-ppInf (RelD nc) = ppApp "reld" [ft nc]
-ppInf (AoC x nc) = ppApp "aoc" [ppTerm x, ft nc]
+ppInf (RelD f nc) = ppApp "reld" [ppFormData f, ft nc]
+ppInf (AoC x f nc) = ppApp "aoc" [ppTerm x, ppFormData f, ft nc]
 ppInf Open = "open"
 
 ppSign :: Bool -> Builder
@@ -232,14 +229,8 @@ bconcat = L.foldr (<>) ""
 serProof' :: Proof -> Builder
 serProof' (Id_ _ nt nf) = "I" <> serBS nt <> serBS nf
 serProof' (Cut_ _ f pf pt) = "C" <> serForm f <> serProof pf <> serProof pt
-serProof' (RelD_ _ p) = 
- case proofRSF p of 
-  (True, f) -> "D" <> serForm f <> serProof p
-  _ -> error "F-signed definition"
-serProof' (AoC_ _ x p) = 
- case proofRSF p of 
-  (True, f) -> "A" <> serTerm x <> serForm f <> serProof p
-  _ -> error "F-signed choice axiom instance"
+serProof' (RelD_ _ f p) = "D" <> serForm f <> serProof p
+serProof' (AoC_ _ x f p) = "A" <> serTerm x <> serForm f <> serProof p
 serProof' (Open_ _) = "O"
 serProof' (FunC_ _ nts nf) = "F" <> serList serBS nts <> serBS nf
 serProof' (RelC_ _ nts nt nf) = "R" <> serList serBS nts <> serBS nt <> serBS nf

@@ -60,7 +60,7 @@ data Inf =
   | IffTO BS BS | IffTR BS BS | IffF BS BS BS
   | FaT BS [Term] BS | FaF BS Int BS
   | ExT BS Int BS | ExF BS [Term] BS
-  | RelD BS | AoC Term BS | Open
+  | RelD Form BS | AoC Term Form BS | Open
   deriving (Show)
 
 data Proof =
@@ -87,8 +87,8 @@ data Proof =
   | FaF_ Node BS Int Proof
   | ExT_ Node BS Int Proof
   | ExF_ Node BS [Term]Proof
-  | RelD_ Node Proof
-  | AoC_ Node Term Proof 
+  | RelD_ Node Form Proof
+  | AoC_ Node Term Form Proof 
   | Open_ Node
   deriving (Show)
   

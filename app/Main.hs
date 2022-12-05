@@ -66,8 +66,8 @@ assemble' mp ni (FaT nh xs nc) = FaT_ ni nh xs <$> assemble mp nc
 assemble' mp ni (FaF nh k nc) = FaF_ ni nh k <$> assemble mp nc
 assemble' mp ni (ExT nh k nc) = ExT_ ni nh k <$> assemble mp nc
 assemble' mp ni (ExF nh xs nc) = ExF_ ni nh xs <$> assemble mp nc
-assemble' mp ni (RelD nc) = RelD_ ni <$> assemble mp nc
-assemble' mp ni (AoC xs nc) = AoC_ ni xs <$> assemble mp nc
+assemble' mp ni (RelD f nc) = RelD_ ni f <$> assemble mp nc
+assemble' mp ni (AoC x f nc) = AoC_ ni x f <$> assemble mp nc
 assemble' mp ni Open = return $ Open_ ni
 
 assemble :: Sol -> BS -> IO Proof
@@ -99,8 +99,8 @@ linearize (FaT_ ni nm xs p) = (ni, FaT nm xs (proofRN p)) : linearize p
 linearize (FaF_ ni nm k p) = (ni, FaF nm k (proofRN p)) : linearize p
 linearize (ExT_ ni nm k p) = (ni, ExT nm k (proofRN p)) : linearize p
 linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p)) : linearize p
-linearize (RelD_ ni p) = (ni, RelD (proofRN p)) : linearize p
-linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p)) : linearize p
+linearize (RelD_ ni f p) = (ni, RelD f (proofRN p)) : linearize p
+linearize (AoC_ ni x f p) = (ni, AoC x f (proofRN p)) : linearize p
 linearize (Open_ ni) = [(ni, Open)]
 
 mainArgs :: [String] -> IO ()

@@ -530,8 +530,8 @@ proofRootNode (FaT_ ni nm xs p) = ni
 proofRootNode (FaF_ ni nm k p) = ni
 proofRootNode (ExT_ ni nm k p) = ni
 proofRootNode (ExF_ ni nm xs p) = ni
-proofRootNode (RelD_ ni p) = ni
-proofRootNode (AoC_ ni xs p) = ni
+proofRootNode (RelD_ ni _ p) = ni
+proofRootNode (AoC_ ni _ _ p) = ni
 proofRootNode (Open_ ni) = ni
 
 proofRN :: Proof -> BS
@@ -640,8 +640,8 @@ rootNode (FaT_ ni _ _ _) = ni
 rootNode (FaF_ ni _ _ _) = ni
 rootNode (ExT_ ni _ _ _) = ni
 rootNode (ExF_ ni _ _ _) = ni
-rootNode (RelD_ ni _) = ni
-rootNode (AoC_ ni _ _) = ni
+rootNode (RelD_ ni _ _) = ni
+rootNode (AoC_ ni _ _ _) = ni
 rootNode (Open_ ni) = ni
 
 conjecturize :: BS -> Form -> Form

@@ -700,11 +700,11 @@ gentParseInf (GenT "relc" [Genl gts, gt0, gt1]) = do
   m <- gentParseBS gt0
   n <- gentParseBS gt1
   return $ RelC nms m n
-gentParseInf (GenT "aoc" [gtx, gtn]) = do
+gentParseInf (GenT "aoc" [gtx, GenF f, gtn]) = do
   x <- gentParseTerm gtx
   nm <- gentParseBS gtn
-  return $ AoC x nm
-gentParseInf (GenT "reld" [gt]) = RelD <$> gentParseBS gt
+  return $ AoC x f nm
+gentParseInf (GenT "reld" [GenF f, gt]) = RelD f <$> gentParseBS gt
 gentParseInf (GenT "open" []) = return Open
 gentParseInf t = error $ "inf reader : " <> fromString (show t)
 
@@ -981,12 +981,12 @@ proof' bch ni "C" = do
 proof' bch ni "D" = do
   f <- sform
   p <- proof bch True f
-  return $ RelD_ ni p
+  return $ RelD_ ni f p
 proof' bch ni "A" = do
   x <- sterm
   f <- sform
   p <- proof bch True f
-  return $ AoC_ ni x p
+  return $ AoC_ ni x f p
 proof' bch ni "O" = return $ Open_ ni
 proof' bch ni "F" = do
   nms <- slist stext
