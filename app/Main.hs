@@ -106,7 +106,8 @@ linearize (Open_ ni) = [(ni, Open)]
 streamProof :: Handle -> [BS] -> BS.ByteString -> IO BS
 streamProof h [] bs = return bs
 streamProof h (nm : nms) bs = do
-  ((nm', (_, _, i)), bs') <- cast $ parse elabForm bs
+  ((nm', i), bs') <- cast $ parse elabForm' bs
+  -- ((nm', (_, _, i)), bs') <- cast $ parse elabForm bs
   guard $ nm == nm'
   BD.hPutBuilder h (serBS nm)
   let (ibs, pnms) = serInf i

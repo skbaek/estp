@@ -10,7 +10,8 @@ import Types
 import Basic
 
 import qualified Data.ByteString as BS
-  (uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head)
+  (drop, uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head)
+
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
 import Data.List (elem, foldl, map, sortBy, (\\))
 import Control.Applicative (Alternative, empty, (<|>))
@@ -494,51 +495,27 @@ inc = do
   ign
   unit (IncInput w)
 
--- preInput :: Parser PreInput
--- preInput = preAnf <|> preInc
--- 
--- preAnf :: Parser PreInput
--- preAnf = do
---   lit "cnf(" <|> lit "fof("
---   n <- name
---   lit ","
---   r <- lowerWord
---   lit ","
---   bs <- preForm
---   a <- annotations
---   lit ")"
---   lit "."
---   ign
---   unit (PreAnf n r bs a)
--- 
--- preForm :: Parser BS
--- preForm = Parser textParsePreForm
 
-
-
-
-textParsePreForm :: BS -> Maybe (BS, BS)
-textParsePreForm tx = do
+formTextCore :: BS -> Maybe ((), BS)
+formTextCore tx = do
   k <- formLength 0 tx
-  return $ BS.splitAt (fromIntegral k) tx
+  return ((), BS.drop k tx)
+
+formText :: Parser ()
+formText = Parser formTextCore
 
 formLength :: Int -> BS -> Maybe Int
-formLength 0 tx =
-  case bsrec tx of
-    Just (')', tx') -> Just 0
-    Just ('(', tx') -> succ <$> formLength 1 tx'
-    Just ('[', tx') -> succ <$> formLength 1 tx'
-    Just (_, tx') -> succ <$> formLength 0 tx'
-    _ -> Nothing
-formLength k tx =
-  case bsrec tx of
-    Just (')', tx') -> succ <$> formLength (k - 1) tx'
-    Just (']', tx') -> succ <$> formLength (k - 1) tx'
-    Just ('(', tx') -> succ <$> formLength (k + 1) tx'
-    Just ('[', tx') -> succ <$> formLength (k + 1) tx'
-    Just (_, tx') ->   succ <$> formLength k tx'
-    _ -> Nothing
-
+formLength 0 (')' :> _) = Just 0
+formLength 0 (',' :> _) = Just 0
+formLength 0 ('(' :> bs) = succ <$> formLength 1 bs
+formLength 0 ('[' :> bs) = succ <$> formLength 1 bs
+formLength 0 (_ :> bs) = succ <$> formLength 0 bs
+formLength k (')' :> bs) = succ <$> formLength (k - 1) bs
+formLength k (']' :> bs) = succ <$> formLength (k - 1) bs
+formLength k ('(' :> bs) = succ <$> formLength (k + 1) bs
+formLength k ('[' :> bs) = succ <$> formLength (k + 1) bs
+formLength k (_   :> bs) = succ <$> formLength k bs
+formLength _ _ = error "Cannot find formula length"
 
 readTptp :: String -> Prob -> IO Prob
 readTptp nm bch = do
@@ -573,6 +550,28 @@ starMap p = star p (uncurry insert)
 
 plusMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
 plusMap p = plus p (uncurry insert)
+
+-- elabForm' :: Parser (BS, Inf)
+-- elabForm' = do
+--   (nm, rl, f, Just (GenT "inference" [gt], Nothing)) <- anf
+--   sgn <- cast $ textParseBool rl
+--   inf <- cast $ gentParseInf gt
+--   unit (nm, (sgn, f, inf))
+
+elabForm' :: Parser (BS, Inf)
+elabForm' = do
+  lit "cnf(" <|> lit "fof("
+  n <- name
+  lit ","
+  _ <- lowerWord
+  lit ","
+  _ <- formText
+  Just (GenT "inference" [gt], Nothing) <- annotations
+  i <- cast $ gentParseInf gt
+  lit ")"
+  lit "."
+  ign
+  unit (n, i)
 
 elabForm :: Parser (BS, (Bool, Form, Inf))
 elabForm = do
