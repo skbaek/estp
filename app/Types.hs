@@ -35,14 +35,14 @@ data Form =
 (===) :: Term -> Term -> Form
 (===) = Eq
 
-
 data Input =
     AnfInput Anf
   | IncInput BS
   deriving Show
 
 data Gent =
-    Genf BS [Gent]
+    GenT BS [Gent]
+  | GenF Form
   | Genl [Gent]
   | Genn Int
   | Genv BS
@@ -52,7 +52,7 @@ data Inf =
     Id BS BS 
   | FunC [BS] BS | RelC [BS] BS BS
   | EqR BS | EqS BS BS | EqT BS BS BS
-  | Cut BS BS
+  | Cut Form BS BS
   | NotT BS BS | NotF BS BS
   | OrT BS [BS] | OrF BS Int BS 
   | AndT BS Int BS | AndF BS [BS]
@@ -65,7 +65,7 @@ data Inf =
 
 data Proof =
     Id_ Node BS BS 
-  | Cut_ Node Proof Proof
+  | Cut_ Node Form Proof Proof
   | FunC_ Node [BS] BS 
   | RelC_ Node [BS] BS BS
   | EqR_ Node BS 
@@ -94,7 +94,7 @@ data Proof =
   
 type Sol = Map BS (Bool, Form, Inf)
 type Prob = Map BS Form
-type Elab = (Node, Inf, Maybe BS)
+type Elab = (Node, Inf)
 type Branch = HM.Map BS (Bool, Form)
 type SignForm = (Bool, Form)
 type Ant = Maybe (Gent, Maybe [Gent])

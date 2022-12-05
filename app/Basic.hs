@@ -508,7 +508,7 @@ complementary _ _ = False
 
 proofRootNode :: Proof -> Node
 proofRootNode (Id_ ni nt nf) = ni
-proofRootNode (Cut_ ni p q) = ni
+proofRootNode (Cut_ ni _ p q) = ni
 proofRootNode (FunC_ ni xs nm) = ni
 proofRootNode (RelC_ ni xs nt nf) = ni
 proofRootNode (EqR_ ni nm) = ni
@@ -618,7 +618,7 @@ breakTrueEq _ = mzero
 
 rootNode :: Proof -> Node 
 rootNode (Id_ ni _ _) = ni
-rootNode (Cut_ ni _ _) = ni
+rootNode (Cut_ ni _ _ _) = ni
 rootNode (FunC_ ni _ _) = ni
 rootNode (RelC_ ni _ _ _) = ni
 rootNode (EqR_ ni _) = ni

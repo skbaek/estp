@@ -439,9 +439,10 @@ generalTermList = do
 generalTerm :: Parser Gent
 generalTerm =
   do { ts <- generalTermList ; unit (Genl ts) } <|>
-  do { f <- atomicWord ; ts <- gargs ; unit $ Genf f ts } <|>
+  do { f <- atomicWord ; ts <- gargs ; unit $ GenT f ts } <|>
   do { kt <- integer ; cast (bs2int kt) >>= (unit . Genn) } <|>
-  do { v <- upperWord ; unit (Genv v) }
+  do { v <- upperWord ; unit (Genv v) } <|>
+  do { lit "$fof(" ; f <- form ; lit ")" ; unit (GenF f) } 
 
 termInfixOpformLazy :: Term -> BS -> Parser Form
 termInfixOpformLazy t "=" = do
@@ -557,7 +558,7 @@ parseTptp bs bch = do
 
 addInput :: Input -> Prob -> IO Prob
 addInput (IncInput bs) bch = do
-  tptp <- getEnv "Prob"
+  tptp <- getEnv "TPTP"
   bs' <- cast $ unquote bs
   readTptp (tptp ++ "/" ++ bs2str bs') bch
 addInput (AnfInput (nm, rl, f, Nothing)) bch = do
@@ -575,7 +576,7 @@ plusMap p = plus p (uncurry insert)
 
 elabForm :: Parser (BS, (Bool, Form, Inf))
 elabForm = do
-  (nm, rl, f, Just (Genf "inference" [gt], Nothing)) <- anf
+  (nm, rl, f, Just (GenT "inference" [gt], Nothing)) <- anf
   sgn <- cast $ textParseBool rl
   inf <- cast $ gentParseInf gt
   unit (nm, (sgn, f, inf))
@@ -588,8 +589,8 @@ textToIdxFunct tx = do
 textParseFunct :: BS -> Maybe Funct
 textParseFunct tx = textToIdxFunct tx <|> return (Reg tx)
 
-gentParseTerm :: Gent-> Maybe Term
-gentParseTerm (Genf tx ts) = do
+gentParseTerm :: Gent -> Maybe Term
+gentParseTerm (GenT tx ts) = do
   f <- textParseFunct tx
   xs <- mapM gentParseTerm ts
   return $ Fun f xs
@@ -597,114 +598,114 @@ gentParseTerm (Genv v) = return $ Var v
 gentParseTerm _ = mzero
 
 gentParseBS :: Gent-> Maybe BS
-gentParseBS (Genf t []) = return t
+gentParseBS (GenT t []) = return t
 gentParseBS _ = mzero
 
-gentParseInf :: Gent-> Maybe Inf
-gentParseInf (Genf "cut" [gtf, gtt]) = do
+gentParseInf :: Gent -> Maybe Inf
+gentParseInf (GenT "cut" [GenF f, gtf, gtt]) = do
   nf <- gentParseBS gtf
   nt <- gentParseBS gtt
-  return $ Cut nf nt
-gentParseInf (Genf "id" [gt0, gt1]) = do
+  return $ Cut f nf nt
+gentParseInf (GenT "id" [gt0, gt1]) = do
   m <- gentParseBS gt0
   n <- gentParseBS gt1
   return $ Id m n
-gentParseInf (Genf "iffto" [gth, gtc]) = do
+gentParseInf (GenT "iffto" [gth, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ IffTO nh nc
-gentParseInf (Genf "ifftr" [gth, gtc]) = do
+gentParseInf (GenT "ifftr" [gth, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ IffTR nh nc
-gentParseInf (Genf "ifff" [gth, gt0, gt1]) = do
+gentParseInf (GenT "ifff" [gth, gt0, gt1]) = do
   nh <- gentParseBS gth
   n0 <- gentParseBS gt0
   n1 <- gentParseBS gt1
   return $ IffF nh n0 n1
-gentParseInf (Genf "impfa" [gth, gtc]) = do
+gentParseInf (GenT "impfa" [gth, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ ImpFA nh nc
-gentParseInf (Genf "impfc" [gth, gtc]) = do
+gentParseInf (GenT "impfc" [gth, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ ImpFC nh nc
-gentParseInf (Genf "impt" [gth, gt0, gt1]) = do
+gentParseInf (GenT "impt" [gth, gt0, gt1]) = do
   nh <- gentParseBS gth
   n0 <- gentParseBS gt0
   n1 <- gentParseBS gt1
   return $ ImpT nh n0 n1
-gentParseInf (Genf "bott" [gt]) = do
+gentParseInf (GenT "bott" [gt]) = do
   nm <- gentParseBS gt
   return $ OrT nm []
-gentParseInf (Genf "ort" [gt, Genl gts]) = do
+gentParseInf (GenT "ort" [gt, Genl gts]) = do
   nm <- gentParseBS gt
   nms <- mapM gentParseBS gts
   return $ OrT nm nms
-gentParseInf (Genf "orf" [gth, Genn k, gtc]) = do
+gentParseInf (GenT "orf" [gth, Genn k, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ OrF nh k nc
-gentParseInf (Genf "andt" [gth, Genn k, gtc]) = do
+gentParseInf (GenT "andt" [gth, Genn k, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ AndT nh k nc
-gentParseInf (Genf "topf" [gt]) = do
+gentParseInf (GenT "topf" [gt]) = do
   nm <- gentParseBS gt
   return $ AndF nm []
-gentParseInf (Genf "andf" [gt, Genl gts]) = do
+gentParseInf (GenT "andf" [gt, Genl gts]) = do
   nm <- gentParseBS gt
   nms <- mapM gentParseBS gts
   return $ AndF nm nms
-gentParseInf (Genf "faf" [gth, Genn k, gtc]) = do
+gentParseInf (GenT "faf" [gth, Genn k, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ FaF nh k nc
-gentParseInf (Genf "ext" [gth, Genn k, gtc]) = do
+gentParseInf (GenT "ext" [gth, Genn k, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ ExT nh k nc
-gentParseInf (Genf "fat" [gth, Genl gts, gtc]) = do
+gentParseInf (GenT "fat" [gth, Genl gts, gtc]) = do
   nh <- gentParseBS gth
   xs <- mapM gentParseTerm gts
   nc <- gentParseBS gtc
   return $ FaT nh xs nc
-gentParseInf (Genf "exf" [gth, Genl gts, gtc]) = do
+gentParseInf (GenT "exf" [gth, Genl gts, gtc]) = do
   nh <- gentParseBS gth
   xs <- mapM gentParseTerm gts
   nc <- gentParseBS gtc
   return $ ExF nh xs nc
-gentParseInf (Genf "nott" [gth, gtc]) = do
+gentParseInf (GenT "nott" [gth, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ NotT nh nc
-gentParseInf (Genf "notf" [gth, gtc]) = do
+gentParseInf (GenT "notf" [gth, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ NotF nh nc
-gentParseInf (Genf "eqr" [gt]) = EqR <$> gentParseBS gt
-gentParseInf (Genf "eqs" gts) = do
+gentParseInf (GenT "eqr" [gt]) = EqR <$> gentParseBS gt
+gentParseInf (GenT "eqs" gts) = do
   [nm0, nm1] <- mapM gentParseBS gts
   return $ EqS nm0 nm1
-gentParseInf (Genf "eqt" gts) = do
+gentParseInf (GenT "eqt" gts) = do
   [nm0, nm1, nm2] <- mapM gentParseBS gts
   return $ EqT nm0 nm1 nm2
-gentParseInf (Genf "func" [Genl gts, gt]) = do
+gentParseInf (GenT "func" [Genl gts, gt]) = do
   nms <- mapM gentParseBS gts
   nm <- gentParseBS gt
   return $ FunC nms nm
-gentParseInf (Genf "relc" [Genl gts, gt0, gt1]) = do
+gentParseInf (GenT "relc" [Genl gts, gt0, gt1]) = do
   nms <- mapM gentParseBS gts
   m <- gentParseBS gt0
   n <- gentParseBS gt1
   return $ RelC nms m n
-gentParseInf (Genf "aoc" [gtx, gtn]) = do
+gentParseInf (GenT "aoc" [gtx, gtn]) = do
   x <- gentParseTerm gtx
   nm <- gentParseBS gtn
   return $ AoC x nm
-gentParseInf (Genf "reld" [gt]) = RelD <$> gentParseBS gt
-gentParseInf (Genf "open" []) = return Open
+gentParseInf (GenT "reld" [gt]) = RelD <$> gentParseBS gt
+gentParseInf (GenT "open" []) = return Open
 gentParseInf t = error $ "inf reader : " <> fromString (show t)
 
 textParseBool :: BS -> Maybe Bool
@@ -976,7 +977,7 @@ proof' bch ni "C" = do
   f <- sform
   pf <- proof bch False f
   pt <- proof bch True f
-  return $ Cut_ ni pf pt
+  return $ Cut_ ni f pf pt
 proof' bch ni "D" = do
   f <- sform
   p <- proof bch True f

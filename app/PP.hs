@@ -97,7 +97,8 @@ ppObj :: [Form] -> Form -> Builder
 ppObj fs g = ppForms fs <> "\n---------------------------------------------------------------------\n" <> ppForm g <> "\n"
 
 ppGent :: Gent -> Builder
-ppGent (Genf f ts) = ft f <> ppArgs (L.map ppGent ts)
+ppGent (GenF f) = ppFormData f
+ppGent (GenT f ts) = ft f <> ppArgs (L.map ppGent ts)
 ppGent (Genl ts) = ppList id $ L.map ppGent ts
 ppGent (Genn k) = ppInt k
 ppGent (Genv v) = ft v
@@ -126,17 +127,19 @@ writeForm (Fa vs f) = "! " <> ppList ft vs <> " : " <> writeForm f
 writeForm (Ex vs f) = "? " <> ppList ft vs <> " : " <> writeForm f
 
 ppElab :: Elab -> Builder
-ppElab ((nm, sgn, f), i, Nothing) =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i]] <> "."
-ppElab ((nm, sgn, f), i, Just cmt) = ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i], ppList ft [cmt]] <> "."
+ppElab ((nm, sgn, f), i) =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i]] <> "."
 
 fmtAF :: Anf -> Builder
 fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
 fmtAF (nm, rl, f, Just (t, Nothing)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGent t]
 fmtAF (nm, rl, f, Just (t, Just ts)) = ppApp "fof" [ft nm, ft rl, ppForm f, ppGent t, ppList ppGent ts]
 
+ppFormData :: Form -> Builder
+ppFormData f = "$fof(" <> ppForm f <> ")"
+
 ppInf :: Inf -> Builder
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
-ppInf (Cut nf nt) = ppApp "cut" [ft nf, ft nt]
+ppInf (Cut f nf nt) = ppApp "cut" [ppFormData f, ft nf, ft nt]
 ppInf (FunC ns m) = ppApp "func" [ppList ft ns, ft m]
 ppInf (RelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]
 ppInf (EqR nm) = ppApp "eqr" [ft nm]
@@ -228,13 +231,7 @@ bconcat = L.foldr (<>) ""
 
 serProof' :: Proof -> Builder
 serProof' (Id_ _ nt nf) = "I" <> serBS nt <> serBS nf
-serProof' (Cut_ _ pf pt) =
-  case (proofRSF pf, proofRSF pt) of
-    ((False, f), (True, f')) ->
-      if f == f'
-        then "C" <> serForm f <> serProof pf <> serProof pt
-        else error "Cut formulas do not match"
-    _ -> error "Cut formulas do not have correct signs"
+serProof' (Cut_ _ f pf pt) = "C" <> serForm f <> serProof pf <> serProof pt
 serProof' (RelD_ _ p) = 
  case proofRSF p of 
   (True, f) -> "D" <> serForm f <> serProof p

@@ -36,10 +36,10 @@ assemble' mp ni (RelC nms nt nf) = return $ RelC_ ni nms nt nf
 assemble' mp ni (EqR nm) = return $ EqR_ ni nm
 assemble' mp ni (EqS nt nf) = return $ EqS_ ni nt nf
 assemble' mp ni (EqT nxy nyz nxz) = return $ EqT_ ni nxy nyz nxz
-assemble' mp ni (Cut nf nt) = do
+assemble' mp ni (Cut f nf nt) = do
   pf <- assemble mp nf
   pt <- assemble mp nt
-  return $ Cut_ ni pf pt
+  return $ Cut_ ni f pf pt
 assemble' mp ni (NotT nh nc) = NotT_ ni nh <$> assemble mp nc
 assemble' mp ni (NotF nh nc) = NotF_ ni nh <$> assemble mp nc
 assemble' mp ni (OrT nh ncs) = do
@@ -76,32 +76,32 @@ assemble mp nm = do
   assemble' mp (nm, b, f) i
 
 linearize :: Proof -> [Elab]
-linearize (Id_ ni nt nf) = [(ni, Id nt nf, Nothing)]
-linearize (Cut_ ni p q) = (ni, Cut (proofRN p) (proofRN q), Nothing) : linearize p ++ linearize q
-linearize (FunC_ ni xs nm) = [(ni, FunC xs nm, Nothing)]
-linearize (RelC_ ni xs nt nf) = [(ni, RelC xs nt nf, Nothing)]
-linearize (EqR_ ni nm) = [(ni, EqR nm, Nothing)]
-linearize (EqS_ ni nt nf) = [(ni, EqS nt nf, Nothing)]
-linearize (EqT_ ni nxy nyz nxz) = [(ni, EqT nxy nyz nxz, Nothing)]
-linearize (NotT_ ni nm p) = (ni, NotT nm (proofRN p), Nothing) : linearize p
-linearize (NotF_ ni nm p) = (ni, NotF nm (proofRN p), Nothing) : linearize p
-linearize (OrT_ ni nm ps) = (ni, OrT nm (L.map proofRN ps), Nothing) : L.concatMap linearize ps
-linearize (OrF_ ni nm k p) = (ni, OrF nm k (proofRN p), Nothing) : linearize p
-linearize (AndT_ ni nm k p) = (ni, AndT nm k (proofRN p), Nothing) : linearize p
-linearize (AndF_ ni nm ps) = (ni, AndF nm (L.map proofRN ps), Nothing) : L.concatMap linearize ps
-linearize (ImpT_ ni nm p q) = (ni, ImpT nm (proofRN p) (proofRN q), Nothing) : linearize p ++ linearize q
-linearize (ImpFA_ ni nm p) = (ni, ImpFA nm (proofRN p), Nothing) : linearize p
-linearize (ImpFC_ ni nm p) = (ni, ImpFC nm (proofRN p), Nothing) : linearize p
-linearize (IffTO_ ni nm p) = (ni, IffTO nm (proofRN p), Nothing) : linearize p
-linearize (IffTR_ ni nm p) = (ni, IffTR nm (proofRN p), Nothing) : linearize p
-linearize (IffF_ ni nm p q) = (ni, IffF nm (proofRN p) (proofRN q), Nothing) : linearize p ++ linearize q
-linearize (FaT_ ni nm xs p) = (ni, FaT nm xs (proofRN p), Nothing) : linearize p
-linearize (FaF_ ni nm k p) = (ni, FaF nm k (proofRN p), Nothing) : linearize p
-linearize (ExT_ ni nm k p) = (ni, ExT nm k (proofRN p), Nothing) : linearize p
-linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p), Nothing) : linearize p
-linearize (RelD_ ni p) = (ni, RelD (proofRN p), Nothing) : linearize p
-linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p), Nothing) : linearize p
-linearize (Open_ ni) = [(ni, Open, Nothing)]
+linearize (Id_ ni nt nf) = [(ni, Id nt nf)]
+linearize (Cut_ ni f p q) = (ni, Cut f (proofRN p) (proofRN q)) : linearize p ++ linearize q
+linearize (FunC_ ni xs nm) = [(ni, FunC xs nm)]
+linearize (RelC_ ni xs nt nf) = [(ni, RelC xs nt nf)]
+linearize (EqR_ ni nm) = [(ni, EqR nm)]
+linearize (EqS_ ni nt nf) = [(ni, EqS nt nf)]
+linearize (EqT_ ni nxy nyz nxz) = [(ni, EqT nxy nyz nxz)]
+linearize (NotT_ ni nm p) = (ni, NotT nm (proofRN p)) : linearize p
+linearize (NotF_ ni nm p) = (ni, NotF nm (proofRN p)) : linearize p
+linearize (OrT_ ni nm ps) = (ni, OrT nm (L.map proofRN ps)) : L.concatMap linearize ps
+linearize (OrF_ ni nm k p) = (ni, OrF nm k (proofRN p)) : linearize p
+linearize (AndT_ ni nm k p) = (ni, AndT nm k (proofRN p)) : linearize p
+linearize (AndF_ ni nm ps) = (ni, AndF nm (L.map proofRN ps)) : L.concatMap linearize ps
+linearize (ImpT_ ni nm p q) = (ni, ImpT nm (proofRN p) (proofRN q)) : linearize p ++ linearize q
+linearize (ImpFA_ ni nm p) = (ni, ImpFA nm (proofRN p)) : linearize p
+linearize (ImpFC_ ni nm p) = (ni, ImpFC nm (proofRN p)) : linearize p
+linearize (IffTO_ ni nm p) = (ni, IffTO nm (proofRN p)) : linearize p
+linearize (IffTR_ ni nm p) = (ni, IffTR nm (proofRN p)) : linearize p
+linearize (IffF_ ni nm p q) = (ni, IffF nm (proofRN p) (proofRN q)) : linearize p ++ linearize q
+linearize (FaT_ ni nm xs p) = (ni, FaT nm xs (proofRN p)) : linearize p
+linearize (FaF_ ni nm k p) = (ni, FaF nm k (proofRN p)) : linearize p
+linearize (ExT_ ni nm k p) = (ni, ExT nm k (proofRN p)) : linearize p
+linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p)) : linearize p
+linearize (RelD_ ni p) = (ni, RelD (proofRN p)) : linearize p
+linearize (AoC_ ni xs p) = (ni, AoC xs (proofRN p)) : linearize p
+linearize (Open_ ni) = [(ni, Open)]
 
 mainArgs :: [String] -> IO ()
 mainArgs ("assemble" : enm : anm : flags) = do
