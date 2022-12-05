@@ -26,7 +26,7 @@ import Data.List as L
 import Data.Set as S ( empty, insert, member, singleton, toList, fromList, Set, union, unions )
 import Data.Map as HM (Map, map, empty, insert, lookup, toList, foldrWithKey, size, fromList)
 import Data.Bifunctor as DBF (first, second, bimap)
-import System.IO as SIO ( openFile, hClose, IOMode(WriteMode), writeFile, Handle )
+import System.IO as SIO (openFile, hClose, IOMode(WriteMode), writeFile, Handle)
 import System.Timeout (timeout)
 
 assemble' :: Sol -> Node -> Inf -> IO Proof
@@ -103,20 +103,41 @@ linearize (RelD_ ni f p) = (ni, RelD f (proofRN p)) : linearize p
 linearize (AoC_ ni x f p) = (ni, AoC x f (proofRN p)) : linearize p
 linearize (Open_ ni) = [(ni, Open)]
 
-mainArgs :: [String] -> IO ()
-mainArgs ("assemble" : enm : anm : flags) = do
-  let vb = "silent" `notElem` flags
-  ps "Reading in elaborated formulas...\n"
+streamProof :: Handle -> [BS] -> BS.ByteString -> IO BS
+streamProof h [] bs = return bs
+streamProof h (nm : nms) bs = do
+  ((nm', (_, _, i)), bs') <- cast $ parse elabForm bs
+  guard $ nm == nm'
+  BD.hPutBuilder h (serBS nm)
+  let (ibs, pnms) = serInf i
+  BD.hPutBuilder h ibs
+  streamProof h (pnms ++ nms) bs'
+
+assemblePerm :: Bool -> String -> String -> IO ()
+assemblePerm vb enm anm = do
+  when vb $ ps "Reading in elaborated formulas...\n"
   estp <- readEstp enm
-  ps "Asssembling proof...\n"
+  when vb $ ps "Asssembling proof...\n"
   prf <- assemble estp "root"
-  ps "Writing proof to file...\n"
+  when vb $ ps "Writing proof to file...\n"
   writeProof anm prf
+
+assembleOrd :: String -> String -> IO ()
+assembleOrd enm anm = do
+  bs <- BS.readFile enm
+  h <- openFile anm WriteMode 
+  streamProof h ["root"] bs >>= guard . BS.null
+  hClose h
+
+mainArgs :: [String] -> IO ()
+mainArgs ("assemble" : enm : anm : flags) = 
+  let vb = "silent" `notElem` flags in
+  assembleOrd enm anm <|> assemblePerm vb enm anm
 mainArgs ("check" : pnm : anm : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ ps $ "Reading TPTP : " ++ pnm ++ " ...\n"
   tptp <- readTptp pnm HM.empty
-  let bch = HM.map (True,) tptp -- readBranch pnm HM.empty
+  let bch = HM.map (True,) tptp 
   when vb $ ps $ "Reading ASTP : " ++ anm ++ " ...\n"
   bs <- BS.readFile anm
   runParser (proofCheck vb 0 bch True (And [])) bs
@@ -125,7 +146,7 @@ mainArgs ("extract" : pnm : anm : enm : flags) = do
   let vb = "silent" `notElem` flags
   when vb $ ps $ "Reading TPTP : " ++ pnm ++ " ...\n"
   tptp <- readTptp pnm HM.empty
-  let bch = HM.map (True,) tptp -- readBranch pnm HM.empty
+  let bch = HM.map (True,) tptp 
   when vb $ ps $ "Reading ASTP : " ++ anm ++ " ...\n"
   bs <- BS.readFile anm
   prf <- runParser (proof bch True (And [])) bs 

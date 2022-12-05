@@ -254,6 +254,34 @@ serProof' (FaF_ ni nm k p) = "!F" <>  serBS nm <> serInt k <> serProof p
 serProof' (ExT_ ni nm k p) = "?T" <>  serBS nm <> serInt k <> serProof p
 serProof' (ExF_ ni nm xs p) = "?F" <>  serBS nm <> serList serTerm xs <> serProof p
 
+serInf :: Inf -> (Builder, [BS])
+serInf (Id nt nf) = ("I" <> serBS nt <> serBS nf, [])
+serInf (Cut f nf nt) = ("C" <> serForm f,[nf, nt])
+serInf (RelD f nm) = ("D" <> serForm f, [nm]) 
+serInf (AoC x f nm) = ("A" <> serTerm x <> serForm f, [nm])
+serInf Open = ("O", [])
+serInf (FunC nts nf) = ("F" <> serList serBS nts <> serBS nf, [])
+serInf (RelC nts nt nf) = ("R" <> serList serBS nts <> serBS nt <> serBS nf, [])
+serInf (EqR nf) = ("=R" <> serBS nf, [])
+serInf (EqS nt nf) = ("=S" <>  serBS nt <> serBS nf, [])
+serInf (EqT nxy nyz nxz) = ("=T" <>  serBS nxy <> serBS nyz <> serBS nxz, [])
+serInf (NotT nh np) = ("~T" <> serBS nh, [np])
+serInf (NotF nh np) = ("~F" <> serBS nh, [np])
+serInf (OrT nm nms) = ("|T" <> serBS nm, nms) 
+serInf (OrF nh k np) = ("|F" <> serBS nh <> serInt k, [np]) 
+serInf (AndT nh k np) = ("&T" <> serBS nh <> serInt k, [np])
+serInf (AndF nm nms) = ("&F" <> serBS nm, nms) 
+serInf (ImpT nm na nc) = (">T" <>  serBS nm, [na, nc])
+serInf (ImpFA nh np) = (">FA" <> serBS nh, [np])
+serInf (ImpFC nh np) = (">FC" <> serBS nh, [np])
+serInf (IffTO nh np) = ("^TO" <> serBS nh, [np])
+serInf (IffTR nh np) = ("^TR" <> serBS nh, [np])
+serInf (IffF nh no nr) = ("^F" <>  serBS nh, [no, nr])
+serInf (FaT nh xs np) = ("!T" <> serBS nh <> serList serTerm xs, [np])
+serInf (FaF nh k np) = ("!F" <> serBS nh <> serInt k, [np])
+serInf (ExT nh k np) = ("?T" <> serBS nh <> serInt k, [np])
+serInf (ExF nh xs np) = ("?F" <> serBS nh <> serList serTerm xs, [np])
+
 -- Diff display
 
 neqVars :: [BS] -> [BS] -> Builder
