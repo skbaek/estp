@@ -1,5 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use foldr" #-}
 {-# LANGUAGE LambdaCase #-}
@@ -89,6 +90,11 @@ zip3M :: (Monad m, Alternative m) => [a] -> [b] -> [c] -> m [(a, b, c)]
 zip3M [] [] [] = return []
 zip3M (x : xs) (y : ys) (z : zs) = zip3M xs ys zs <&> ((x, y, z) :)
 zip3M _ _ _ = A.empty
+
+substitute :: (Monad m, Alternative m) => [BS] -> [Term] -> Form -> m Form
+substitute vs xs f = do
+  vxs <- zipM vs xs
+  return $ substForm vxs f
 
 lookupM :: (Eq a, Ord a, MonadFail m) => a -> Map a b -> m b
 lookupM x h =
@@ -412,6 +418,9 @@ formPreds (Ex _ f) = formPreds f
 bs2str :: BS -> String 
 bs2str = L.map w2c . BS.unpack
 
+str2bs :: String -> BS
+str2bs = BS.pack . L.map c2w
+
 unquote :: BS -> Maybe BS
 unquote ('\'' :> bs) = do 
   (bs', '\'') <- DBF.second w2c <$> BS.unsnoc bs
@@ -671,3 +680,212 @@ formFreeVars (Imp f g) = mergeVars (formFreeVars f) (formFreeVars g)
 formFreeVars (Iff f g) = mergeVars (formFreeVars f) (formFreeVars g)
 formFreeVars (Fa vs f) = formFreeVars f \\ vs
 formFreeVars (Ex vs f) = formFreeVars f \\ vs
+
+assemble' :: Sol -> Node -> Inf -> IO Proof
+assemble' mp ni (Id nt nf) = return $ Id_ ni nt nf
+assemble' mp ni (FunC nms nm) = return $ FunC_ ni nms nm
+assemble' mp ni (RelC nms nt nf) = return $ RelC_ ni nms nt nf
+assemble' mp ni (EqR nm) = return $ EqR_ ni nm
+assemble' mp ni (EqS nt nf) = return $ EqS_ ni nt nf
+assemble' mp ni (EqT nxy nyz nxz) = return $ EqT_ ni nxy nyz nxz
+assemble' mp ni (Cut f nf nt) = do
+  pf <- assemble mp nf
+  pt <- assemble mp nt
+  return $ Cut_ ni f pf pt
+assemble' mp ni (NotT nh nc) = NotT_ ni nh <$> assemble mp nc
+assemble' mp ni (NotF nh nc) = NotF_ ni nh <$> assemble mp nc
+assemble' mp ni (OrT nh ncs) = do
+  ps <- mapM (assemble mp) ncs
+  return $ OrT_ ni nh ps
+assemble' mp ni (OrF nh k nc) = OrF_ ni nh k <$> assemble mp nc
+assemble' mp ni (AndT nh k nc) = AndT_ ni nh k <$> assemble mp nc
+assemble' mp ni (AndF nh ncs) = do
+  ps <- mapM (assemble mp) ncs
+  return $ AndF_ ni nh ps
+assemble' mp ni (ImpT nh na nc) = do
+  pa <- assemble mp na
+  pc <- assemble mp nc
+  return $ ImpT_ ni nh pa pc
+assemble' mp ni (ImpFA nh nc) = ImpFA_ ni nh <$> assemble mp nc
+assemble' mp ni (ImpFC nh nc) = ImpFC_ ni nh <$> assemble mp nc
+assemble' mp ni (IffTO nh nc) = IffTO_ ni nh <$> assemble mp nc
+assemble' mp ni (IffTR nh nc) = IffTR_ ni nh <$> assemble mp nc
+assemble' mp ni (IffF nh no nr) = do
+  po <- assemble mp no
+  pr <- assemble mp nr
+  return $ IffF_ ni nh po pr
+assemble' mp ni (FaT nh xs nc) = FaT_ ni nh xs <$> assemble mp nc
+assemble' mp ni (FaF nh k nc) = FaF_ ni nh k <$> assemble mp nc
+assemble' mp ni (ExT nh k nc) = ExT_ ni nh k <$> assemble mp nc
+assemble' mp ni (ExF nh xs nc) = ExF_ ni nh xs <$> assemble mp nc
+assemble' mp ni (RelD f nc) = RelD_ ni f <$> assemble mp nc
+assemble' mp ni (AoC x f nc) = AoC_ ni x f <$> assemble mp nc
+assemble' mp ni Open = return $ Open_ ni
+
+assemble :: Sol -> BS -> IO Proof
+assemble mp nm = do
+  (b, f, i) <- cast (HM.lookup nm mp)
+  assemble' mp (nm, b, f) i
+
+hasOpen :: Proof -> Bool
+hasOpen Id_ {} = False
+hasOpen (Cut_ _ _ pf pt) = hasOpen pf || hasOpen pt
+hasOpen (RelD_ _ f p) =  hasOpen p
+hasOpen (AoC_ _ x f p) = hasOpen p
+hasOpen (Open_ _) = True
+hasOpen (FunC_ _ nts nf) = False
+hasOpen (RelC_ _ nts nt nf) = False
+hasOpen (EqR_ ni nf) = False
+hasOpen (EqS_ ni nt nf) = False
+hasOpen (EqT_ ni nxy nyz nxz) = False
+hasOpen (NotT_ ni nm p) = hasOpen p
+hasOpen (NotF_ ni nm p) = hasOpen p
+hasOpen (OrT_ ni nm ps) = L.any hasOpen ps
+hasOpen (OrF_ ni nm k p) = hasOpen p
+hasOpen (AndT_ ni nm k p) = hasOpen p
+hasOpen (AndF_ ni nm ps) = L.any hasOpen ps
+hasOpen (ImpT_ ni nm pa pc) = hasOpen pa || hasOpen pc
+hasOpen (ImpFA_ ni nm p) = hasOpen p
+hasOpen (ImpFC_ ni nm p) = hasOpen p
+hasOpen (IffTO_ ni nm p) = hasOpen p
+hasOpen (IffTR_ ni nm p) = hasOpen p
+hasOpen (IffF_ ni nm po pr) = hasOpen po || hasOpen pr
+hasOpen (FaT_ ni nm xs p) = hasOpen p
+hasOpen (FaF_ ni nm k p) = hasOpen p
+hasOpen (ExT_ ni nm k p) = hasOpen p
+hasOpen (ExF_ ni nm xs p) = hasOpen p
+
+countOpen :: Proof -> (Int, Int)
+countOpen (OrT_ _ _ []) = (0, 0)
+countOpen (AoC_ _ _ _ p) = countOpen p
+countOpen (RelD_ _ _ p) = countOpen p
+countOpen (Cut_ _ _ pf pt) = 
+  let (co, ct) = countOpen pt in 
+  let incr = if hasOpen pf then 1 else 0 in
+  (co + incr, ct + 1)
+countOpen p = error $ "Final step is not BotT : " ++ show p
+
+proofCheck ::  Int -> Branch -> SignForm -> Proof -> IO ()
+proofCheck k bch sf prf = do
+  let nm = proofRN prf
+  let bch' = HM.insert nm sf bch 
+  proofCheck' k bch' prf
+
+proofCheck' :: Int -> Branch -> Proof -> IO ()
+proofCheck' _ bch (Id_ _ nt nf) = do 
+  tf <- cast $ HM.lookup nt bch
+  ff <- cast $ HM.lookup nf bch
+  guard $ complementary tf ff
+proofCheck' k bch (Cut_ _ f pt pf) = do 
+  proofCheck k bch (False, f) pt
+  proofCheck k bch (True, f) pf
+proofCheck' k bch (RelD_ _ f prf) = do 
+  k' <- cast $ checkRelD k f
+  proofCheck k' bch (True, f) prf
+proofCheck' k bch (AoC_ _ x f prf) = do 
+  k' <- cast $ checkAoC k x f
+  proofCheck k' bch (True, f) prf
+proofCheck' k bch (OrT_ _ nm prfs) = do 
+  (True, Or fs) <- cast $ HM.lookup nm bch 
+  mapM2 (proofCheck k bch . (True,)) fs prfs
+  skip
+proofCheck' k bch (OrF_ _ nm m prf) = do 
+  (False, Or fs) <- cast $ HM.lookup nm bch 
+  f <- cast $ nth m fs 
+  proofCheck k bch (False, f) prf
+proofCheck' k bch (AndT_ _ nm m prf) = do 
+  (True, And fs) <- cast $ HM.lookup nm bch 
+  f <- cast $ nth m fs 
+  proofCheck k bch (True, f) prf
+proofCheck' k bch (AndF_ _ nm prfs) = do 
+  (False, And fs) <- cast $ HM.lookup nm bch 
+  mapM2 (proofCheck k bch . (False,)) fs prfs
+  skip
+proofCheck' k bch (ImpT_ _ nm pa pc) = do 
+  (True, Imp f g) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (False, f) pa
+  proofCheck k bch (True, g) pc
+proofCheck' k bch (ImpFA_ _ nm prf) = do 
+  (False, Imp f _) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (True, f) prf
+proofCheck' k bch (ImpFC_ _ nm prf) = do 
+  (False, Imp _ g) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (False, g) prf
+proofCheck' k bch (IffTO_ _ nm prf) = do 
+  (True, Iff f g) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (True, Imp f g) prf
+proofCheck' k bch (IffTR_ _ nm prf) = do 
+  (True, Iff f g) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (True, Imp g f) prf
+proofCheck' k bch (IffF_ _ nm po pr) = do 
+  (False, Iff f g) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (False, Imp f g) po
+  proofCheck k bch (False, Imp g f) pr
+proofCheck' k bch (NotT_ _ nm prf) = do 
+  (True, Not f) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (False, f) prf
+proofCheck' k bch (NotF_ _ nm prf) = do 
+  (False, Not f) <- cast $ HM.lookup nm bch 
+  proofCheck k bch (True, f) prf
+proofCheck' k bch (FunC_  _ nms nm) = do 
+  (False, Eq (Fun f xs) (Fun g ys)) <- cast $ HM.lookup nm bch 
+  guard $ f == g
+  seqs <- cast $ mapM (`HM.lookup` bch) nms
+  xys <- cast $ mapM breakTrueEq seqs
+  xys' <- zipM xs ys
+  guard $ xys == xys'
+proofCheck' k bch (RelC_  _ nms nt nf) = do 
+  (True, Rel r xs) <- cast $ HM.lookup nt bch 
+  (False, Rel s ys) <- cast $ HM.lookup nf bch 
+  guard $ r == s
+  seqs <- cast $ mapM (`HM.lookup` bch) nms
+  xys <- cast $ mapM breakTrueEq seqs
+  xys' <- zipM xs ys
+  guard $ xys == xys'
+proofCheck' k bch (EqR_ _ nm) = do 
+  (False, Eq x y) <- cast $ HM.lookup nm bch
+  guard $ x == y
+proofCheck' k bch (EqS_ _ nt nf) = do 
+  (True, Eq x y) <- cast $ HM.lookup nt bch 
+  (False, Eq y' x') <- cast $ HM.lookup nf bch 
+  guard $ x == x' && y == y'
+proofCheck' k bch (EqT_ _ nxy nyz nxz) = do 
+  (True, Eq x y) <- cast $ HM.lookup nxy bch 
+  (True, Eq y' z) <- cast $ HM.lookup nyz bch 
+  (False, Eq x' z') <- cast $ HM.lookup nxz bch 
+  guard $ x == x' && y == y' && z == z'
+proofCheck' k bch (FaT_ _ nm xs prf) = do 
+  (True, Fa vs f) <- cast $ HM.lookup nm bch 
+  vxs <- zipM vs xs 
+  let f' = substForm vxs f
+  proofCheck k bch (True, f') prf
+proofCheck' k bch (FaF_ _ nm m prf) = do 
+  guard $ k <= m
+  (False, Fa vs f) <- cast $ HM.lookup nm bch 
+  let (k', xs) = listPars m vs
+  vxs <- zipM vs xs <|> error "FaF'-fail : cannot zip"
+  let f' = substForm vxs f
+  proofCheck k' bch (False, f') prf
+proofCheck' k bch (ExT_ _ nm m prf) = do 
+  guard $ k <= m
+  (True, Ex vs f) <- cast $ HM.lookup nm bch 
+  let (k', xs) = listPars m vs
+  vxs <- zipM vs xs 
+  let f' = substForm vxs f
+  proofCheck k' bch (True, f') prf
+proofCheck' k bch (ExF_ _ nm xs prf) = do 
+  (False, Ex vs f) <- cast $ HM.lookup nm bch 
+  vxs <- zipM vs xs 
+  let f' = substForm vxs f
+  proofCheck k bch (False, f') prf
+proofCheck' _ _ (Open_ _) = skip
+
+(<$$>) :: (Monad m) => (a -> b -> c) -> m a -> m b -> m c
+(<$$>) f g h = do
+  x <- g
+  f x <$> h
+
+(<$$$>) :: (Monad m) => (a -> b -> c -> d) -> m a -> m b -> m c -> m d
+(<$$$>) f g h i = do
+  x <- g
+  (f x <$$> h) i

@@ -8,21 +8,23 @@ module Parse where
 
 import Types
 import Basic
+import PP (ppSign, ppElab, ppApp, writeForm, ppList, ppTerm, ft)
 
 import qualified Data.ByteString as BS
   (drop, uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head)
-
+import Data.ByteString.Builder (Builder, hPutBuilder)
 import Data.Char (isDigit, isLower, isUpper, isAlphaNum)
-import Data.List (elem, foldl, map, sortBy, (\\))
+import Data.List (elem, foldl, map, sortBy, (\\), any)
 import Control.Applicative (Alternative, empty, (<|>))
 import System.Environment (getEnv, unsetEnv)
-import Control.Monad ( MonadPlus(mzero), guard, when, mzero )
+import Control.Monad ( MonadPlus(mzero), guard, when, mzero, foldM)
 import Data.Functor ((<&>))
 import Data.Set (Set, member)
 import Data.String (fromString)
 import Debug.Trace (trace)
 import Data.Map as M (Map, empty, lookup, insert)
 import qualified Data.Bifunctor as DBF
+import System.IO (Handle, hClose)
 
 
 
@@ -105,7 +107,7 @@ commitParse p q = cutParse p (const q)
 --     some_v = (:) <$> v <*> starPlus
 
 ordPlusL :: Parser a -> Parser [a]
-ordPlusL p = do 
+ordPlusL p = do
   x <- p
   (x :) <$> ordStarL p
 
@@ -443,7 +445,7 @@ generalTerm =
   do { f <- atomicWord ; ts <- gargs ; unit $ GenT f ts } <|>
   do { kt <- integer ; cast (bs2int kt) >>= (unit . Genn) } <|>
   do { v <- upperWord ; unit (Genv v) } <|>
-  do { lit "$fof(" ; f <- form ; lit ")" ; unit (GenF f) } 
+  do { lit "$fof(" ; f <- form ; lit ")" ; unit (GenF f) }
 
 termInfixOpformLazy :: Term -> BS -> Parser Form
 termInfixOpformLazy t "=" = do
@@ -546,22 +548,15 @@ readEstp :: String -> IO Sol
 readEstp n = BS.readFile n >>= runParser (ign >> estp)
 
 starMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
-starMap p = star p (uncurry insert) 
+starMap p = star p (uncurry insert)
 
 plusMap :: (Ord k) => Parser (k, v) -> Map k v -> Parser (Map k v)
 plusMap p = plus p (uncurry insert)
 
--- elabForm' :: Parser (BS, Inf)
--- elabForm' = do
---   (nm, rl, f, Just (GenT "inference" [gt], Nothing)) <- anf
---   sgn <- cast $ textParseBool rl
---   inf <- cast $ gentParseInf gt
---   unit (nm, (sgn, f, inf))
-
-elabForm' :: Parser (BS, Inf)
-elabForm' = do
+elabFormInf :: Parser Inf
+elabFormInf = do
   lit "cnf(" <|> lit "fof("
-  n <- name
+  _ <- name
   lit ","
   _ <- lowerWord
   lit ","
@@ -571,7 +566,7 @@ elabForm' = do
   lit ")"
   lit "."
   ign
-  unit (n, i)
+  unit i
 
 elabForm :: Parser (BS, (Bool, Form, Inf))
 elabForm = do
@@ -723,16 +718,11 @@ parseSingleQuote _ = mzero
 
 anf :: Parser Anf
 anf = do
-  lit "cnf(" <|> lit "fof("
-  n <- name
-  lit ","
-  r <- lowerWord
-  lit ","
-  f <- form
+  n <- (lit "cnf(" <|> lit "fof(") >> name
+  r <- lit "," >> lowerWord
+  f <- lit "," >> form
   a <- annotations
-  lit ")"
-  lit "."
-  ign
+  lit ")" >> lit "." >> ign
   unit (n, r, f, a)
 
 input :: Parser Input
@@ -743,13 +733,6 @@ runParser p bs = do
   (rst, rem) <- cast $ parse p bs
   guard $ BS.null rem
   return rst
-
-stext :: Parser BS
-stext = Parser $
-  \ tx ->
-    case BS.break ((== '.') . w2c) tx of
-      (pfx, _ :> sfx) -> Just (pfx, sfx)
-      _ -> error "No full stop found"
 
 rule :: Parser BS
 rule =
@@ -764,12 +747,6 @@ rule =
   litRet "!T" <|> litRet "!F" <|>
   litRet "?T" <|> litRet "?F"
 
-proofCheck :: Bool -> Int -> Branch -> Bool -> Form -> Parser ()
-proofCheck vb k bch sgn f = do
-  nm <- stext
-  let bch' = M.insert nm (sgn, f) bch
-  r <- rule <|> error "cannot read rule"
-  proofCheck' vb k bch' r
 
 fetch :: (MonadFail m) => Branch -> BS -> m SignForm
 fetch bch nm = cast (M.lookup nm bch)
@@ -778,332 +755,293 @@ pguard :: String -> Bool -> Parser ()
 pguard tx True = skip
 pguard tx False = error tx
 
-sform :: Parser Form
-sform = item >>= sform'
+linearize :: Proof -> [Elab]
+linearize (Id_ ni nt nf) = [(ni, Id nt nf)]
+linearize (Cut_ ni f p q) = (ni, Cut f (proofRN p) (proofRN q)) : linearize p ++ linearize q
+linearize (FunC_ ni xs nm) = [(ni, FunC xs nm)]
+linearize (RelC_ ni xs nt nf) = [(ni, RelC xs nt nf)]
+linearize (EqR_ ni nm) = [(ni, EqR nm)]
+linearize (EqS_ ni nt nf) = [(ni, EqS nt nf)]
+linearize (EqT_ ni nxy nyz nxz) = [(ni, EqT nxy nyz nxz)]
+linearize (NotT_ ni nm p) = (ni, NotT nm (proofRN p)) : linearize p
+linearize (NotF_ ni nm p) = (ni, NotF nm (proofRN p)) : linearize p
+linearize (OrT_ ni nm ps) = (ni, OrT nm (map proofRN ps)) : concatMap linearize ps
+linearize (OrF_ ni nm k p) = (ni, OrF nm k (proofRN p)) : linearize p
+linearize (AndT_ ni nm k p) = (ni, AndT nm k (proofRN p)) : linearize p
+linearize (AndF_ ni nm ps) = (ni, AndF nm (map proofRN ps)) : concatMap linearize ps
+linearize (ImpT_ ni nm p q) = (ni, ImpT nm (proofRN p) (proofRN q)) : linearize p ++ linearize q
+linearize (ImpFA_ ni nm p) = (ni, ImpFA nm (proofRN p)) : linearize p
+linearize (ImpFC_ ni nm p) = (ni, ImpFC nm (proofRN p)) : linearize p
+linearize (IffTO_ ni nm p) = (ni, IffTO nm (proofRN p)) : linearize p
+linearize (IffTR_ ni nm p) = (ni, IffTR nm (proofRN p)) : linearize p
+linearize (IffF_ ni nm p q) = (ni, IffF nm (proofRN p) (proofRN q)) : linearize p ++ linearize q
+linearize (FaT_ ni nm xs p) = (ni, FaT nm xs (proofRN p)) : linearize p
+linearize (FaF_ ni nm k p) = (ni, FaF nm k (proofRN p)) : linearize p
+linearize (ExT_ ni nm k p) = (ni, ExT nm k (proofRN p)) : linearize p
+linearize (ExF_ ni nm xs p) = (ni, ExF nm xs (proofRN p)) : linearize p
+linearize (RelD_ ni f p) = (ni, RelD f (proofRN p)) : linearize p
+linearize (AoC_ ni x f p) = (ni, AoC x f (proofRN p)) : linearize p
+linearize (Open_ ni) = [(ni, Open)]
 
-sterm :: Parser Term
-sterm = item >>= sterm'
+orCount :: Parser Bool -> Parser Bool -> Parser Bool
+orCount p q = do
+  bp <- p
+  bq <- q
+  unit $ bp || bq
 
-sterm' :: Char -> Parser Term
-sterm' '$' = Var <$> stext
-sterm' '@' = do
-  f <- getFunct
-  Fun f <$> slist sterm
-sterm' _ = error "cannot get term"
+count :: (Int, Int) -> Branch -> Parser (Int, Int)
+count pr@(oc, tc) bch_ = do
+  trace "Counting...\n" skip
+  (nm, (sgn, f, i)) <- elabForm
+  let bch = M.insert nm (sgn, f) bch_
+  case i of
+    OrT _ _ -> unit pr
+    Cut {} -> do 
+      b <- subCount bch False
+      count (oc + if b then 1 else 0, tc + 1) bch
+    RelD _ _ -> count pr bch
+    AoC {} -> count pr bch
+    _ -> error "invalid proof structure"
 
-slist :: Parser a -> Parser [a]
-slist p = (char '.' >> unit []) <|>
-  ( do char ','
-       x <- p
-       xs <- slist p
-       unit (x : xs) )
+subCount :: Branch -> Bool -> Parser Bool
+subCount bch_ op = do
+  (nm, (sgn, f, i)) <- elabForm
+  let bch = M.insert nm (sgn, f) bch_
+  case i of
+    Id nt nf -> unit op
+    Cut f nf nt -> subCount bch op >>= subCount bch
+    RelD f nm -> subCount bch op
+    AoC x f nm -> subCount bch op
+    Open -> unit True
+    FunC nms nm -> unit op
+    RelC nts nt nf -> unit op
+    EqR nm -> unit op
+    EqS nt nf -> unit op
+    EqT nxy nyz nxz -> unit op
+    NotT nm _ -> subCount bch op
+    NotF nm _ -> subCount bch op
+    OrT nm _ -> do
+      (True, Or fs) <- fetch bch nm
+      foldM (\ b_ _ -> subCount bch b_) op fs
+    OrF nm m _ -> subCount bch op
+    AndT nm m _ -> subCount bch op
+    AndF nm _ -> do
+      (False, And fs) <- fetch bch nm
+      foldM (\ b_ _ -> subCount bch b_) op fs
+    ImpT nm _ _ -> subCount bch op >>= subCount bch
+    ImpFA nm _ -> subCount bch op
+    ImpFC nm _ -> subCount bch op
+    IffTO nm _ -> subCount bch op
+    IffTR nm _ -> subCount bch op
+    IffF nm _ _ -> subCount bch op >>= subCount bch
+    FaT nm xs _ -> subCount bch op
+    FaF nm m _ -> subCount bch op
+    ExT nm m _ -> subCount bch op
+    ExF nm xs _ -> subCount bch op
 
-getInt :: Parser Int
-getInt = do
-  tx <- stext
-  cast $ bs2int tx
+check :: Int -> Branch -> BS -> Bool -> Form -> Parser ()
+check k b0 n0 s0 f0 = do
+  let bch = M.insert n0 (s0, f0) b0
+  i <- elabFormInf
+  case i of
+    Id nt nf -> do
+      (True, f) <- fetch bch nt
+      (False, g) <- fetch bch nf
+      guard $ f == g
+    Cut f nf nt -> do
+      check k bch nf False f
+      check k bch nt True f
+    RelD f n -> do
+      k' <- cast $ checkRelD k f
+      check k' bch n True f
+    AoC x f nm -> do
+      k' <- cast $ checkAoC k x f
+      check k' bch nm True f
+    Open -> return ()
+    FunC nms nm -> do
+      eqns <- mapM (fetch bch) nms
+      (False, Eq (Fun f xs) (Fun g ys)) <- fetch bch nm
+      guard $ f == g
+      xys <- cast $ mapM breakTrueEq eqns
+      xys' <- zipM xs ys
+      guard $ xys == xys'
+    RelC nts nt nf -> do
+      eqns <- mapM (fetch bch) nts
+      (True, Rel r xs) <- fetch bch nt
+      (False, Rel s ys) <- fetch bch nf
+      guard $ r == s
+      xys <- cast $ mapM breakTrueEq eqns
+      xys' <- zipM xs ys
+      guard $ xys == xys'
+    EqR nm -> do
+      (False, Eq x y) <- fetch bch nm
+      guard $ x == y
+    EqS nt nf -> do
+      (True, Eq x y) <- fetch bch nt
+      (False, Eq y' x') <- fetch bch nf
+      guard $ x == x' && y == y'
+    EqT nxy nyz nxz -> do
+      (True, Eq x y) <- fetch bch nxy
+      (True, Eq y' z) <- fetch bch nyz
+      (False, Eq x' z') <- fetch bch nxz
+      guard $ x == x' && y == y' && z == z'
+    NotT nh np -> do
+      (True, Not f) <- fetch bch nh
+      check k bch np False f
+    NotF nh np -> do
+      (False, Not f) <- fetch bch nh
+      check k bch np True f
+    OrT nh nps -> do
+      (True, Or fs) <- fetch bch nh
+      mapM2 (flip (check k bch) True) nps fs
+      skip
+    OrF nm m np -> do
+      (False, Or fs) <- fetch bch nm
+      f <- cast $ nth m fs
+      check k bch np False f
+    AndT nm m np -> do
+      (True, And fs) <- fetch bch nm
+      f <- cast $ nth m fs
+      check k bch np True f
+    AndF nm nps -> do
+      (False, And fs) <- fetch bch nm
+      mapM2 (flip (check k bch) False) nps fs
+      skip
+    ImpT nm na nc -> do
+      (True, Imp f g) <- fetch bch nm
+      check k bch na False f
+      check k bch nc True g
+    ImpFA nm np -> do
+      (sgn, Imp f _) <- fetch bch nm
+      check k bch np True f
+    ImpFC nm np -> do
+      (sgn, Imp _ g) <- fetch bch nm
+      check k bch np False g
+    IffTO nm np -> do
+      (True, Iff f g) <- fetch bch nm
+      check k bch np True (f ==> g)
+    IffTR nm np -> do
+      (True, Iff f g) <- fetch bch nm
+      check k bch np True (g ==> f)
+    IffF nm no nr -> do
+      (False, Iff f g) <- fetch bch nm
+      check k bch no False (f ==> g)
+      check k bch nr False (g ==> f)
+    FaT nm xs np -> do
+      (True, Fa vs f) <- fetch bch nm
+      vxs <- zipM vs xs
+      let f' = substForm vxs f
+      check k bch np True f'
+    FaF nm m np -> do
+      (False, Fa vs f) <- fetch bch nm
+      guard $ k <= m
+      let (k', xs) = listPars m vs
+      f' <- substitute vs xs f
+      check k' bch np False f'
+    ExT nm m np -> do
+      (True, Ex vs f) <- fetch bch nm
+      guard $ k <= m
+      let (k', xs) = listPars m vs
+      vxs <- zipM vs xs
+      let f' = substForm vxs f
+      check k' bch np True f'
+    ExF nm xs np -> do
+      (False, Ex vs f) <- fetch bch nm
+      vxs <- zipM vs xs
+      let f' = substForm vxs f
+      check k bch np False f'
 
-getFunct :: Parser Funct
-getFunct = (char '#' >> (Idx <$> getInt)) <|> (Reg <$> stext)
-sform' :: Char -> Parser Form
-sform' '=' = do
-  x <- sterm
-  y <- sterm
-  unit $ Eq x y
-sform' '@' = do
-  r <- getFunct
-  Rel r <$> slist sterm
-sform' '~' = Not <$> sform
-sform' '|' = Or <$> slist sform
-sform' '&' = And <$> slist sform
-sform' '>' = do
-  f <- sform
-  g <- sform
-  unit $ Imp f g
-sform' '^' = do
-  f <- sform
-  g <- sform
-  unit $ Iff f g
-sform' '!' = do
-  vs <- slist stext
-  Fa vs <$> sform
-sform' '?' = do
-  vs <- slist stext
-  Ex vs <$> sform
-sform' c = error $ "invalid head character : " <> [c]
+-- convert :: Handle -> Branch -> BS -> IO ()
+-- convert h bch bs 
+--   | BS.null bs = skip 
+--   | otherwise = do 
+--       ((nm, (sgn, f, i)), bs') <- cast $ parse elabForm bs
+--       hPutBuilder h $ ppElabConv ((nm, sgn, f), i)
+--       convert h bs'
+-- 
 
-proofCheck' :: Bool -> Int -> Branch -> BS -> Parser ()
-proofCheck' vb k bch "I" = do
-  nt <- stext
-  nf <- stext
-  ft <- fetch bch nt
-  ff <- fetch bch nf
-  pguard "id-fail" $ complementary ft ff
-proofCheck' vb k bch "C" = do
-  f <- sform
-  proofCheck vb k bch False f
-  proofCheck vb k bch True f
-proofCheck' vb k bch "D" = do
-  f <- sform
-  k' <- cast $ checkRelD k f
-  proofCheck vb k' bch True f
-proofCheck' vb k bch "A" = do
-  x <- sterm
-  f <- sform
-  k' <- cast $ checkAoC k x f
-  proofCheck vb k' bch True f
-proofCheck' vb k bch "O" = skip
-proofCheck' vb k bch "F" = do
-  eqns <- slist stext >>= mapM (fetch bch)
-  (False, Eq (Fun f xs) (Fun g ys)) <- stext >>= fetch bch
-  pguard "function symbol mismatch" $ f == g
-  xys <- cast $ mapM breakTrueEq eqns
-  xys' <- zipM xs ys
-  pguard "arguments mismatch" $ xys == xys'
-proofCheck' vb k bch "R" = do
-  eqns <- slist stext >>= mapM (fetch bch)
-  (True, Rel r xs) <- stext >>= fetch bch
-  (False, Rel s ys) <- stext >>= fetch bch
-  pguard "relation symbol mismatch" $ r == s
-  xys <- cast $ mapM breakTrueEq eqns
-  xys' <- zipM xs ys
-  pguard "arguments mismatch" $ xys == xys'
-proofCheck' vb k bch "=R" = do
-  (False, Eq x y) <- stext >>= fetch bch
-  guard $ x == y
-proofCheck' vb k bch "=S" = do
-  (True, Eq x y) <- stext >>= fetch bch
-  (False, Eq y' x') <- stext >>= fetch bch
-  guard $ x == x' && y == y'
-proofCheck' vb k bch "=T" = do
-  (True, Eq x y) <- stext >>= fetch bch
-  (True, Eq y' z) <- stext >>= fetch bch
-  (False, Eq x' z') <- stext >>= fetch bch
-  guard $ x == x' && y == y' && z == z'
-proofCheck' vb k bch "~T" = do
-  (True, Not f) <- stext >>= fetch bch
-  proofCheck vb k bch False f
-proofCheck' vb k bch "~F" = do
-  (False, Not f) <- stext >>= fetch bch
-  proofCheck vb k bch True f
-proofCheck' vb k bch "|T" = do
-  nm <- stext
-  (True, Or fs) <- fetch bch nm
-  mapM_ (proofCheck vb k bch True) fs
-proofCheck' vb k bch "|F" = do
-  (False, Or fs) <- stext >>= fetch bch
-  m <- getInt
-  f <- cast $ nth m fs
-  proofCheck vb k bch False f
-proofCheck' vb k bch "&T" = do
-  (True, And fs) <- stext >>= fetch bch
-  m <- getInt
-  f <- cast $ nth m fs
-  proofCheck vb k bch True f
-proofCheck' vb k bch "&F" = do
-  (False, And fs) <- stext >>= fetch bch
-  mapM_ (proofCheck vb k bch False) fs
-proofCheck' vb k bch ">T" = do
-  (True, Imp f g) <- stext >>= fetch bch
-  proofCheck vb k bch False f
-  proofCheck vb k bch True g
-proofCheck' vb k bch ">FA" = do
-  nm <- stext
-  (sgn, fg) <- fetch bch nm
-  case (sgn, fg) of
-    (False, Imp f g) -> proofCheck vb k bch True f
-    _ -> error "not false imp"
-proofCheck' vb k bch ">FC" = do
-  (False, Imp _ g) <- stext >>= fetch bch
-  proofCheck vb k bch False g
-proofCheck' vb k bch "^TO" = do
-  (True, Iff f g) <- stext >>= fetch bch
-  proofCheck vb k bch True (f ==> g)
-proofCheck' vb k bch "^TR" = do
-  (True, Iff f g) <- stext >>= fetch bch
-  proofCheck vb k bch True (g ==> f)
-proofCheck' vb k bch "^F" = do
-  (False, Iff f g) <- stext >>= fetch bch
-  proofCheck vb k bch False (f ==> g)
-  proofCheck vb k bch False (g ==> f)
-proofCheck' vb k bch "!T" = do
-  (True, Fa vs f) <- stext >>= fetch bch
-  xs <- slist sterm
-  vxs <- zipM vs xs
-  let f' = substForm vxs f
-  proofCheck vb k bch True f'
-proofCheck' vb k bch "!F" = do
-  (False, Fa vs f) <- stext >>= fetch bch
-  m <- getInt
-  guard $ k <= m
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "!F-fail : cannot zip"
-  let f' = substForm vxs f
-  proofCheck vb k' bch False f'
-proofCheck' vb k bch "?T" = do
-  (True, Ex vs f) <- stext >>= fetch bch
-  m <- getInt
-  pguard "index check failed for ?T" (k <= m)
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "?T-fail : cannot zip"
-  let f' = substForm vxs f
-  proofCheck vb k' bch True f'
-proofCheck' vb k bch "?F" = do
-  nm <- stext
-  (False, Ex vs f) <- fetch bch nm
-  xs <- slist sterm
-  vxs <- zipM vs xs
-  let f' = substForm vxs f
-  proofCheck vb k bch False f'
-proofCheck' vb k bch _ = error "impossible case"
+ppElab' :: Node -> Builder -> Builder
+ppElab' (nm, sgn, f) ib =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ib]] <> "."
 
-proof :: Branch -> Bool -> Form -> Parser Proof
-proof bch sgn f = do
-  nm <- stext
-  let bch' = M.insert nm (sgn, f) bch
-  r <- rule <|> error "cannot read rule"
-  proof' bch' (nm, sgn, f) r
-
-(<$$>) :: (Monad m) => (a -> b -> c) -> m a -> m b -> m c
-(<$$>) f g h = do 
-  x <- g 
-  y <- h 
-  return (f x y)
-
-proof' :: Branch -> Node -> BS -> Parser Proof
-proof' bch ni "I" = (Id_ ni <$$> stext) stext
-proof' bch ni "C" = do
-  f <- sform
-  pf <- proof bch False f
-  pt <- proof bch True f
-  return $ Cut_ ni f pf pt
-proof' bch ni "D" = do
-  f <- sform
-  p <- proof bch True f
-  return $ RelD_ ni f p
-proof' bch ni "A" = do
-  x <- sterm
-  f <- sform
-  p <- proof bch True f
-  return $ AoC_ ni x f p
-proof' bch ni "O" = return $ Open_ ni
-proof' bch ni "F" = do
-  nms <- slist stext
-  nm <- stext
-  return $ FunC_ ni nms nm
-proof' bch ni "R" = do
-  nms <- slist stext
-  nt <- stext
-  nf <- stext
-  return $ RelC_ ni nms nt nf
-proof' bch ni "=R" = do
-  nf <- stext
-  return $ EqR_ ni nf
-proof' bch ni "=S" = do
-  nt <- stext
-  nf <- stext
-  return $ EqS_ ni nt nf
-proof' bch ni "=T" = do
-  nxy <- stext
-  nyz <- stext
-  nxz <- stext
-  return $ EqT_ ni nxy nyz nxz
-proof' bch ni "~T" = do
-  nm <- stext
-  (True, Not f) <- fetch bch nm
-  p <- proof bch False f
-  return $ NotT_ ni nm p
-proof' bch ni "~F" = do
-  nm <- stext
-  (False, Not f) <- fetch bch nm
-  p <- proof bch True f
-  return $ NotF_ ni nm p
-proof' bch ni "|T" = do
-  nm <- stext
-  (True, Or fs) <- fetch bch nm
-  ps <- mapM (proof bch True) fs
-  return $ OrT_ ni nm ps
-proof' bch ni "|F" = do
-  nm <- stext
-  (False, Or fs) <- fetch bch nm
-  m <- getInt
-  f <- cast $ nth m fs
-  p <- proof bch False f
-  return $ OrF_ ni nm m p
-proof' bch ni "&T" = do
-  nm <- stext
-  (True, And fs) <- fetch bch nm
-  m <- getInt
-  f <- cast $ nth m fs
-  p <- proof bch True f
-  return $ AndT_ ni nm m p
-proof' bch ni "&F" = do
-  nm <- stext
-  (False, And fs) <- fetch bch nm
-  ps <- mapM (proof bch False) fs
-  return $ AndF_ ni nm ps
-proof' bch ni ">T" = do
-  nm <- stext
-  (True, Imp f g) <- fetch bch nm
-  pa <- proof bch False f
-  pc <- proof bch True g
-  return $ ImpT_ ni nm pa pc
-proof' bch ni ">FA" = do
-  nm <- stext
-  (False, Imp f _) <- fetch bch nm
-  p <- proof bch True f
-  return $ ImpFA_ ni nm p
-proof' bch ni ">FC" = do
-  nm <- stext
-  (False, Imp _ g) <- fetch bch nm
-  p <- proof bch False g
-  return $ ImpFC_ ni nm p
-proof' bch ni "^TO" = do
-  nm <- stext
-  (True, Iff f g) <- fetch bch nm
-  p <- proof bch True (f ==> g)
-  return $ IffTO_ ni nm p
-proof' bch ni "^TR" = do
-  nm <- stext
-  (True, Iff f g) <- fetch bch nm
-  p <- proof bch True (g ==> f)
-  return $ IffTR_ ni nm p
-proof' bch ni "^F" = do
-  nm <- stext
-  (False, Iff f g) <- fetch bch nm
-  po <- proof bch False (f ==> g)
-  pr <- proof bch False (g ==> f)
-  return $ IffF_ ni nm po pr
-proof' bch ni "!T" = do
-  nm <- stext
-  (True, Fa vs f) <- fetch bch nm
-  xs <- slist sterm
-  vxs <- zipM vs xs
-  let f' = substForm vxs f
-  p <- proof bch True f'
-  return $ FaT_ ni nm xs p
-proof' bch ni "!F" = do
-  nm <- stext
-  (False, Fa vs f) <- fetch bch nm
-  m <- getInt
-  let (_, vxs) = varPars m vs
-  let f' = substForm vxs f
-  p <- proof bch False f'
-  return $ FaF_ ni nm m p
-proof' bch ni "?T" = do
-  nm <- stext
-  (True, Ex vs f) <- fetch bch nm
-  m <- getInt
-  let (_, vxs) = varPars m vs
-  let f' = substForm vxs f
-  p <- proof bch True f'
-  return $ ExT_ ni nm m p
-proof' bch ni "?F" = do
-  nm <- stext
-  (False, Ex vs f) <- fetch bch nm
-  xs <- slist sterm
-  vxs <- zipM vs xs
-  let f' = substForm vxs f
-  p <- proof bch False f'
-  return $ ExF_ ni nm xs p
-proof' bch ni _ = error "invalid rule"
+convert :: Handle -> Branch -> BS -> Bool -> Form -> BS -> IO BS
+convert h b0 n0 s0 f0 bs = do
+  let bch = M.insert n0 (s0, f0) b0
+  ((nm00, (sgn00, f00, i00)), bs') <- cast $ parse elabForm bs
+  case i00 of 
+    FaF nh k nc -> skip
+    ExT nh k nc -> skip
+    _ -> hPutBuilder h $ ppElab ((nm00, sgn00, f00), i00)
+  case i00 of
+    Id nt nf -> return bs'
+    Cut f nf nt -> convert h bch nf False f bs' >>= convert h bch nt True f
+    RelD f n -> convert h bch n True f bs'
+    AoC x f nm -> convert h bch nm True f bs'
+    Open -> return bs'
+    FunC _ _ -> return bs'
+    RelC {} -> return bs'
+    EqR _ -> return bs'
+    EqS _ _ -> return bs'
+    EqT {} -> return bs'
+    NotT nh np -> do
+      (True, Not f) <- fetch bch nh
+      convert h bch np False f bs'
+    NotF nh np -> do
+      (False, Not f) <- fetch bch nh
+      convert h bch np True f bs'
+    OrT nh nps -> do
+      (True, Or fs) <- fetch bch nh
+      npfs <- zipM nps fs
+      foldM (\ bs_ (np_, f_) -> convert h bch np_ True f_ bs_) bs' npfs
+    OrF nm m np -> do
+      (False, Or fs) <- fetch bch nm
+      f <- cast $ nth m fs
+      convert h bch np False f bs'
+    AndT nm m np -> do
+      (True, And fs) <- fetch bch nm
+      f <- cast $ nth m fs
+      convert h bch np True f bs'
+    AndF nm nps -> do
+      (False, And fs) <- fetch bch nm
+      npfs <- zipM nps fs
+      foldM (\ bs_ (np_, f_) -> convert h bch np_ False f_ bs_) bs' npfs
+    ImpT nm na nc -> do
+      (True, Imp f g) <- fetch bch nm
+      convert h bch na False f bs' >>= convert h bch nc True g
+    ImpFA nm np -> do
+      (sgn, Imp f _) <- fetch bch nm
+      convert h bch np True f bs'
+    ImpFC nm np -> do
+      (sgn, Imp _ g) <- fetch bch nm
+      convert h bch np False g bs'
+    IffTO nm np -> do
+      (True, Iff f g) <- fetch bch nm
+      convert h bch np True (f ==> g) bs'
+    IffTR nm np -> do
+      (True, Iff f g) <- fetch bch nm
+      convert h bch np True (g ==> f) bs'
+    IffF nm no nr -> do
+      (False, Iff f g) <- fetch bch nm
+      convert h bch no False (f ==> g) bs' >>= convert h bch nr False (g ==> f)
+    FaT nm xs np -> do
+      (True, Fa vs f) <- fetch bch nm
+      vxs <- zipM vs xs
+      let f' = substForm vxs f
+      convert h bch np True f' bs'
+    FaF nm m np -> do
+      (False, Fa vs f) <- fetch bch nm
+      let (_, xs) = listPars m vs
+      hPutBuilder h $ ppApp "faf" [ft nm, ppList ppTerm xs, ft np]
+      f' <- substitute vs xs f
+      convert h bch np False f' bs'
+    ExT nm m np -> do
+      (True, Ex vs f) <- fetch bch nm
+      let (_, xs) = listPars m vs
+      hPutBuilder h $ ppApp "ext" [ft nm, ppList ppTerm xs, ft np]
+      vxs <- zipM vs xs
+      let f' = substForm vxs f
+      convert h bch np True f' bs'
+    ExF nm xs np -> do
+      (False, Ex vs f) <- fetch bch nm
+      vxs <- zipM vs xs
+      let f' = substForm vxs f
+      convert h bch np False f' bs'
