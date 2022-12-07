@@ -771,6 +771,10 @@ proofCheck k bch sf prf = do
   let bch' = HM.insert nm sf bch 
   proofCheck' k bch' prf
 
+dup :: (Eq a) => [a] -> Bool
+dup [] = False
+dup (x : xs) = x `elem` xs || dup xs
+
 proofCheck' :: Int -> Branch -> Proof -> IO ()
 proofCheck' _ bch (Id_ _ nt nf) = do 
   tf <- cast $ HM.lookup nt bch
@@ -859,19 +863,19 @@ proofCheck' k bch (FaT_ _ nm xs prf) = do
   vxs <- zipM vs xs 
   let f' = substForm vxs f
   proofCheck k bch (True, f') prf
-proofCheck' k bch (FaF_ _ nm m prf) = do 
-  guard $ k <= m
+proofCheck' k bch (FaF_ _ nm ms prf) = do 
+  guard $ L.all (k <=) ms && not (dup ms) 
   (False, Fa vs f) <- cast $ HM.lookup nm bch 
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs <|> error "FaF'-fail : cannot zip"
-  let f' = substForm vxs f
+  let k' = maximum ms + 1
+  let xs = L.map par ms
+  f' <- substitute vs xs f
   proofCheck k' bch (False, f') prf
-proofCheck' k bch (ExT_ _ nm m prf) = do 
-  guard $ k <= m
+proofCheck' k bch (ExT_ _ nm ms prf) = do 
+  guard $ L.all (k <=) ms && not (dup ms) 
   (True, Ex vs f) <- cast $ HM.lookup nm bch 
-  let (k', xs) = listPars m vs
-  vxs <- zipM vs xs 
-  let f' = substForm vxs f
+  let k' = maximum ms + 1
+  let xs = L.map par ms
+  f' <- substitute vs xs f
   proofCheck k' bch (True, f') prf
 proofCheck' k bch (ExF_ _ nm xs prf) = do 
   (False, Ex vs f) <- cast $ HM.lookup nm bch 

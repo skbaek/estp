@@ -12,7 +12,7 @@ module Main where
 
 import Types (BS, Branch) 
 import Basic (ps, top, proofCheck, assemble)
-import Parse (linearize, readTptp, check, estp, ign, runParser, convert) 
+import Parse (linearize, readTptp, check, estp, ign, runParser) 
 import PP (ppElab, ppListNl)
 import System.Environment (getArgs)
 import Data.List (intercalate)
@@ -43,13 +43,13 @@ mainArgs vb ("sort" : onm : nnm : _) = do
   prf <- assemble estp "root"
   let estp' = linearize prf
   BD.writeFile nnm $ ppListNl ppElab $ linearize prf
-mainArgs _ ("convert" : pnm : onm : nnm : _) = do
-  prob <- readTptp pnm empty
-  let bch = M.map (True,) prob
-  bs <- BS.readFile onm
-  h <- openFile nnm WriteMode
-  convert h bch "root" True top bs
-  return ()
+-- mainArgs _ ("convert" : pnm : onm : nnm : _) = do
+--   prob <- readTptp pnm empty
+--   let bch = M.map (True,) prob
+--   bs <- BS.readFile onm
+--   h <- openFile nnm WriteMode
+--   convert h bch "root" True top bs
+--   return ()
 mainArgs _ args = error $ "Invalid main args : " ++ intercalate "; " args
 -- mainArgs vb ("count" : pnm : enm : _) = do
 --   prob <- readTptp pnm HM.empty

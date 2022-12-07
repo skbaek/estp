@@ -160,8 +160,8 @@ ppInf (IffTR nh nc) = ppApp "ifftr" [ft nh, ft nc]
 ppInf (IffTO nh nc) = ppApp "iffto" [ft nh, ft nc]
 ppInf (IffF nh n0 n1) = ppApp "ifff" [ft nh, ft n0, ft n1]
 ppInf (FaT nh xs nc) = ppApp "fat" [ft nh, ppList writeTerm xs, ft nc]
-ppInf (FaF nh k nc) = ppApp "faf" [ft nh, ppInt k, ft nc]
-ppInf (ExT nh k nc) = ppApp "ext" [ft nh, ppInt k, ft nc]
+ppInf (FaF nh ks nc) = ppApp "faf" [ft nh, ppList ppInt ks, ft nc]
+ppInf (ExT nh ks nc) = ppApp "ext" [ft nh, ppList ppInt ks, ft nc]
 ppInf (ExF nh xs nc) = ppApp "exf" [ft nh, ppList writeTerm xs, ft nc]
 ppInf (RelD f nc) = ppApp "reld" [ppFormData f, ft nc]
 ppInf (AoC x f nc) = ppApp "aoc" [ppTerm x, ppFormData f, ft nc]
@@ -250,8 +250,8 @@ serProof' (IffTO_ ni nm p) = "^TO" <> serBS nm <> serProof p
 serProof' (IffTR_ ni nm p) = "^TR" <> serBS nm <> serProof p
 serProof' (IffF_ ni nm po pr) = "^F" <>  serBS nm <> serProof po <> serProof pr
 serProof' (FaT_ ni nm xs p) = "!T" <>  serBS nm <> serList serTerm xs <> serProof p
-serProof' (FaF_ ni nm k p) = "!F" <>  serBS nm <> serInt k <> serProof p
-serProof' (ExT_ ni nm k p) = "?T" <>  serBS nm <> serInt k <> serProof p
+serProof' (FaF_ ni nm ks p) = "!F" <>  serBS nm <> serList serInt ks <> serProof p
+serProof' (ExT_ ni nm ks p) = "?T" <>  serBS nm <> serList serInt ks <> serProof p
 serProof' (ExF_ ni nm xs p) = "?F" <>  serBS nm <> serList serTerm xs <> serProof p
 
 serInf :: Inf -> (Builder, [BS])
@@ -278,8 +278,8 @@ serInf (IffTO nh np) = ("^TO" <> serBS nh, [np])
 serInf (IffTR nh np) = ("^TR" <> serBS nh, [np])
 serInf (IffF nh no nr) = ("^F" <>  serBS nh, [no, nr])
 serInf (FaT nh xs np) = ("!T" <> serBS nh <> serList serTerm xs, [np])
-serInf (FaF nh k np) = ("!F" <> serBS nh <> serInt k, [np])
-serInf (ExT nh k np) = ("?T" <> serBS nh <> serInt k, [np])
+serInf (FaF nh ks np) = ("!F" <> serBS nh <> serList serInt ks, [np])
+serInf (ExT nh ks np) = ("?T" <> serBS nh <> serList serInt ks, [np])
 serInf (ExF nh xs np) = ("?F" <> serBS nh <> serList serTerm xs, [np])
 
 writeProof :: String -> Proof -> IO ()

@@ -595,6 +595,10 @@ gentParseBS :: Gent-> Maybe BS
 gentParseBS (GenT t []) = return t
 gentParseBS _ = mzero
 
+gentParseInt :: Gent -> Maybe Int
+gentParseInt (Genn k) = Just k
+gentParseInt _ = Nothing
+
 gentParseInf :: Gent -> Maybe Inf
 gentParseInf (GenT "cut" [GenF f, gtf, gtt]) = do
   nf <- gentParseBS gtf
@@ -652,14 +656,16 @@ gentParseInf (GenT "andf" [gt, Genl gts]) = do
   nm <- gentParseBS gt
   nms <- mapM gentParseBS gts
   return $ AndF nm nms
-gentParseInf (GenT "faf" [gth, Genn k, gtc]) = do
+gentParseInf (GenT "faf" [gth, Genl gts, gtc]) = do
   nh <- gentParseBS gth
+  ks <- mapM gentParseInt gts
   nc <- gentParseBS gtc
-  return $ FaF nh k nc
-gentParseInf (GenT "ext" [gth, Genn k, gtc]) = do
+  return $ FaF nh ks nc
+gentParseInf (GenT "ext" [gth, Genl gts, gtc]) = do
   nh <- gentParseBS gth
+  ks <- mapM gentParseInt gts
   nc <- gentParseBS gtc
-  return $ ExT nh k nc
+  return $ ExT nh ks nc
 gentParseInf (GenT "fat" [gth, Genl gts, gtc]) = do
   nh <- gentParseBS gth
   xs <- mapM gentParseTerm gts
@@ -932,18 +938,19 @@ check k b0 n0 s0 f0 = do
       vxs <- zipM vs xs
       let f' = substForm vxs f
       check k bch np True f'
-    FaF nm m np -> do
+    FaF nm ms np -> do
       (False, Fa vs f) <- fetch bch nm
-      guard $ k <= m
-      let (k', xs) = listPars m vs
+      guard $ all (k <=) ms && not (dup ms)
+      let k' = maximum ms + 1
+      let xs = map par ms
       f' <- substitute vs xs f
       check k' bch np False f'
-    ExT nm m np -> do
+    ExT nm ms np -> do
       (True, Ex vs f) <- fetch bch nm
-      guard $ k <= m
-      let (k', xs) = listPars m vs
-      vxs <- zipM vs xs
-      let f' = substForm vxs f
+      guard $ all (k <=) ms && not (dup ms)
+      let k' = maximum ms + 1
+      let xs = map par ms
+      f' <- substitute vs xs f
       check k' bch np True f'
     ExF nm xs np -> do
       (False, Ex vs f) <- fetch bch nm
@@ -951,18 +958,11 @@ check k b0 n0 s0 f0 = do
       let f' = substForm vxs f
       check k bch np False f'
 
--- convert :: Handle -> Branch -> BS -> IO ()
--- convert h bch bs 
---   | BS.null bs = skip 
---   | otherwise = do 
---       ((nm, (sgn, f, i)), bs') <- cast $ parse elabForm bs
---       hPutBuilder h $ ppElabConv ((nm, sgn, f), i)
---       convert h bs'
--- 
-
 ppElab' :: Node -> Builder -> Builder
 ppElab' (nm, sgn, f) ib =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ib]] <> "."
 
+
+{-
 convert :: Handle -> Branch -> BS -> Bool -> Form -> BS -> IO BS
 convert h b0 n0 s0 f0 bs = do
   let bch = M.insert n0 (s0, f0) b0
@@ -1045,3 +1045,4 @@ convert h b0 n0 s0 f0 bs = do
       vxs <- zipM vs xs
       let f' = substForm vxs f
       convert h bch np False f' bs'
+      -}
