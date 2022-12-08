@@ -771,9 +771,9 @@ proofCheck k bch sf prf = do
   let bch' = HM.insert nm sf bch 
   proofCheck' k bch' prf
 
-dup :: (Eq a) => [a] -> Bool
-dup [] = False
-dup (x : xs) = x `elem` xs || dup xs
+hasDup :: (Eq a) => [a] -> Bool
+hasDup [] = False
+hasDup (x : xs) = x `elem` xs || hasDup xs
 
 proofCheck' :: Int -> Branch -> Proof -> IO ()
 proofCheck' _ bch (Id_ _ nt nf) = do 
@@ -864,14 +864,14 @@ proofCheck' k bch (FaT_ _ nm xs prf) = do
   let f' = substForm vxs f
   proofCheck k bch (True, f') prf
 proofCheck' k bch (FaF_ _ nm ms prf) = do 
-  guard $ L.all (k <=) ms && not (dup ms) 
+  guard $ L.all (k <=) ms && not (hasDup ms) 
   (False, Fa vs f) <- cast $ HM.lookup nm bch 
   let k' = maximum ms + 1
   let xs = L.map par ms
   f' <- substitute vs xs f
   proofCheck k' bch (False, f') prf
 proofCheck' k bch (ExT_ _ nm ms prf) = do 
-  guard $ L.all (k <=) ms && not (dup ms) 
+  guard $ L.all (k <=) ms && not (hasDup ms) 
   (True, Ex vs f) <- cast $ HM.lookup nm bch 
   let k' = maximum ms + 1
   let xs = L.map par ms

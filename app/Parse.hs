@@ -844,205 +844,108 @@ subCount bch_ op = do
     FaF nm m _ -> subCount bch op
     ExT nm m _ -> subCount bch op
     ExF nm xs _ -> subCount bch op
-
+  
 check :: Int -> Branch -> BS -> Bool -> Form -> Parser ()
 check k b0 n0 s0 f0 = do
-  let bch = M.insert n0 (s0, f0) b0
+  let b = insert n0 (s0, f0) b0
   i <- elabFormInf
   case i of
     Id nt nf -> do
-      (True, f) <- fetch bch nt
-      (False, g) <- fetch bch nf
-      guard $ f == g
+      (True, f) <- fetch b nt
+      (False, f') <- fetch b nf
+      guard (f == f')
     Cut f nf nt -> do
-      check k bch nf False f
-      check k bch nt True f
+      check k b nf False f
+      check k b nt True f
     RelD f n -> do
       k' <- cast $ checkRelD k f
-      check k' bch n True f
-    AoC x f nm -> do
+      check k' b n True f
+    AoC x f n -> do
       k' <- cast $ checkAoC k x f
-      check k' bch nm True f
+      check k' b n True f
     Open -> return ()
-    FunC nms nm -> do
-      eqns <- mapM (fetch bch) nms
-      (False, Eq (Fun f xs) (Fun g ys)) <- fetch bch nm
-      guard $ f == g
+    FunC nts nf -> do
+      eqns <- mapM (fetch b) nts
+      (False, Eq (Fun f xs) (Fun g ys)) <- fetch b nf
       xys <- cast $ mapM breakTrueEq eqns
       xys' <- zipM xs ys
-      guard $ xys == xys'
+      guard (f == g && xys == xys')
     RelC nts nt nf -> do
-      eqns <- mapM (fetch bch) nts
-      (True, Rel r xs) <- fetch bch nt
-      (False, Rel s ys) <- fetch bch nf
-      guard $ r == s
+      eqns <- mapM (fetch b) nts
+      (True, Rel r xs) <- fetch b nt
+      (False, Rel s ys) <- fetch b nf
       xys <- cast $ mapM breakTrueEq eqns
       xys' <- zipM xs ys
-      guard $ xys == xys'
-    EqR nm -> do
-      (False, Eq x y) <- fetch bch nm
-      guard $ x == y
+      guard (r == s && xys == xys')
+    EqR n -> do
+      (False, Eq x y) <- fetch b n
+      guard (x == y)
     EqS nt nf -> do
-      (True, Eq x y) <- fetch bch nt
-      (False, Eq y' x') <- fetch bch nf
-      guard $ x == x' && y == y'
+      (True, Eq x y) <- fetch b nt
+      (False, Eq y' x') <- fetch b nf
+      guard (x == x' && y == y')
     EqT nxy nyz nxz -> do
-      (True, Eq x y) <- fetch bch nxy
-      (True, Eq y' z) <- fetch bch nyz
-      (False, Eq x' z') <- fetch bch nxz
-      guard $ x == x' && y == y' && z == z'
-    NotT nh np -> do
-      (True, Not f) <- fetch bch nh
-      check k bch np False f
-    NotF nh np -> do
-      (False, Not f) <- fetch bch nh
-      check k bch np True f
-    OrT nh nps -> do
-      (True, Or fs) <- fetch bch nh
-      mapM2 (flip (check k bch) True) nps fs
+      (True, Eq x y) <- fetch b nxy
+      (True, Eq y' z) <- fetch b nyz
+      (False, Eq x' z') <- fetch b nxz
+      guard (x == x' && y == y' && z == z')
+    NotT nh n -> do
+      (True, Not g) <- fetch b nh
+      check k b n False g
+    NotF nh n -> do
+      (False, Not f) <- fetch b nh
+      check k b n True f
+    OrT nh ns -> do
+      (True, Or fs) <- fetch b nh
+      mapM2 (flip (check k b) True) ns fs
       skip
-    OrF nm m np -> do
-      (False, Or fs) <- fetch bch nm
+    OrF nh m n -> do
+      (False, Or fs) <- fetch b nh
       f <- cast $ nth m fs
-      check k bch np False f
-    AndT nm m np -> do
-      (True, And fs) <- fetch bch nm
+      check k b n False f
+    AndT nh m n -> do
+      (True, And fs) <- fetch b nh
       f <- cast $ nth m fs
-      check k bch np True f
-    AndF nm nps -> do
-      (False, And fs) <- fetch bch nm
-      mapM2 (flip (check k bch) False) nps fs
+      check k b n True f
+    AndF nh ns -> do
+      (False, And gs) <- fetch b nh
+      mapM2 (flip (check k b) False) ns gs
       skip
-    ImpT nm na nc -> do
-      (True, Imp f g) <- fetch bch nm
-      check k bch na False f
-      check k bch nc True g
-    ImpFA nm np -> do
-      (sgn, Imp f _) <- fetch bch nm
-      check k bch np True f
-    ImpFC nm np -> do
-      (sgn, Imp _ g) <- fetch bch nm
-      check k bch np False g
-    IffTO nm np -> do
-      (True, Iff f g) <- fetch bch nm
-      check k bch np True (f ==> g)
-    IffTR nm np -> do
-      (True, Iff f g) <- fetch bch nm
-      check k bch np True (g ==> f)
-    IffF nm no nr -> do
-      (False, Iff f g) <- fetch bch nm
-      check k bch no False (f ==> g)
-      check k bch nr False (g ==> f)
-    FaT nm xs np -> do
-      (True, Fa vs f) <- fetch bch nm
-      vxs <- zipM vs xs
-      let f' = substForm vxs f
-      check k bch np True f'
-    FaF nm ms np -> do
-      (False, Fa vs f) <- fetch bch nm
-      guard $ all (k <=) ms && not (dup ms)
-      let k' = maximum ms + 1
-      let xs = map par ms
+    ImpT nh na nc -> do
+      (True, Imp f g) <- fetch b nh
+      check k b na False f
+      check k b nc True g
+    ImpFA nh n -> do
+      (False, Imp f _) <- fetch b nh
+      check k b n True f
+    ImpFC nh n -> do
+      (False, Imp _ g) <- fetch b nh
+      check k b n False g
+    IffTO nh n -> do
+      (True, Iff f g) <- fetch b nh
+      check k b n True (f ==> g)
+    IffTR nh n -> do
+      (True, Iff f g) <- fetch b nh
+      check k b n True (g ==> f)
+    IffF nh no nr -> do
+      (False, Iff f g) <- fetch b nh
+      check k b no False (f ==> g)
+      check k b nr False (g ==> f)
+    FaT nh xs n -> do
+      (True, Fa vs f) <- fetch b nh
       f' <- substitute vs xs f
-      check k' bch np False f'
-    ExT nm ms np -> do
-      (True, Ex vs f) <- fetch bch nm
-      guard $ all (k <=) ms && not (dup ms)
-      let k' = maximum ms + 1
-      let xs = map par ms
+      check k b n True f'
+    FaF nh ks n -> do
+      (False, Fa vs f) <- fetch b nh
+      guard (all (k <=) ks && not (hasDup ks))
+      f' <- substitute vs (map par ks) f
+      check (maximum ks + 1) b n False f'
+    ExT nh ks n -> do
+      (True, Ex vs f) <- fetch b nh
+      guard (all (k <=) ks && not (hasDup ks))
+      f' <- substitute vs (map par ks) f
+      check (maximum ks + 1) b n True f'
+    ExF nh xs n -> do
+      (False, Ex vs f) <- fetch b nh
       f' <- substitute vs xs f
-      check k' bch np True f'
-    ExF nm xs np -> do
-      (False, Ex vs f) <- fetch bch nm
-      vxs <- zipM vs xs
-      let f' = substForm vxs f
-      check k bch np False f'
-
-ppElab' :: Node -> Builder -> Builder
-ppElab' (nm, sgn, f) ib =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ib]] <> "."
-
-
-{-
-convert :: Handle -> Branch -> BS -> Bool -> Form -> BS -> IO BS
-convert h b0 n0 s0 f0 bs = do
-  let bch = M.insert n0 (s0, f0) b0
-  ((nm00, (sgn00, f00, i00)), bs') <- cast $ parse elabForm bs
-  case i00 of 
-    FaF nh k nc -> skip
-    ExT nh k nc -> skip
-    _ -> hPutBuilder h $ ppElab ((nm00, sgn00, f00), i00)
-  case i00 of
-    Id nt nf -> return bs'
-    Cut f nf nt -> convert h bch nf False f bs' >>= convert h bch nt True f
-    RelD f n -> convert h bch n True f bs'
-    AoC x f nm -> convert h bch nm True f bs'
-    Open -> return bs'
-    FunC _ _ -> return bs'
-    RelC {} -> return bs'
-    EqR _ -> return bs'
-    EqS _ _ -> return bs'
-    EqT {} -> return bs'
-    NotT nh np -> do
-      (True, Not f) <- fetch bch nh
-      convert h bch np False f bs'
-    NotF nh np -> do
-      (False, Not f) <- fetch bch nh
-      convert h bch np True f bs'
-    OrT nh nps -> do
-      (True, Or fs) <- fetch bch nh
-      npfs <- zipM nps fs
-      foldM (\ bs_ (np_, f_) -> convert h bch np_ True f_ bs_) bs' npfs
-    OrF nm m np -> do
-      (False, Or fs) <- fetch bch nm
-      f <- cast $ nth m fs
-      convert h bch np False f bs'
-    AndT nm m np -> do
-      (True, And fs) <- fetch bch nm
-      f <- cast $ nth m fs
-      convert h bch np True f bs'
-    AndF nm nps -> do
-      (False, And fs) <- fetch bch nm
-      npfs <- zipM nps fs
-      foldM (\ bs_ (np_, f_) -> convert h bch np_ False f_ bs_) bs' npfs
-    ImpT nm na nc -> do
-      (True, Imp f g) <- fetch bch nm
-      convert h bch na False f bs' >>= convert h bch nc True g
-    ImpFA nm np -> do
-      (sgn, Imp f _) <- fetch bch nm
-      convert h bch np True f bs'
-    ImpFC nm np -> do
-      (sgn, Imp _ g) <- fetch bch nm
-      convert h bch np False g bs'
-    IffTO nm np -> do
-      (True, Iff f g) <- fetch bch nm
-      convert h bch np True (f ==> g) bs'
-    IffTR nm np -> do
-      (True, Iff f g) <- fetch bch nm
-      convert h bch np True (g ==> f) bs'
-    IffF nm no nr -> do
-      (False, Iff f g) <- fetch bch nm
-      convert h bch no False (f ==> g) bs' >>= convert h bch nr False (g ==> f)
-    FaT nm xs np -> do
-      (True, Fa vs f) <- fetch bch nm
-      vxs <- zipM vs xs
-      let f' = substForm vxs f
-      convert h bch np True f' bs'
-    FaF nm m np -> do
-      (False, Fa vs f) <- fetch bch nm
-      let (_, xs) = listPars m vs
-      hPutBuilder h $ ppApp "faf" [ft nm, ppList ppTerm xs, ft np]
-      f' <- substitute vs xs f
-      convert h bch np False f' bs'
-    ExT nm m np -> do
-      (True, Ex vs f) <- fetch bch nm
-      let (_, xs) = listPars m vs
-      hPutBuilder h $ ppApp "ext" [ft nm, ppList ppTerm xs, ft np]
-      vxs <- zipM vs xs
-      let f' = substForm vxs f
-      convert h bch np True f' bs'
-    ExF nm xs np -> do
-      (False, Ex vs f) <- fetch bch nm
-      vxs <- zipM vs xs
-      let f' = substForm vxs f
-      convert h bch np False f' bs'
-      -}
+      check k b n False f'

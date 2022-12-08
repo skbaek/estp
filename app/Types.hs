@@ -1,12 +1,9 @@
 module Types where 
 
-import qualified Data.ByteString as BS (ByteString)
-import Data.Map as HM ( Map, insert, lookup, empty, map, member, mapMaybe, toList, fromListWithKey, delete )
-import Data.Set as S ( empty, insert, member, singleton, toList, Set, fromList )
-import Control.Monad.Fail as MF (MonadFail, fail)
-import Data.Functor ((<&>))
+import Data.ByteString (ByteString)
+import Data.Map (Map) 
 
-type BS = BS.ByteString
+type BS = ByteString
 
 data Funct = Reg BS | Idx Int
   deriving (Show, Eq, Ord)
@@ -95,7 +92,7 @@ data Proof =
 type Sol = Map BS (Bool, Form, Inf)
 type Prob = Map BS Form
 type Elab = (Node, Inf)
-type Branch = HM.Map BS (Bool, Form)
+type Branch = Map BS (Bool, Form)
 type SignForm = (Bool, Form)
 type Ant = Maybe (Gent, Maybe [Gent])
 type Anf = (BS, BS, Form, Ant)

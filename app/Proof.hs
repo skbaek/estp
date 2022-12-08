@@ -241,19 +241,17 @@ proof' bch ni "!T" = do
 proof' bch ni "!F" = do
   nm <- stext
   (False, Fa vs f) <- fetch bch nm
-  m <- getInt
-  let (_, vxs) = varPars m vs
-  let f' = substForm vxs f
+  ms <- slist getInt
+  f' <- substitute vs (map par ms) f
   p <- proof bch False f'
-  return $ FaF_ ni nm m p
+  return $ FaF_ ni nm ms p
 proof' bch ni "?T" = do
   nm <- stext
   (True, Ex vs f) <- fetch bch nm
-  m <- getInt
-  let (_, vxs) = varPars m vs
-  let f' = substForm vxs f
+  ms <- slist getInt
+  f' <- substitute vs (map par ms) f
   p <- proof bch True f'
-  return $ ExT_ ni nm m p
+  return $ ExT_ ni nm ms p
 proof' bch ni "?F" = do
   nm <- stext
   (False, Ex vs f) <- fetch bch nm
