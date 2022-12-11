@@ -13,7 +13,7 @@ import Types
 import Data.Word (Word8)
 import Data.Char.Decode (decodeByte, CodePage437 (CodePage437), encodeWithDefault)
 import qualified Data.ByteString as BS 
-import Data.ByteString.Builder (Builder, toLazyByteString) 
+import Data.ByteString.Builder (Builder)
 import Data.List as L
 import Data.Map as HM 
   ( Map, insert, lookup, empty, map, member, mapMaybe, toList, 
@@ -68,6 +68,10 @@ substForm vxs (Ex vs f) =
 
 par :: Int -> Term
 par k = Fun (Idx k) [] 
+
+rangeOver :: Int -> [a] -> [Int]
+rangeOver k [] = []
+rangeOver k (v : vs) = k : rangeOver (k + 1) vs
 
 varPars :: Int -> [BS] -> (Int, [(BS, Term)])
 varPars k [] = (k, [])

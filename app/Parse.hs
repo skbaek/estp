@@ -8,7 +8,7 @@ module Parse where
 
 import Types
 import Basic
-import PP (ppSign, ppElab, ppApp, writeForm, ppList, ppTerm, ft)
+import PP (ppSign, ppElab, ppApp, writeForm, ppList, ppTerm, ppInf, ft)
 
 import qualified Data.ByteString as BS
   (drop, uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head)
@@ -949,3 +949,15 @@ check k b0 n0 s0 f0 = do
       (False, Ex vs f) <- fetch b nh
       f' <- substitute vs xs f
       check k b n False f'
+
+ppElab' :: (BS, (Bool, Form, Inf)) -> Builder
+ppElab' (nm, (sgn, f, i)) = 
+  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppInf i] <> ".\n"
+
+convert :: Handle -> BS -> IO ()
+convert h bs 
+  | BS.null bs = skip
+  | otherwise = do
+    (elb, bs') <- cast $ parse elabForm bs
+    hPutBuilder h $ ppElab' elb
+    convert h bs'
