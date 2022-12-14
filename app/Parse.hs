@@ -561,7 +561,7 @@ elabFormInf = do
   _ <- lowerWord
   lit ","
   _ <- formText
-  Just (GenT "inference" [gt], Nothing) <- annotations
+  Just (gt, _) <- annotations
   i <- cast $ gentParseInf gt
   lit ")"
   lit "."
@@ -570,7 +570,8 @@ elabFormInf = do
 
 elabForm :: Parser (BS, (Bool, Form, Inf))
 elabForm = do
-  (nm, rl, f, Just (GenT "inference" [gt], Nothing)) <- anf
+  -- (nm, rl, f, Just (GenT "inference" [gt], Nothing)) <- anf
+  (nm, rl, f, Just (gt, _)) <- anf
   sgn <- cast $ textParseBool rl
   inf <- cast $ gentParseInf gt
   unit (nm, (sgn, f, inf))
@@ -897,8 +898,7 @@ check k b0 n0 s0 f0 = do
       check k b n True f
     OrT nh ns -> do
       (True, Or fs) <- fetch b nh
-      mapM2 (flip (check k b) True) ns fs
-      skip
+      mapM2 (flip (check k b) True) ns fs >> skip
     OrF nh m n -> do
       (False, Or fs) <- fetch b nh
       f <- cast $ nth m fs
@@ -909,8 +909,7 @@ check k b0 n0 s0 f0 = do
       check k b n True f
     AndF nh ns -> do
       (False, And gs) <- fetch b nh
-      mapM2 (flip (check k b) False) ns gs
-      skip
+      mapM2 (flip (check k b) False) ns gs >> skip
     ImpT nh na nc -> do
       (True, Imp f g) <- fetch b nh
       check k b na False f
