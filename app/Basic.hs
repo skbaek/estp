@@ -54,6 +54,8 @@ substTerm txs (Fun f xs) = Fun f $ L.map (substTerm txs) xs
 substForm :: [(BS, Term)] -> Form -> Form
 substForm vxs (Eq x y) = Eq (substTerm vxs x) (substTerm vxs y)
 substForm vxs (Rel r xs) = Rel r $ L.map (substTerm vxs) xs
+substForm vxs Top = Top
+substForm vxs Bot = Bot
 substForm vxs (Not f) = Not $ substForm vxs f
 substForm vxs (And fs) = And $ L.map (substForm vxs) fs
 substForm vxs (Or fs)  = Or  $ L.map (substForm vxs) fs
@@ -223,6 +225,8 @@ isGndLit f = isGndAtom f
 
 isGndForm :: [BS] -> Form -> Bool
 isGndForm vs (Rel _ xs) = L.all (isGndTerm vs) xs
+isGndForm vs Top = True
+isGndForm vs Bot = True
 isGndForm vs (Eq x y) = isGndTerm vs x && isGndTerm vs y
 isGndForm vs (Not f) = isGndForm vs f
 isGndForm vs (Or fs) = L.all (isGndForm vs) fs
@@ -257,6 +261,8 @@ varInt v (Var w) = v == w
 varInt v (Fun f xs) = L.any (varInt v) xs
 
 varInf :: BS -> Form -> Bool
+varInf _ Top = False
+varInf _ Bot = False
 varInf v (Eq x y) = varInt v x || varInt v y
 varInf v (Rel _ xs) = L.any (varInt v) xs
 varInf v (Not f) = varInf v f
@@ -330,6 +336,8 @@ fsfuns :: [Form] -> Set Funct
 fsfuns = S.unions . L.map ffuns
 
 ffuns :: Form -> Set Funct
+ffuns Top = S.empty
+ffuns Bot = S.empty
 ffuns (Rel _ xs) = S.unions $ L.map tfuns xs
 ffuns (Or fs) = S.unions $ L.map ffuns fs
 ffuns (And fs) = S.unions $ L.map ffuns fs
@@ -365,6 +373,8 @@ varsInt vs (Fun f xs) = L.any (varsInt vs) xs
 -- varsInt vs _ = False
 
 varsInf :: [BS] -> Form -> Bool
+varsInf _ Top = False
+varsInf _ Bot = False
 varsInf vs (Eq x y) = varsInt vs x || varsInt vs y
 varsInf vs (Rel _ xs) = L.any (varsInt vs) xs
 varsInf vs (Not f) = varsInf vs f
@@ -409,6 +419,8 @@ desnoc [x] = return ([], x)
 desnoc (x : xs) = DBF.first (x :) <$> desnoc xs
 
 formPreds :: Form -> Set Funct
+formPreds Top = S.empty
+formPreds Bot = S.empty
 formPreds (Eq _ _) = S.empty
 formPreds (Rel r _) = S.singleton r
 formPreds (Not f) = formPreds f
@@ -521,6 +533,8 @@ complementary _ _ = False
 
 proofRootNode :: Proof -> Node
 proofRootNode (Id_ ni nt nf) = ni
+proofRootNode (TopF_ ni _) = ni
+proofRootNode (BotT_ ni _) = ni
 proofRootNode (Cut_ ni _ p q) = ni
 proofRootNode (FunC_ ni xs nm) = ni
 proofRootNode (RelC_ ni xs nt nf) = ni
@@ -547,6 +561,33 @@ proofRootNode (RelD_ ni _ p) = ni
 proofRootNode (AoC_ ni _ _ p) = ni
 proofRootNode (Open_ ni) = ni
 
+-- rootNode :: Proof -> Node 
+-- rootNode (Id_ ni _ _) = ni
+-- rootNode (Cut_ ni _ _ _) = ni
+-- rootNode (FunC_ ni _ _) = ni
+-- rootNode (RelC_ ni _ _ _) = ni
+-- rootNode (EqR_ ni _) = ni
+-- rootNode (EqS_ ni _ _) = ni
+-- rootNode (EqT_ ni _ _ _) = ni
+-- rootNode (NotT_ ni _ _) = ni
+-- rootNode (NotF_ ni _ _) = ni
+-- rootNode (OrT_ ni _ _) = ni
+-- rootNode (OrF_ ni _ _ _) = ni
+-- rootNode (AndT_ ni _ _ _) = ni
+-- rootNode (AndF_ ni _ _) = ni
+-- rootNode (ImpT_ ni _ _ _) = ni
+-- rootNode (ImpFA_ ni _ _) = ni
+-- rootNode (ImpFC_ ni _ _) = ni
+-- rootNode (IffTO_ ni _ _) = ni
+-- rootNode (IffTR_ ni _ _) = ni
+-- rootNode (IffF_ ni _ _ _) = ni
+-- rootNode (FaT_ ni _ _ _) = ni
+-- rootNode (FaF_ ni _ _ _) = ni
+-- rootNode (ExT_ ni _ _ _) = ni
+-- rootNode (ExF_ ni _ _ _) = ni
+-- rootNode (RelD_ ni _ _) = ni
+-- rootNode (AoC_ ni _ _ _) = ni
+-- rootNode (Open_ ni) = ni
 proofRN :: Proof -> BS
 proofRN p = 
   case proofRootNode p of 
@@ -566,6 +607,8 @@ termIdxLT _ (Var _) = True
 termIdxLT k (Fun f xs) = functIdxLT k f && L.all (termIdxLT k) xs 
 
 formIdxLT :: Int -> Form -> Bool
+formIdxLT _ Top = True
+formIdxLT _ Bot = True
 formIdxLT k (Eq x y) = termIdxLT k x && termIdxLT k y
 formIdxLT k (Rel r xs) = functIdxLT k r && L.all (termIdxLT k) xs 
 formIdxLT k (Not f) = formIdxLT k f
@@ -629,33 +672,6 @@ breakTrueEq :: (Bool, Form) -> Maybe (Term, Term)
 breakTrueEq (True, Eq x y) = Just (x, y)
 breakTrueEq _ = mzero
 
-rootNode :: Proof -> Node 
-rootNode (Id_ ni _ _) = ni
-rootNode (Cut_ ni _ _ _) = ni
-rootNode (FunC_ ni _ _) = ni
-rootNode (RelC_ ni _ _ _) = ni
-rootNode (EqR_ ni _) = ni
-rootNode (EqS_ ni _ _) = ni
-rootNode (EqT_ ni _ _ _) = ni
-rootNode (NotT_ ni _ _) = ni
-rootNode (NotF_ ni _ _) = ni
-rootNode (OrT_ ni _ _) = ni
-rootNode (OrF_ ni _ _ _) = ni
-rootNode (AndT_ ni _ _ _) = ni
-rootNode (AndF_ ni _ _) = ni
-rootNode (ImpT_ ni _ _ _) = ni
-rootNode (ImpFA_ ni _ _) = ni
-rootNode (ImpFC_ ni _ _) = ni
-rootNode (IffTO_ ni _ _) = ni
-rootNode (IffTR_ ni _ _) = ni
-rootNode (IffF_ ni _ _ _) = ni
-rootNode (FaT_ ni _ _ _) = ni
-rootNode (FaF_ ni _ _ _) = ni
-rootNode (ExT_ ni _ _ _) = ni
-rootNode (ExF_ ni _ _ _) = ni
-rootNode (RelD_ ni _ _) = ni
-rootNode (AoC_ ni _ _ _) = ni
-rootNode (Open_ ni) = ni
 
 conjecturize :: BS -> Form -> Form
 conjecturize "conjecture" f = Not f
@@ -675,6 +691,8 @@ termVars (Var v) = [v]
 termVars (Fun _ ts) = foldl mergeVars [] (L.map termVars ts)
 
 formFreeVars :: Form -> [BS]
+formFreeVars Top = []
+formFreeVars Bot = []
 formFreeVars (Rel _ ts) = foldl mergeVars [] (L.map termVars ts)
 formFreeVars (Eq t s) = mergeVars (termVars t) (termVars s)
 formFreeVars (Not f) = formFreeVars f
@@ -687,6 +705,8 @@ formFreeVars (Ex vs f) = formFreeVars f \\ vs
 
 assemble' :: Sol -> Node -> Inf -> IO Proof
 assemble' mp ni (Id nt nf) = return $ Id_ ni nt nf
+assemble' mp ni (TopF np) = return $ TopF_ ni np
+assemble' mp ni (BotT np) = return $ BotT_ ni np
 assemble' mp ni (FunC nms nm) = return $ FunC_ ni nms nm
 assemble' mp ni (RelC nms nt nf) = return $ RelC_ ni nms nt nf
 assemble' mp ni (EqR nm) = return $ EqR_ ni nm
@@ -733,6 +753,8 @@ assemble mp nm = do
 
 hasOpen :: Proof -> Bool
 hasOpen Id_ {} = False
+hasOpen TopF_ {} = False
+hasOpen BotT_ {} = False
 hasOpen (Cut_ _ _ pf pt) = hasOpen pf || hasOpen pt
 hasOpen (RelD_ _ f p) =  hasOpen p
 hasOpen (AoC_ _ x f p) = hasOpen p
@@ -784,7 +806,7 @@ proofCheck' _ bch (Id_ _ nt nf) = do
   tf <- cast $ HM.lookup nt bch
   ff <- cast $ HM.lookup nf bch
   guard $ complementary tf ff
-proofCheck' k bch (Cut_ _ f pt pf) = do 
+proofCheck' k bch (Cut_ _ f pt pf) = do
   proofCheck k bch (False, f) pt
   proofCheck k bch (True, f) pf
 proofCheck' k bch (RelD_ _ f prf) = do 

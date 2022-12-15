@@ -816,6 +816,8 @@ subCount bch_ op = do
   let bch = M.insert nm (sgn, f) bch_
   case i of
     Id nt nf -> unit op
+    TopF _ -> unit op
+    BotT _ -> unit op
     Cut f nf nt -> subCount bch op >>= subCount bch
     RelD f nm -> subCount bch op
     AoC x f nm -> subCount bch op
@@ -855,6 +857,12 @@ check k b0 n0 s0 f0 = do
       (True, f) <- fetch b nt
       (False, f') <- fetch b nf
       guard (f == f')
+    TopF np -> do 
+      (False, Top) <- fetch b np 
+      skip
+    BotT np -> do 
+      (True, Bot) <- fetch b np 
+      skip
     Cut f nf nt -> do
       check k b nf False f
       check k b nt True f
@@ -866,6 +874,7 @@ check k b0 n0 s0 f0 = do
       check k' b n True f
     Open -> return ()
     FunC nts nf -> do
+      guard $ not $ null nts
       eqns <- mapM (fetch b) nts
       (False, Eq (Fun f xs) (Fun g ys)) <- fetch b nf
       xys <- cast $ mapM breakTrueEq eqns

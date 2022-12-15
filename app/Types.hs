@@ -12,7 +12,8 @@ data Term = Var BS | Fun Funct [Term]
   deriving (Show, Eq, Ord)
 
 data Form =
-    Rel Funct [Term]
+    Top | Bot
+  | Rel Funct [Term]
   | Eq Term Term
   | Not Form
   | And [Form]
@@ -46,7 +47,7 @@ data Gent =
   deriving (Show)
 
 data Inf =
-    Id BS BS 
+    Id BS BS | TopF BS | BotT BS
   | FunC [BS] BS | RelC [BS] BS BS
   | EqR BS | EqS BS BS | EqT BS BS BS
   | Cut Form BS BS
@@ -62,6 +63,8 @@ data Inf =
 
 data Proof =
     Id_ Node BS BS 
+  | TopF_ Node BS
+  | BotT_ Node BS
   | Cut_ Node Form Proof Proof
   | FunC_ Node [BS] BS 
   | RelC_ Node [BS] BS BS
