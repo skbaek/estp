@@ -8,7 +8,7 @@ module Parse where
 
 import Types
 import Basic
-import PP (ppSign, ppElab, ppApp, writeForm, ppList, ppTerm, ppInf, ft)
+import PP (ppSign, ppElab, ppApp, writeForm, ppList, ppTerm, ppInf, ft, ppForm)
 
 import qualified Data.ByteString as BS
   (drop, uncons, unsnoc, break, splitAt, cons, null, readFile, isPrefixOf, stripPrefix, head)
@@ -464,10 +464,10 @@ termformLazy :: Term -> Parser Form
 termformLazy t = cutParse infixOp (termInfixOpformLazy t) (termToAtom t)
 
 verum :: Parser Form
-verum = lit "$true" >> unit (And [])
+verum = lit "$true" >> unit Top
 
 falsum :: Parser Form
-falsum = lit "$false" >> unit (Or [])
+falsum = lit "$false" >> unit Bot
 
 formLazy :: Parser Form
 formLazy =
@@ -637,7 +637,10 @@ gentParseInf (GenT "impt" [gth, gt0, gt1]) = do
   return $ ImpT nh n0 n1
 gentParseInf (GenT "bott" [gt]) = do
   nm <- gentParseBS gt
-  return $ OrT nm []
+  return $ BotT nm 
+gentParseInf (GenT "topf" [gt]) = do
+  nm <- gentParseBS gt
+  return $ TopF nm 
 gentParseInf (GenT "ort" [gt, Genl gts]) = do
   nm <- gentParseBS gt
   nms <- mapM gentParseBS gts
@@ -650,9 +653,6 @@ gentParseInf (GenT "andt" [gth, Genn k, gtc]) = do
   nh <- gentParseBS gth
   nc <- gentParseBS gtc
   return $ AndT nh k nc
-gentParseInf (GenT "topf" [gt]) = do
-  nm <- gentParseBS gt
-  return $ AndF nm []
 gentParseInf (GenT "andf" [gt, Genl gts]) = do
   nm <- gentParseBS gt
   nms <- mapM gentParseBS gts
@@ -764,6 +764,8 @@ pguard tx False = error tx
 
 linearize :: Proof -> [Elab]
 linearize (Id_ ni nt nf) = [(ni, Id nt nf)]
+linearize (TopF_ ni np) = [(ni, TopF np)]
+linearize (BotT_ ni np) = [(ni, BotT np)]
 linearize (Cut_ ni f p q) = (ni, Cut f (proofRN p) (proofRN q)) : linearize p ++ linearize q
 linearize (FunC_ ni xs nm) = [(ni, FunC xs nm)]
 linearize (RelC_ ni xs nt nf) = [(ni, RelC xs nt nf)]
@@ -852,6 +854,7 @@ check :: Int -> Branch -> BS -> Bool -> Form -> Parser ()
 check k b0 n0 s0 f0 = do
   let b = insert n0 (s0, f0) b0
   i <- elabFormInf
+  -- trace (show (ppInf i) ++ "\n") skip
   case i of
     Id nt nf -> do
       (True, f) <- fetch b nt
@@ -861,8 +864,10 @@ check k b0 n0 s0 f0 = do
       (False, Top) <- fetch b np 
       skip
     BotT np -> do 
-      (True, Bot) <- fetch b np 
-      skip
+      (True, f) <- fetch b np 
+      case f of 
+        Bot -> skip
+        _ -> error $ "Not bot : " ++ show (ppForm f)
     Cut f nf nt -> do
       check k b nf False f
       check k b nt True f
@@ -874,7 +879,6 @@ check k b0 n0 s0 f0 = do
       check k' b n True f
     Open -> return ()
     FunC nts nf -> do
-      guard $ not $ null nts
       eqns <- mapM (fetch b) nts
       (False, Eq (Fun f xs) (Fun g ys)) <- fetch b nf
       xys <- cast $ mapM breakTrueEq eqns
@@ -906,6 +910,7 @@ check k b0 n0 s0 f0 = do
       (False, Not f) <- fetch b nh
       check k b n True f
     OrT nh ns -> do
+      guard $ not $ null ns
       (True, Or fs) <- fetch b nh
       mapM2 (flip (check k b) True) ns fs >> skip
     OrF nh m n -> do
@@ -917,6 +922,7 @@ check k b0 n0 s0 f0 = do
       f <- cast $ nth m fs
       check k b n True f
     AndF nh ns -> do
+      guard $ not $ null ns
       (False, And gs) <- fetch b nh
       mapM2 (flip (check k b) False) ns gs >> skip
     ImpT nh na nc -> do
@@ -940,20 +946,24 @@ check k b0 n0 s0 f0 = do
       check k b no False (f ==> g)
       check k b nr False (g ==> f)
     FaT nh xs n -> do
+      guard $ not $ null xs
       (True, Fa vs f) <- fetch b nh
       f' <- substitute vs xs f
       check k b n True f'
     FaF nh ks n -> do
+      guard $ not $ null ks
       (False, Fa vs f) <- fetch b nh
       guard (all (k <=) ks && not (hasDup ks))
       f' <- substitute vs (map par ks) f
       check (maximum ks + 1) b n False f'
     ExT nh ks n -> do
+      guard $ not $ null ks
       (True, Ex vs f) <- fetch b nh
       guard (all (k <=) ks && not (hasDup ks))
       f' <- substitute vs (map par ks) f
       check (maximum ks + 1) b n True f'
     ExF nh xs n -> do
+      guard $ not $ null xs
       (False, Ex vs f) <- fetch b nh
       f' <- substitute vs xs f
       check k b n False f'

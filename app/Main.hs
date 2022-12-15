@@ -11,7 +11,7 @@
 module Main where
 
 import Types (BS, Branch) 
-import Basic (ps, top, proofCheck, assemble)
+import Basic (ps, top, proofCheck, assemble, mark)
 import Parse (linearize, readTptp, check, estp, ign, runParser, convert) 
 import PP (ppElab, ppListNl)
 import System.Environment (getArgs)

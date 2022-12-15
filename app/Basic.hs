@@ -806,6 +806,12 @@ proofCheck' _ bch (Id_ _ nt nf) = do
   tf <- cast $ HM.lookup nt bch
   ff <- cast $ HM.lookup nf bch
   guard $ complementary tf ff
+proofCheck' _ bch (TopF_ _ np) = do 
+  (False, Top) <- cast $ HM.lookup np bch
+  skip
+proofCheck' _ bch (BotT_ _ np) = do 
+  (True, Bot) <- cast $ HM.lookup np bch
+  skip
 proofCheck' k bch (Cut_ _ f pt pf) = do
   proofCheck k bch (False, f) pt
   proofCheck k bch (True, f) pf

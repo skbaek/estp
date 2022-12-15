@@ -65,8 +65,8 @@ ppForm :: Form -> Builder
 ppForm (Eq t s) = "(" <> ppTerm t <> " = " <> ppTerm s <> ")"
 ppForm (Rel r xs) = ppFunct r <> ppArgs (L.map ppTerm xs)
 ppForm (Not f) = "~ " <> ppForm f
-ppForm (And []) = "$true"
-ppForm (Or  []) = "$false"
+ppForm Top = "$true"
+ppForm Bot = "$false"
 ppForm (And fs) = "(" <> ppInter " & " (L.map ppForm fs) <> ")"
 ppForm (Or  fs) = "(" <> ppInter " | " (L.map ppForm fs) <> ")"
 ppForm (Imp f g) = "(" <> ppForm f <> " => " <> ppForm g <> ")"
@@ -81,8 +81,8 @@ ppFormNlCore :: Form -> [Builder]
 ppFormNlCore f@(Eq _ _) = [ppForm f]
 ppFormNlCore f@(Rel _ _) = [ppForm f]
 ppFormNlCore (Not f) = "~" : L.map pad (ppFormNlCore f)
-ppFormNlCore (And []) = ["$true"]
-ppFormNlCore (Or  []) = ["$false"]
+ppFormNlCore Top = ["$true"]
+ppFormNlCore Bot = ["$false"]
 ppFormNlCore (And fs) = "/\\" : L.map pad (L.concatMap ppFormNlCore fs)
 ppFormNlCore (Or  fs) = "\\/" : L.map pad (L.concatMap ppFormNlCore fs)
 ppFormNlCore (Imp f g) = "==>" : L.map pad (ppFormNlCore f ++ ppFormNlCore g)
@@ -117,8 +117,8 @@ writeForm :: Form -> Builder
 writeForm (Eq t s) = "(" <> writeTerm t <> " = " <> writeTerm s <> ")"
 writeForm (Rel r xs) = ppFunct r <> ppArgs (L.map writeTerm xs)
 writeForm (Not f) = "~ " <> writeForm f
-writeForm (And []) = "$true"
-writeForm (Or  []) = "$false"
+writeForm Top = "$true"
+writeForm Bot = "$false"
 writeForm (And fs) = "(" <> ppInter " & " (L.map writeForm fs) <> ")"
 writeForm (Or  fs) = "(" <> ppInter " | " (L.map writeForm fs) <> ")"
 writeForm (Imp f g) = "(" <> writeForm f <> " => " <> writeForm g <> ")"
@@ -139,6 +139,8 @@ ppFormData f = "$fof(" <> ppForm f <> ")"
 
 ppInf :: Inf -> Builder
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
+ppInf (BotT n) = ppApp "bott" [ft n]
+ppInf (TopF n) = ppApp "TopF" [ft n]
 ppInf (Cut f nf nt) = ppApp "cut" [ppFormData f, ft nf, ft nt]
 ppInf (FunC ns m) = ppApp "func" [ppList ft ns, ft m]
 ppInf (RelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]
@@ -204,6 +206,8 @@ serTerm (Var v) = "$" <> serBS v
 serTerm (Fun f xs) = "@" <> serFunct f <> serList serTerm xs
 
 serForm :: Form -> Builder
+serForm Top = "T"
+serForm Bot = "F"
 serForm (Eq x y) = "=" <> serTerm x <> serTerm y
 serForm (Rel r xs) = "@" <> serFunct r <> serList serTerm xs
 serForm (Not f) = "~" <> serForm f
@@ -227,6 +231,8 @@ bconcat :: [Builder] -> Builder
 bconcat = L.foldr (<>) "" 
 
 serProof' :: Proof -> Builder
+serProof' (TopF_ _ np) = "T" <> serBS np
+serProof' (BotT_ _ np) = "B" <> serBS np
 serProof' (Id_ _ nt nf) = "I" <> serBS nt <> serBS nf
 serProof' (Cut_ _ f pf pt) = "C" <> serForm f <> serProof pf <> serProof pt
 serProof' (RelD_ _ f p) = "D" <> serForm f <> serProof p
@@ -255,6 +261,8 @@ serProof' (ExT_ ni nm ks p) = "?T" <>  serBS nm <> serList serInt ks <> serProof
 serProof' (ExF_ ni nm xs p) = "?F" <>  serBS nm <> serList serTerm xs <> serProof p
 
 serInf :: Inf -> (Builder, [BS])
+serInf (TopF np) = ("T" <> serBS np, [])
+serInf (BotT np) = ("B" <> serBS np, [])
 serInf (Id nt nf) = ("I" <> serBS nt <> serBS nf, [])
 serInf (Cut f nf nt) = ("C" <> serForm f,[nf, nt])
 serInf (RelD f nm) = ("D" <> serForm f, [nm]) 
