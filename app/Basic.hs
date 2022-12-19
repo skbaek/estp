@@ -26,6 +26,7 @@ import Control.Applicative as A
 import Data.Functor ((<&>))
 import qualified Data.Bifunctor as DBF
 import Debug.Trace (trace)
+import Data.ByteString.Conversion (toByteString')
 
 w2c :: Word8 -> Char
 w2c = decodeByte CodePage437
@@ -165,7 +166,7 @@ isPerm :: (Eq a) => [a] -> [a] -> Bool
 isPerm xs ys = L.null (xs \\ ys) && L.null (ys \\ xs)
 
 mark :: Int -> IO ()
-mark k = print $ "Marking checkpoint " <> show k
+mark k = print $ "Marking kpoint " <> show k
 
 pbs :: BS -> IO ()
 pbs t = Prelude.putStr $ show t
@@ -434,6 +435,9 @@ formPreds (Ex _ f) = formPreds f
 bs2str :: BS -> String 
 bs2str = L.map w2c . BS.unpack
 
+bd2str :: Builder -> String 
+bd2str = bs2str . toByteString'
+
 str2bs :: String -> BS
 str2bs = BS.pack . L.map c2w
 
@@ -622,15 +626,16 @@ formIdxLT k (Ex _ f) = formIdxLT k f
 checkRelD :: Int -> Form -> Maybe Int
 checkRelD k (Fa vs (Iff (Rel (Idx m) xs) f)) = do 
   guard $ k <= m
-  ws <- cast $ mapM breakVar xs
-  guard $ sublist ws vs
-  guard $ isGndForm ws f
   guard $ formIdxLT k f
+  ws <- cast $ mapM breakVar xs
+  -- guard $ sublist ws vs
+  guard $ vs == ws
+  -- guard $ isGndForm ws f
   return $ m + 1
 checkRelD k (Iff (Rel (Idx m) []) f) = do 
   guard $ k <= m
-  guard $ isGndForm [] f
   guard $ formIdxLT k f
+  -- guard $ isGndForm [] f
   return $ m + 1
 checkRelD _ _ = mzero
 
@@ -643,26 +648,28 @@ checkSkolemTerm vs k (Fun (Reg _) _) = mzero
 checkSkolemTerm vs k (Fun (Idx m) xs) = do
   guard $ k <= m
   ws <- cast $ mapM breakVar xs
-  guard $ sublist ws vs
+  -- guard $ sublist ws vs
+  guard $ vs == ws
   return $ m + 1
 
 checkAoC :: Int -> Term -> Form -> Maybe Int
 checkAoC k x (Fa vs (Imp (Ex [w] f) g)) = do
-  guard $ distintList (w : vs)
+  guard $ formIdxLT k f
   k' <- checkSkolemTerm vs k x 
   guard $ substForm [(w, x)] f == g
   return k'
 checkAoC k x (Fa vs (Imp (Ex (w : ws) f) g)) = do
-  guard $ distintList (w : ws ++ vs)
+  guard $ formIdxLT k f
   k' <- checkSkolemTerm vs k x 
   guard $ substForm [(w, x)] (Ex ws f) == g
   return k'
 checkAoC k x (Imp (Ex [w] f) g) = do
+  guard $ formIdxLT k f
   k' <- checkSkolemTerm [] k x
   guard $ substForm [(w, x)] f == g
   return k'
 checkAoC k x (Imp (Ex (w : ws) f) g) = do
-  guard $ distintList (w : ws)
+  guard $ formIdxLT k f
   k' <- checkSkolemTerm [] k x
   guard $ substForm [(w, x)] (Ex ws f) == g
   return k'
@@ -819,6 +826,7 @@ proofCheck' k bch (RelD_ _ f prf) = do
   k' <- cast $ checkRelD k f
   proofCheck k' bch (True, f) prf
 proofCheck' k bch (AoC_ _ x f prf) = do 
+  guard $ isGndForm [] f
   k' <- cast $ checkAoC k x f
   proofCheck k' bch (True, f) prf
 proofCheck' k bch (OrT_ _ nm prfs) = do 

@@ -127,7 +127,7 @@ writeForm (Fa vs f) = "! " <> ppList ft vs <> " : " <> writeForm f
 writeForm (Ex vs f) = "? " <> ppList ft vs <> " : " <> writeForm f
 
 ppElab :: Elab -> Builder
-ppElab ((nm, sgn, f), i) =  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppApp "inference" [ppInf i]] <> "."
+ppElab ((nm, sgn, f), i) = ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppInf i] <> ".\n"
 
 fmtAF :: Anf -> Builder
 fmtAF (nm, rl, f, Nothing) = ppApp "fof" [ft nm, ft rl, ppForm f]
@@ -140,7 +140,7 @@ ppFormData f = "$fof(" <> ppForm f <> ")"
 ppInf :: Inf -> Builder
 ppInf (Id n m) = ppApp "id" [ft n, ft m]
 ppInf (BotT n) = ppApp "bott" [ft n]
-ppInf (TopF n) = ppApp "TopF" [ft n]
+ppInf (TopF n) = ppApp "topf" [ft n]
 ppInf (Cut f nf nt) = ppApp "cut" [ppFormData f, ft nf, ft nt]
 ppInf (FunC ns m) = ppApp "func" [ppList ft ns, ft m]
 ppInf (RelC ns m n) = ppApp "relc" [ppList ft ns, ft m, ft n]

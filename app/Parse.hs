@@ -22,6 +22,7 @@ import Data.Functor ((<&>))
 import Data.Set (Set, member)
 import Data.String (fromString)
 import Debug.Trace (trace)
+import Data.Maybe (fromJust)
 import Data.Map as M (Map, empty, lookup, insert)
 import qualified Data.Bifunctor as DBF
 import System.IO (Handle, hClose)
@@ -852,9 +853,10 @@ subCount bch_ op = do
   
 check :: Int -> Branch -> BS -> Bool -> Form -> Parser ()
 check k b0 n0 s0 f0 = do
+  -- trace (bs2str $ "Inserting formula : " <> n0 <> "\n") skip
   let b = insert n0 (s0, f0) b0
   i <- elabFormInf
-  -- trace (show (ppInf i) ++ "\n") skip
+  -- trace (bd2str $ "Checking inf : " <> ppInf i <> "\n\n") skip
   case i of
     Id nt nf -> do
       (True, f) <- fetch b nt
@@ -864,10 +866,8 @@ check k b0 n0 s0 f0 = do
       (False, Top) <- fetch b np 
       skip
     BotT np -> do 
-      (True, f) <- fetch b np 
-      case f of 
-        Bot -> skip
-        _ -> error $ "Not bot : " ++ show (ppForm f)
+      (True, Bot) <- fetch b np 
+      skip
     Cut f nf nt -> do
       check k b nf False f
       check k b nt True f
@@ -968,14 +968,67 @@ check k b0 n0 s0 f0 = do
       f' <- substitute vs xs f
       check k b n False f'
 
-ppElab' :: (BS, (Bool, Form, Inf)) -> Builder
-ppElab' (nm, (sgn, f, i)) = 
-  ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppInf i] <> ".\n"
+checkBar :: [BS] -> Term -> Bool
+checkBar vs (Var _) = False
+checkBar vs (Fun (Reg _) _) = False
+checkBar vs (Fun (Idx m) xs) = 
+  case mapM breakVar xs of 
+    Just ws -> vs == ws
+    _ -> False
 
-convert :: Handle -> BS -> IO ()
-convert h bs 
+checkFoo :: Term -> Form -> Bool
+checkFoo x (Fa vs (Imp (Ex [w] f) g)) = 
+  checkBar vs x &&  substForm [(w, x)] f == g
+checkFoo x (Fa vs (Imp (Ex (w : ws) f) g)) = 
+  checkBar vs x &&  substForm [(w, x)] (Ex ws f) == g
+checkFoo x (Imp (Ex [w] f) g) = do
+  checkBar [] x && substForm [(w, x)] f == g
+checkFoo x (Imp (Ex (w : ws) f) g) = do
+  checkBar [] x && substForm [(w, x)] (Ex ws f) == g
+checkFoo x _ = False
+
+findInst :: [BS] -> [Int] -> BS -> Term
+findInst (v : vs) (k : ks) w 
+  | v == w = par k
+  | otherwise = findInst vs ks w
+findInst _ _ _ = error "no match"
+
+errorIf :: Bool -> String -> a -> a
+errorIf False str _ = error str
+errorIf _ _ x = x
+
+expandAoC :: Elab -> Builder
+expandAoC elb@(ni, AoC x g nm) 
+  | checkFoo x g = ppElab elb
+  | otherwise = 
+    case (x, g) of 
+      (Fun (Idx k) vws, Fa vs body) -> 
+        -- let body = Imp (Ex [w] ga) gc in
+        let ws = fromJust (mapM breakVar vws) in
+        let h = Fa ws body in
+        let nm0 = nm <> "_skolem_well_formed" in
+        let nm1 = nm <> "_skolem_ill_formed" in
+        let nm2 = nm <> "_skolem_ill_formed_inst" in
+        let nm3 = nm <> "_skolem_well_formed_inst" in
+        let ks = rangeOver (k + 1) vs in
+        let xs = map (findInst vs ks) ws in
+        let g' = fromJust (substitute vs (map par ks) body) in
+        let h' = fromJust (substitute ws xs body) in
+        errorIf (g' == h') "Substitution results do not match"
+          ppElab (ni, AoC x h nm0) <>
+          ppElab ((nm0, True, h), Cut g nm1 nm) <> 
+          ppElab ((nm1, False, g), FaF nm1 ks nm2) <> 
+          ppElab ((nm2, False, g'), FaT nm0 xs nm3) <> 
+          ppElab ((nm3, True, h'), Id nm3 nm2) 
+      _ -> error $ "Not an AoC\nx : " ++ bd2str (ppTerm x) ++ "\ng : " ++ bd2str (ppForm g)
+
+expandAoC elb = ppElab elb
+  -- ppApp "fof" [ft nm, ppSign sgn, writeForm f, ppInf i] <> ".\n"
+
+convert :: Handle -> (Elab -> Builder) -> BS -> IO ()
+convert h cv bs 
   | BS.null bs = skip
   | otherwise = do
-    (elb, bs') <- cast $ parse elabForm bs
-    hPutBuilder h $ ppElab' elb
-    convert h bs'
+    ((nm, (sgn, f, i)), bs') <- cast $ parse elabForm bs
+    hPutBuilder h $ cv ((nm, sgn, f), i)
+    convert h cv bs'

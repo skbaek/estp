@@ -12,7 +12,7 @@ module Main where
 
 import Types (BS, Branch) 
 import Basic (ps, top, proofCheck, assemble, mark)
-import Parse (linearize, readTptp, check, estp, ign, runParser, convert) 
+import Parse (linearize, readTptp, check, estp, ign, runParser, convert, expandAoC) 
 import PP (ppElab, ppListNl)
 import System.Environment (getArgs)
 import Data.List (intercalate)
@@ -46,7 +46,7 @@ mainArgs vb ("sort" : onm : nnm : _) = do
 mainArgs vb ("conv" : onm : nnm : _) = do
   bs <- BS.readFile onm
   h <- openFile nnm WriteMode
-  convert h bs 
+  convert h expandAoC bs 
   hClose h
 mainArgs _ args = error $ "Invalid main args : " ++ intercalate "; " args
 
